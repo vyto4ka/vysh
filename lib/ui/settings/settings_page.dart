@@ -4,12 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/version.dart';
-import '../../domain/models/app_settings.dart';
 import '../../domain/services/settings_controller.dart';
 import '../../infra/platform/local_files.dart';
 import '../../infra/storage/app_paths.dart';
 import '../theme/app_theme.dart';
 import 'appearance_sections.dart';
+import 'clipboard_section.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -126,67 +126,8 @@ class SettingsPage extends ConsumerWidget {
                             size: s.terminalFontSize, color: scheme.onSurface),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.content_copy),
-                      title: const Text('Копировать при выделении'),
-                      subtitle: const Text('Как в терминалах Linux. Вставка — Ctrl+Shift+V'),
-                      value: s.copyOnSelect,
-                      onChanged: ctrl.setCopyOnSelect,
-                    ),
-                    const SizedBox(height: 12),
-                    Text('Правый клик и тап двумя пальцами', style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    SegmentedButton<RightClickAction>(
-                      segments: const [
-                        ButtonSegment(
-                            value: RightClickAction.menu,
-                            icon: Icon(Icons.menu_open),
-                            label: Text('Меню')),
-                        ButtonSegment(
-                            value: RightClickAction.paste,
-                            icon: Icon(Icons.content_paste),
-                            label: Text('Вставка')),
-                        ButtonSegment(
-                            value: RightClickAction.smart,
-                            icon: Icon(Icons.auto_awesome),
-                            label: Text('Копировать / вставить')),
-                      ],
-                      selected: {s.rightClick},
-                      onSelectionChanged: (v) => ctrl.setRightClick(v.first),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${_rightClickHint(s.rightClick)} Shift + правый клик всегда открывает меню.',
-                      style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.keyboard),
-                      title: const Text('Ctrl+V вставляет'),
-                      subtitle: const Text(
-                          'Как в Windows. Выключено — Ctrl+V уходит в терминал (нужно, например, в vim)'),
-                      value: s.ctrlVPaste,
-                      onChanged: ctrl.setCtrlVPaste,
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.mouse_outlined),
-                      title: const Text('Средняя кнопка мыши вставляет'),
-                      subtitle: const Text('Как в Linux'),
-                      value: s.middleClickPaste,
-                      onChanged: ctrl.setMiddleClickPaste,
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.warning_amber_rounded),
-                      title: const Text('Спрашивать перед вставкой нескольких строк'),
-                      subtitle: const Text('Защита от случайного запуска пачки команд на сервере'),
-                      value: s.confirmMultilinePaste,
-                      onChanged: ctrl.setConfirmMultilinePaste,
-                    ),
+                    const SizedBox(height: 20),
+                    const ClipboardSection(),
                   ],
                 ),
                 _Section(
@@ -313,10 +254,3 @@ class _Row extends StatelessWidget {
     );
   }
 }
-
-String _rightClickHint(RightClickAction a) => switch (a) {
-      RightClickAction.menu => 'Открывает меню: копировать, вставить, файлы, журнал.',
-      RightClickAction.paste => 'Сразу вставляет из буфера, как в PuTTY.',
-      RightClickAction.smart =>
-        'Есть выделение — копирует, нет — вставляет, как в Windows Terminal.',
-    };

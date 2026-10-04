@@ -27,6 +27,23 @@ class SettingsController extends Notifier<AppSettings> {
   void setRightClick(RightClickAction v) => _update(state.copyWith(rightClick: v));
   void setMiddleClickPaste(bool v) => _update(state.copyWith(middleClickPaste: v));
   void setCtrlVPaste(bool v) => _update(state.copyWith(ctrlVPaste: v));
+
+  /// Стиль буфера: «как в Linux» (выделение копирует, средняя кнопка вставляет)
+  /// или только клавишами. Правый клик подстраивается: в Linux-стиле он просто
+  /// вставляет, в клавишном — копирует выделенное, а без выделения вставляет.
+  void setLinuxClipboard(bool linux) => _update(state.copyWith(
+        copyOnSelect: linux,
+        middleClickPaste: linux,
+        rightClick: state.rightClick == RightClickAction.menu
+            ? RightClickAction.menu
+            : (linux ? RightClickAction.paste : RightClickAction.smart),
+      ));
+
+  void setRightClickPaste(bool on) => _update(state.copyWith(
+        rightClick: !on
+            ? RightClickAction.menu
+            : (state.copyOnSelect ? RightClickAction.paste : RightClickAction.smart),
+      ));
   void setConfirmMultilinePaste(bool v) => _update(state.copyWith(confirmMultilinePaste: v));
   void setColorSource(ColorSource v) => _update(state.copyWith(colorSource: v));
   void setDotsPath(String v) => _update(state.copyWith(dotsPath: v));

@@ -373,15 +373,17 @@ class _StatusBar extends StatelessWidget {
           Text(status, style: style),
           const SizedBox(width: 16),
           Text(tab.host.displayAddress, style: style),
-          if (serverVersion != null && tab.status == SessionStatus.ready) ...[
-            const SizedBox(width: 16),
-            Flexible(
-              child: Text(serverVersion!,
-                  overflow: TextOverflow.ellipsis,
-                  style: style?.copyWith(color: scheme.outline)),
-            ),
-          ],
-          const Spacer(),
+          const SizedBox(width: 16),
+          // Expanded, а не Flexible + Spacer: иначе они делят место пополам
+          // и кнопки справа уезжают в середину широкого окна.
+          Expanded(
+            child: serverVersion != null && tab.status == SessionStatus.ready
+                ? Text(serverVersion!,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: style?.copyWith(color: scheme.outline))
+                : const SizedBox.shrink(),
+          ),
           TextButton.icon(
             style: TextButton.styleFrom(
               visualDensity: VisualDensity.compact,

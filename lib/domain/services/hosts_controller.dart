@@ -39,6 +39,19 @@ class HostsController extends Notifier<List<Host>> {
     secrets.delete(passphraseKey(id));
   }
 
+  /// Удалить несколько хостов разом (вместе с их сохранёнными паролями).
+  void removeMany(Iterable<String> ids) {
+    final set = ids.toSet();
+    if (set.isEmpty) return;
+    state = state.where((h) => !set.contains(h.id)).toList();
+    _persist();
+    final secrets = ref.read(secretStoreProvider);
+    for (final id in set) {
+      secrets.delete(passwordKey(id));
+      secrets.delete(passphraseKey(id));
+    }
+  }
+
   /// Забыть сохранённые пароль и парольную фразу хоста.
   Future<void> forgetSecrets(String id) async {
     final secrets = ref.read(secretStoreProvider);

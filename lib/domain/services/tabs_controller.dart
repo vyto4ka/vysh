@@ -49,6 +49,24 @@ class TabsController extends Notifier<TabsState> {
     Future<void>.delayed(const Duration(milliseconds: 50), session.connect);
   }
 
+  /// Открыть сразу несколько хостов: каждый в своей вкладке, активной
+  /// становится первая из новых. Подключения разнесены на 150 мс, чтобы
+  /// не стучаться во все серверы в одну миллисекунду.
+  void openHosts(List<Host> hosts) {
+    if (hosts.isEmpty) return;
+    final first = state.tabs.length + 1;
+    for (var i = 0; i < hosts.length; i++) {
+      final host = hosts[i];
+      Future<void>.delayed(Duration(milliseconds: 150 * i), () {
+        if (!ref.mounted) return;
+        openHost(host);
+        if (i == hosts.length - 1) {
+          state = TabsState(tabs: state.tabs, active: first.clamp(1, state.tabs.length));
+        }
+      });
+    }
+  }
+
   void reconnect(String id) {
     final session = _sessions[id];
     if (session == null) return;
