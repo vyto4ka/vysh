@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/services/settings_controller.dart';
 import '../../infra/platform/desktop_env.dart';
 
-/// Раздел главной вкладки: 0 — хосты, 1 — настройки.
+/// Раздел главной вкладки: 0 - хосты, 1 - настройки.
 final homeSectionProvider = NotifierProvider<HomeSection, int>(HomeSection.new);
 
 class HomeSection extends Notifier<int> {
@@ -14,7 +14,7 @@ class HomeSection extends Notifier<int> {
   void select(int index) => state = index;
 }
 
-/// Фокус поля поиска хостов — нужен для хоткея «новая вкладка».
+/// Фокус поля поиска хостов - нужен для хоткея «новая вкладка».
 final hostSearchFocusProvider = Provider<FocusNode>((ref) {
   final node = FocusNode(debugLabel: 'host-search');
   ref.onDispose(node.dispose);

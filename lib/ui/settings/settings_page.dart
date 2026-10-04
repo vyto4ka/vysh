@@ -81,8 +81,8 @@ class SettingsPage extends ConsumerWidget {
                       secondary: const Icon(Icons.network_ping),
                       title: const Text('Проверять доступность хостов'),
                       subtitle: const Text(
-                          'На главной — проверка порта SSH. Выключите, чтобы не стучаться '
-                          'лишний раз на продовые серверы: индикатор скроется.'),
+                          'Пинг порта SSH на главной. Выключите, чтобы не трогать '
+                          'продовые серверы лишний раз.'),
                       value: s.pingHosts,
                       onChanged: ctrl.setPingHosts,
                     ),
@@ -286,7 +286,7 @@ class _Row extends StatelessWidget {
   }
 }
 
-/// Сколько памяти занимает процесс — чтобы сравнивать сборки и версии.
+/// Сколько памяти занимает процесс - чтобы сравнивать сборки и версии.
 class _MemoryUsage extends StatefulWidget {
   const _MemoryUsage();
 

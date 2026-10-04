@@ -94,7 +94,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
 
   int _lastAddressLen = 0;
 
-  /// Вставили `user@host:port` в поле адреса — раскладываем по полям.
+  /// Вставили `user@host:port` в поле адреса - раскладываем по полям.
   /// Срабатывает только на вставку (скачок длины), а не при наборе по символу.
   void _onAddressChanged(String v) {
     final pasted = v.length - _lastAddressLen > 2;
@@ -155,7 +155,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
     final pwd = _password.text;
     String? warning;
     if (host.auth != AuthMethod.password || !_rememberPassword) {
-      // Пароль не нужен или его просили не хранить — убираем сохранённый.
+      // Пароль не нужен или его просили не хранить - убираем сохранённый.
       await secrets.delete(passwordKey(host.id));
     } else if (pwd.isNotEmpty) {
       try {
@@ -216,7 +216,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                 icon: const Icon(Icons.lock_outline),
                 helper: _hasSavedPassword
                     ? 'Пароль уже сохранён. Оставьте поле пустым, чтобы не менять'
-                    : 'Можно оставить пустым — спросим при подключении',
+                    : 'Можно оставить пустым, спросим при подключении',
                 suffix: IconButton(
                   tooltip: _obscure ? 'Показать' : 'Скрыть',
                   icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
@@ -254,7 +254,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
       case AuthMethod.agent:
         return const _Note(
           'Попробуем стандартные ключи из ~/.ssh: id_ed25519, id_ecdsa, id_rsa '
-          '(без парольной фразы). ssh-agent и Pageant — позже.',
+          '(без парольной фразы). ssh-agent и Pageant появятся позже.',
           key: ValueKey('agent'),
         );
     }
@@ -334,7 +334,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                               decoration: _dec('Порт'),
                               validator: (v) {
                                 final p = int.tryParse(v ?? '');
-                                return (p == null || p < 1 || p > 65535) ? '1–65535' : null;
+                                return (p == null || p < 1 || p > 65535) ? '1-65535' : null;
                               },
                             ),
                           ),
@@ -376,7 +376,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                         decoration: _dec('Название',
                             hint: _address.text.trim().isEmpty
                                 ? 'Например: роутер, web-prod'
-                                : 'По умолчанию — ${_address.text.trim()}',
+                                : 'По умолчанию: ${_address.text.trim()}',
                             icon: const Icon(Icons.label_outline)),
                       ),
                       const SizedBox(height: 12),

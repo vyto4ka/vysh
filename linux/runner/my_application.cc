@@ -67,6 +67,27 @@ static void my_application_activate(GApplication* application) {
   }
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
+
+  // Движок отрисовки из настроек vysh (ключ "renderer"); по умолчанию Skia -
+  // он экономнее по памяти. Читаем до запуска движка, без Dart.
+  {
+    gboolean impeller = FALSE;
+    const gchar* xdg = g_getenv("XDG_CONFIG_HOME");
+    g_autofree gchar* path =
+        (xdg != nullptr && xdg[0] != '\0')
+            ? g_build_filename(xdg, "vysh", "settings.json", nullptr)
+            : g_build_filename(g_get_home_dir(), ".config", "vysh", "settings.json", nullptr);
+    g_autofree gchar* text = nullptr;
+    if (g_file_get_contents(path, &text, nullptr, nullptr)) {
+      GString* compact = g_string_new(nullptr);
+      for (const gchar* c = text; *c != '\0'; c++) {
+        if (!g_ascii_isspace(*c)) g_string_append_c(compact, *c);
+      }
+      impeller = strstr(compact->str, "\"renderer\":\"impeller\"") != nullptr;
+      g_string_free(compact, TRUE);
+    }
+    fl_dart_project_set_enable_impeller(project, impeller);
+  }
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 

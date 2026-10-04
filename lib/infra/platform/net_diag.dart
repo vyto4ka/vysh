@@ -20,7 +20,7 @@ class NetDiag {
   Stream<String> get output => _out.stream;
 
   Future<void> start() async {
-    // Адрес уходит в командную строку — пускаем только безопасные символы.
+    // Адрес уходит в командную строку - пускаем только безопасные символы.
     if (!RegExp(r'^[A-Za-z0-9.:_\-]+$').hasMatch(host)) {
       _out.add('Недопустимый адрес: $host');
       _out.close();
@@ -63,11 +63,11 @@ class NetDiag {
       try {
         final s = await Socket.connect(host, port, timeout: const Duration(seconds: 4));
         s.destroy();
-        _out.add('TCP $host:$port — открыт, ${sw.elapsedMilliseconds} мс');
+        _out.add('TCP $host:$port: открыт, ${sw.elapsedMilliseconds} мс');
       } on SocketException catch (e) {
-        _out.add('TCP $host:$port — ${e.osError?.message ?? e.message}');
+        _out.add('TCP $host:$port: ${e.osError?.message ?? e.message}');
       } catch (e) {
-        _out.add('TCP $host:$port — $e');
+        _out.add('TCP $host:$port: $e');
       }
       if (i < 3) await Future<void>.delayed(const Duration(milliseconds: 500));
     }
@@ -75,7 +75,7 @@ class NetDiag {
 
   Future<void> _run(List<String> cmd) async {
     _out.add('\$ ${cmd.join(' ')}');
-    // На Windows консольные утилиты пишут в OEM-кодировке (cp866) —
+    // На Windows консольные утилиты пишут в OEM-кодировке (cp866) -
     // переключаем консоль в UTF-8, чтобы не было «кракозябр».
     final p = Platform.isWindows
         ? await Process.start('cmd', ['/c', 'chcp 65001 >nul & ${cmd.join(' ')}'])
@@ -95,9 +95,9 @@ class NetDiag {
     ]);
     final code = await p.exitCode;
     if (_stopped) {
-      _out.add('— остановлено —');
+      _out.add('[остановлено]');
     } else if (code != 0) {
-      _out.add('— завершено с кодом $code —');
+      _out.add('[завершено с кодом $code]');
     }
   }
 

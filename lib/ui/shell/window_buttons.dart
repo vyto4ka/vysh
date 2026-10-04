@@ -92,7 +92,7 @@ class _CaptionButtonState extends State<_CaptionButton> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // Крестик краснеет, как принято в Windows; остальные — мягкая подсветка M3.
+    // Крестик краснеет, как принято в Windows; остальные - мягкая подсветка M3.
     final bg = !_hover
         ? Colors.transparent
         : widget.danger

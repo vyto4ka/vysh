@@ -4,11 +4,11 @@
 
 | Режим | Откуда цвет | Обновление |
 |---|---|---|
-| **Свои** | Один из встроенных акцентов | — |
+| **Свои** | Один из встроенных акцентов | - |
 | **Акцент системы** | Windows: «Параметры → Персонализация → Цвета». Linux: xdg-desktop-portal (`org.freedesktop.appearance accent-color`, GNOME 47+, KDE Plasma 6) | На лету |
 | **Из дотов** (Linux) | Файл цветов: свой, caelestia, pywal | На лету, при каждой записи файла |
 
-Из одного цвета vysh строит всю схему Material You — тем же алгоритмом, что matugen и Android. Если в файле есть готовые роли M3 или 16 цветов терминала, они используются как есть.
+Из одного цвета vysh строит всю схему Material You - тем же алгоритмом, что matugen и Android. Если в файле есть готовые роли M3 или 16 цветов терминала, они используются как есть.
 
 Если доты задают режим (`"mode": "dark"`) и в настройках выбрана тема «Системная», vysh переключится в этот режим.
 
@@ -17,13 +17,13 @@
 По порядку, берётся первый найденный:
 
 1. Путь из настроек («Свой путь к файлу цветов»)
-2. `~/.config/vysh/colors.json` — сюда удобно писать шаблонами matugen / wallust
-3. `~/.local/state/caelestia/scheme.json` — caelestia-shell, подхватывается сам
-4. `~/.cache/wal/colors.json` — pywal / pywal16, подхватывается сам
+2. `~/.config/vysh/colors.json` - сюда удобно писать шаблонами matugen / wallust
+3. `~/.local/state/caelestia/scheme.json` - caelestia-shell, подхватывается сам
+4. `~/.cache/wal/colors.json` - pywal / pywal16, подхватывается сам
 
 ## caelestia
 
-Ничего настраивать не нужно: выберите «Из дотов». vysh читает текущую схему caelestia — все роли M3 и `term0…term15` для терминала. Сменили обои или схему — цвета обновятся сразу.
+Ничего настраивать не нужно: выберите «Из дотов». vysh читает текущую схему caelestia - все роли M3 и `term0…term15` для терминала. Сменили обои или схему - цвета обновятся сразу.
 
 ## pywal
 
@@ -39,7 +39,7 @@ input_path = '~/.config/matugen/templates/vysh.json'
 output_path = '~/.config/vysh/colors.json'
 ```
 
-После `matugen image обои.jpg` vysh получит полные схемы для тёмной и светлой темы — те же цвета, что у остального рабочего стола.
+После `matugen image обои.jpg` vysh получит полные схемы для тёмной и светлой темы - те же цвета, что у остального рабочего стола.
 
 ## wallust
 
@@ -70,9 +70,9 @@ vysh = { template = 'vysh.json', target = '~/.config/vysh/colors.json' }
 }
 ```
 
-- `seed` — основной цвет, из него строится схема.
-- `dark` / `light` — готовые роли M3 (`primary`, `on_primary`, `surface_container`, …; можно и `camelCase`), перекрывают сгенерированные.
-- `colors` (без `dark`/`light`) — роли для режима из `mode`.
-- `terminal.colors` — 16 цветов ANSI.
+- `seed` - основной цвет, из него строится схема.
+- `dark` / `light` - готовые роли M3 (`primary`, `on_primary`, `surface_container`, …; можно и `camelCase`), перекрывают сгенерированные.
+- `colors` (без `dark`/`light`) - роли для режима из `mode`.
+- `terminal.colors` - 16 цветов ANSI.
 
 Цвета: `#rrggbb`, `rrggbb` или `#aarrggbb`. Пример: [`themes/templates/example-colors.json`](../themes/templates/example-colors.json).

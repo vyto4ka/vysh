@@ -68,7 +68,7 @@ class SshConnectRequest {
   final String username;
   final List<SshKeySource> keys;
 
-  /// Пароль. null — способ не используется; функция вернула null — отмена.
+  /// Пароль. null - способ не используется; функция вернула null - отмена.
   final Future<String?> Function()? password;
 
   /// keyboard-interactive (PAM, 2FA).

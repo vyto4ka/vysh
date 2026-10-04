@@ -11,8 +11,8 @@ import 'desktop_env.dart';
 /// Запоминает размер, позицию и «развёрнуто» окна между запусками.
 ///
 /// * Windows / X11: восстанавливаем и позицию, если она всё ещё на видимом мониторе;
-///   иначе — по центру монитора, где сейчас курсор.
-/// * Wayland и тайлинговые WM: только размер — позицию решает композитор.
+///   иначе - по центру монитора, где сейчас курсор.
+/// * Wayland и тайлинговые WM: только размер - позицию решает композитор.
 class WindowPlacement with WindowListener {
   WindowPlacement._();
   static final instance = WindowPlacement._();
@@ -28,7 +28,7 @@ class WindowPlacement with WindowListener {
   bool get _canPosition => !DesktopEnv.isWayland && !DesktopEnv.isTiling;
 
   /// Вызывать до показа окна. Возвращает true, если окно нужно развернуть
-  /// (делается после show — иначе Windows покажет его раньше времени).
+  /// (делается после show - иначе Windows покажет его раньше времени).
   Future<bool> restore() async {
     final raw = _store.readSync();
     Rect? saved;
@@ -81,7 +81,7 @@ class WindowPlacement with WindowListener {
   Future<void> _save() async {
     try {
       _maximized = await windowManager.isMaximized();
-      // Пока окно развёрнуто — помним прежние «нормальные» размеры.
+      // Пока окно развёрнуто - помним прежние «нормальные» размеры.
       if (!_maximized && !await windowManager.isMinimized()) {
         _normalBounds = await windowManager.getBounds();
       }
@@ -101,7 +101,7 @@ class WindowPlacement with WindowListener {
   void onWindowMoved() => _scheduleSave();
   @override
   void onWindowResized() => _scheduleSave();
-  // На Linux «…ed»-событий нет — слушаем непрерывные и откладываем сохранение.
+  // На Linux «…ed»-событий нет - слушаем непрерывные и откладываем сохранение.
   @override
   void onWindowMove() {
     if (Platform.isLinux) _scheduleSave();

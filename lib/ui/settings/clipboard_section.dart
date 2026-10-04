@@ -30,7 +30,7 @@ class ClipboardSection extends ConsumerWidget {
         selected: linux,
         icon: Icons.mouse_outlined,
         title: 'Как в Linux',
-        description: 'Выделил — уже скопировано. Средняя кнопка вставляет.',
+        description: 'Выделение сразу копирует, средняя кнопка вставляет.',
         copyKeys: const ['Выделение'],
         pasteKeys: [
           'Средняя кнопка',
@@ -56,7 +56,7 @@ class ClipboardSection extends ConsumerWidget {
           if (!linux && rmbPaste) 'или правый клик',
         ],
         rmbLabel: 'Правый клик копирует и вставляет',
-        rmbHint: 'Есть выделение — копирует, нет — вставляет',
+        rmbHint: 'С выделением копирует, без него вставляет',
         rmbValue: !linux && rmbPaste,
         onRmb: (v) => setRmb(false, v),
         onTap: () => ctrl.setLinuxClipboard(false),
@@ -87,7 +87,7 @@ class ClipboardSection extends ConsumerWidget {
           [
             if (linux) 'Ctrl+Shift+C / Ctrl+Shift+V тоже работают.',
             rmbPaste
-                ? 'Меню терминала — Shift + правый клик.'
+                ? 'Меню терминала: Shift + правый клик.'
                 : 'Правый клик открывает меню терминала.',
           ].join(' '),
           style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -97,7 +97,7 @@ class ClipboardSection extends ConsumerWidget {
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(Icons.keyboard_command_key),
           title: const Text('Ctrl+V тоже вставляет'),
-          subtitle: const Text('Выключено — Ctrl+V уходит в терминал (нужно, например, в vim)'),
+          subtitle: const Text('Если выключено, Ctrl+V уходит в терминал (нужно в vim)'),
           value: s.ctrlVPaste,
           onChanged: ctrl.setCtrlVPaste,
         ),
@@ -105,7 +105,7 @@ class ClipboardSection extends ConsumerWidget {
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(Icons.warning_amber_rounded),
           title: const Text('Спрашивать перед вставкой нескольких строк'),
-          subtitle: const Text('Защита от случайного запуска пачки команд на сервере'),
+          subtitle: const Text('Чтобы случайно не запустить пачку команд'),
           value: s.confirmMultilinePaste,
           onChanged: ctrl.setConfirmMultilinePaste,
         ),

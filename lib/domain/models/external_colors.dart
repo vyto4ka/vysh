@@ -13,7 +13,7 @@ class ExternalColors {
     this.brightness,
   });
 
-  /// Основной цвет — из него строится вся схема Material You.
+  /// Основной цвет - из него строится вся схема Material You.
   final Color seed;
 
   /// Человекочитаемый источник: «Акцент Windows», «pywal», «caelestia»…
@@ -30,7 +30,7 @@ class ExternalColors {
   final Color? terminalBackground;
   final Color? terminalForeground;
 
-  /// Режим, который задают доты (тёмный/светлый). null — не задают.
+  /// Режим, который задают доты (тёмный/светлый). null - не задают.
   final Brightness? brightness;
 
   bool sameAs(ExternalColors? o) =>

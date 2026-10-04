@@ -89,7 +89,7 @@ class _ColorSourceSectionState extends ConsumerState<ColorSourceSection> {
                 hint: Platform.isWindows
                     ? 'Цвет берётся из «Параметры → Персонализация → Цвета». Меняется на лету.'
                     : 'Нужен xdg-desktop-portal с поддержкой accent-color (GNOME 47+, KDE Plasma 6). '
-                        'В тайлинговых WM акцента обычно нет — используйте «Из дотов».',
+                        'В тайлинговых WM акцента обычно нет, берите «Из дотов».',
               ),
             ColorSource.dots => Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -177,7 +177,7 @@ class _Status extends ConsumerWidget {
                   e != null
                       ? 'Сейчас: ${e.source}'
                       : notFound
-                          ? 'Источник не найден — используются свои цвета'
+                          ? 'Источник не найден, пока свои цвета'
                           : 'Ищем…',
                   style: theme.textTheme.titleSmall,
                 ),
@@ -252,9 +252,9 @@ class TitleBarSection extends ConsumerWidget {
     final autoHint = Platform.isWindows
         ? 'Авто: свой заголовок с вкладками.'
         : DesktopEnv.isTiling
-            ? 'Авто: обнаружен тайлинговый WM — заголовок не рисуем, окна раскладывает он.'
+            ? 'Авто: тайлинговый WM, окнами управляет он.'
             : DesktopEnv.supportsCustomTitleBar
-                ? 'Авто: GNOME / KDE — свой заголовок с вкладками.'
+                ? 'Авто: GNOME / KDE, свой заголовок с вкладками.'
                 : 'Авто: рамку рисует оконный менеджер.';
 
     return Column(

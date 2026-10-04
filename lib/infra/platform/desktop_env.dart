@@ -34,7 +34,7 @@ class DesktopEnv {
     return d.contains('gnome') || d.contains('kde') || d.contains('plasma');
   }
 
-  /// Wayland: позицию окна задавать нельзя — это решает композитор.
+  /// Wayland: позицию окна задавать нельзя - это решает композитор.
   static bool get isWayland =>
       Platform.isLinux && (Platform.environment['WAYLAND_DISPLAY']?.isNotEmpty ?? false);
 

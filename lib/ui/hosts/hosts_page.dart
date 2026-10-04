@@ -43,7 +43,7 @@ class _HostsPageState extends ConsumerState<HostsPage> {
     ref.invalidate(reachabilityProvider);
   }
 
-  /// Вернулись на главную после перерыва — обновим сразу, не дожидаясь таймера.
+  /// Вернулись на главную после перерыва - обновим сразу, не дожидаясь таймера.
   void _pingIfStale() {
     final every = Duration(seconds: ref.read(settingsProvider).pingIntervalSec);
     if (DateTime.now().difference(_lastPing) >= every) _ping();
@@ -66,7 +66,7 @@ class _HostsPageState extends ConsumerState<HostsPage> {
 
   void _clearSelection() => setState(_selected.clear);
 
-  /// Подключиться к нескольким хостам; больше шести — переспрашиваем.
+  /// Подключиться к нескольким хостам; больше шести - переспрашиваем.
   Future<void> _connectMany(List<Host> hosts) async {
     if (hosts.isEmpty) return;
     if (hosts.length > 6) {
@@ -131,11 +131,11 @@ class _HostsPageState extends ConsumerState<HostsPage> {
     // Пингуем только пока список виден: в терминале и при свёрнутом окне
     // незачем стучаться во все серверы (можно включить в настройках).
     // Интервал задаётся в настройках, поэтому таймер тикает часто (дёшево),
-    // а сама проверка — только когда подошло время.
+    // а сама проверка - только когда подошло время.
     _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_visible) _pingIfStale();
     });
-    // Развернули окно — обновим, если данные устарели.
+    // Развернули окно - обновим, если данные устарели.
     _life = AppLifecycleListener(onShow: () {
       if (_visible) _pingIfStale();
     });
@@ -188,7 +188,7 @@ class _HostsPageState extends ConsumerState<HostsPage> {
     for (final list in groups.values) {
       list.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
     }
-    // Хосты могли удалить или изменить — берём только живые.
+    // Хосты могли удалить или изменить - берём только живые.
     final selectedHosts = hosts.where((h) => _selected.contains(h.id)).toList();
     final selecting = selectedHosts.isNotEmpty;
 
@@ -400,7 +400,7 @@ class _NoResults extends StatelessWidget {
                 label: Text('Подключиться к ${quick!.displayAddress}'),
               ),
               const SizedBox(height: 6),
-              Text('Enter — подключиться без сохранения',
+              Text('Enter: подключиться без сохранения',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.outline)),
             ],

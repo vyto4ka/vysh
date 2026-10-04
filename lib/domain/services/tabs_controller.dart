@@ -30,7 +30,7 @@ class TabsController extends Notifier<TabsState> {
 
   TerminalSession? sessionOf(String tabId) => _sessions[tabId];
 
-  /// [password] — введённый в редакторе пароль: используется для этой сессии,
+  /// [password] - введённый в редакторе пароль: используется для этой сессии,
   /// даже если пользователь не стал сохранять его в хранилище.
   void openHost(Host host, {String? password}) {
     final tab = SessionTab(id: newId(), host: host, title: host.title);
@@ -72,7 +72,7 @@ class TabsController extends Notifier<TabsState> {
   void reconnect(String id) {
     final session = _sessions[id];
     if (session == null) return;
-    // Хост могли изменить в редакторе — берём свежую версию.
+    // Хост могли изменить в редакторе - берём свежую версию.
     final fresh = ref.read(hostsProvider).where((h) => h.id == session.host.id).firstOrNull;
     if (fresh != null) session.host = fresh;
     session.connect();

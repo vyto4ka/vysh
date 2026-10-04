@@ -27,9 +27,8 @@ class PingSettings extends ConsumerWidget {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Только когда список хостов на экране'),
-            subtitle: const Text(
-                'Не проверять, пока открыт терминал или окно свёрнуто'),
+            title: const Text('Только пока список хостов на экране'),
+            subtitle: const Text('Не проверять из терминала и при свёрнутом окне'),
             value: s.pingOnlyVisible,
             onChanged: ctrl.setPingOnlyVisible,
           ),
@@ -50,9 +49,40 @@ class PerformanceSection extends ConsumerWidget {
     final theme = Theme.of(context);
     final hint = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
 
+    final restart = s.renderer != startupRenderer;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _Choice<Renderer>(
+          label: 'Отрисовка',
+          value: s.renderer,
+          options: const [
+            (Renderer.skia, 'Skia'),
+            (Renderer.impeller, 'Impeller'),
+          ],
+          onChanged: ctrl.setRenderer,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Skia тратит в 2-3 раза меньше памяти. Impeller плавнее на первых '
+          'анимациях. Меняется после перезапуска.',
+          style: hint,
+        ),
+        if (restart) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.restart_alt, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text('Перезапустите vysh, чтобы применить',
+                    style: hint?.copyWith(color: theme.colorScheme.primary)),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 16),
         _Choice<int>(
           label: 'История терминала',
           value: s.scrollbackLines,
@@ -66,31 +96,29 @@ class PerformanceSection extends ConsumerWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Сколько строк можно пролистать назад. Действует на новые вкладки. '
-          'Память расходуется по мере вывода: около 2 МБ на 1000 строк шириной 120 символов. '
-          '«1 млн» — практически без ограничения.',
+          'Сколько строк можно прокрутить назад, для новых вкладок. '
+          '1000 строк занимают около 2 МБ. 1 млн: почти без ограничения.',
           style: hint,
         ),
         const SizedBox(height: 16),
         _Choice<int>(
           label: 'Проверка цветов',
           value: s.colorPollSec,
-          options: const [(0, 'Только события'), (10, '10 с'), (60, '1 мин'), (300, '5 мин')],
+          options: const [(0, 'Выкл.'), (10, '10 с'), (60, '1 мин'), (300, '5 мин')],
           onChanged: ctrl.setColorPollSec,
         ),
         const SizedBox(height: 4),
         Text(
-          'Для режимов «Акцент системы» и «Из дотов». Смену файла дотов, сигнал портала '
-          'и возврат в окно vysh ловит сразу — это запасная проверка на случай, '
-          'если событие потерялось. Пока окно свёрнуто, не работает.',
+          'Для акцента системы и дотов. Изменения и так подхватываются сразу, '
+          'это страховка на случай пропуска. При свёрнутом окне не работает.',
           style: hint,
         ),
         const SizedBox(height: 8),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           secondary: const Icon(Icons.pause_circle_outline),
-          title: const Text('Останавливать анимации в фоновых вкладках'),
-          subtitle: const Text('Сессии и передачи работают как обычно, не тратятся только кадры'),
+          title: const Text('Пауза анимаций в фоновых вкладках'),
+          subtitle: const Text('Сессии и передачи файлов продолжают работать'),
           value: s.pauseHiddenTabs,
           onChanged: ctrl.setPauseHiddenTabs,
         ),

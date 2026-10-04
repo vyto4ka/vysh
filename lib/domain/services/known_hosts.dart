@@ -24,7 +24,7 @@ class KnownHostKey {
 
 final knownHostsProvider = Provider<KnownHosts>((ref) => KnownHosts());
 
-/// Отпечатки ключей серверов (`known_hosts.json`), ключ — `адрес:порт`.
+/// Отпечатки ключей серверов (`known_hosts.json`), ключ - `адрес:порт`.
 class KnownHosts {
   KnownHosts() {
     final raw = _store.readSync();

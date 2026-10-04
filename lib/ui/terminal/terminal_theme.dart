@@ -3,11 +3,11 @@ import 'package:xterm2/xterm.dart';
 
 import '../../domain/models/external_colors.dart';
 
-/// Тема терминала из текущей M3-схемы: фон/текст/курсор — от акцента
-/// приложения, 16 ANSI-цветов — сбалансированная палитра под тёмную/светлую тему.
+/// Тема терминала из текущей M3-схемы: фон/текст/курсор - от акцента
+/// приложения, 16 ANSI-цветов - сбалансированная палитра под тёмную/светлую тему.
 TerminalTheme terminalThemeFor(ColorScheme scheme, [ExternalColors? ext]) {
   final dark = scheme.brightness == Brightness.dark;
-  // Палитра из дотов (pywal, caelestia) — только если доты того же режима.
+  // Палитра из дотов (pywal, caelestia) - только если доты того же режима.
   final fromDots = ext?.ansi != null && (ext!.brightness == null || ext.brightness == scheme.brightness);
   final p = fromDots ? ext.ansi! : (dark ? _darkAnsi : _lightAnsi);
   return TerminalTheme(

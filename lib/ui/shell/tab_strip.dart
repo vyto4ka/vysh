@@ -82,7 +82,7 @@ class TabStrip extends ConsumerWidget {
         children: [
           Expanded(
             // Свой заголовок: пустое место справа от вкладок таскает окно,
-            // двойной клик — развернуть/восстановить.
+            // двойной клик - развернуть/восстановить.
             child: custom
                 ? Stack(
                     children: [

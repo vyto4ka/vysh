@@ -52,7 +52,7 @@ jobs:
         shell: pwsh
         run: |
           $dir = "build/windows/x64/runner/Release"
-          # Рантайм MSVC рядом с exe — чтобы работало без установки VC++ Redistributable.
+          # Рантайм MSVC рядом с exe - чтобы работало без установки VC++ Redistributable.
           foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
             Copy-Item "C:/Windows/System32/$dll" $dir
           }
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # нужны теги — для ссылки «все изменения»
+          fetch-depth: 0   # нужны теги - для ссылки «все изменения»
       - uses: actions/download-artifact@v4
         with:
           path: dist

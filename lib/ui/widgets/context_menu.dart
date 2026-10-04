@@ -11,7 +11,7 @@ Widget menuItem(
 }) {
   return MenuItemButton(
     leadingIcon: icon == null ? null : Icon(icon, size: 20, color: color),
-    // Подписи клавиш — приглушённые, как в спецификации M3.
+    // Подписи клавиш - приглушённые, как в спецификации M3.
     shortcut: shortcut,
     onPressed: onPressed,
     style: color == null ? null : ButtonStyle(foregroundColor: WidgetStatePropertyAll(color)),

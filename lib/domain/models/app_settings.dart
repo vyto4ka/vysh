@@ -8,7 +8,7 @@ enum RightClickAction {
   /// Вставка из буфера (как в PuTTY).
   paste,
 
-  /// Есть выделение — копировать, нет — вставить (как в Windows Terminal).
+  /// Есть выделение - копировать, нет - вставить (как в Windows Terminal).
   smart,
 }
 
@@ -17,12 +17,26 @@ enum ColorSource {
   /// Свой акцентный цвет из настроек.
   preset,
 
-  /// Акцент системы: Windows — цвет акцента, Linux — xdg-desktop-portal.
+  /// Акцент системы: Windows - цвет акцента, Linux - xdg-desktop-portal.
   system,
 
   /// Файлы дотов: свой colors.json, caelestia, pywal (Linux).
   dots,
 }
+
+/// Движок отрисовки Flutter. Выбирается до запуска движка (windows/runner/main.cpp,
+/// linux/runner/my_application.cc), поэтому меняется только после перезапуска.
+enum Renderer {
+  /// Экономнее по памяти; так рисовал Flutter до 3.47.
+  skia,
+
+  /// Новый движок Flutter: без подтормаживаний при первой анимации, но
+  /// держит больше памяти под текстуры.
+  impeller,
+}
+
+/// Движок, с которым приложение запущено (пишется в main.dart).
+Renderer startupRenderer = Renderer.skia;
 
 /// Заголовок окна.
 enum TitleBarMode {
@@ -57,6 +71,7 @@ class AppSettings {
     this.pingOnlyVisible = true,
     this.colorPollSec = 60,
     this.pauseHiddenTabs = true,
+    this.renderer = Renderer.skia,
   });
 
   final ThemeMode themeMode;
@@ -65,7 +80,7 @@ class AppSettings {
   final double terminalFontSize;
   final bool copyOnSelect;
 
-  /// Папка для скачанных файлов; пусто — системная «Загрузки».
+  /// Папка для скачанных файлов; пусто - системная «Загрузки».
   final String downloadsDir;
 
   /// Проверять доступность хостов на главной (TCP к порту SSH раз в 30 с).
@@ -84,7 +99,7 @@ class AppSettings {
 
   final ColorSource colorSource;
 
-  /// Свой путь к файлу цветов; пусто — искать автоматически.
+  /// Свой путь к файлу цветов; пусто - искать автоматически.
   final String dotsPath;
 
   final TitleBarMode titleBarMode;
@@ -100,11 +115,14 @@ class AppSettings {
   /// Проверять доступность, только пока список хостов на экране.
   final bool pingOnlyVisible;
 
-  /// Запасной опрос цветов системы/дотов, секунд; 0 — только по событиям.
+  /// Запасной опрос цветов системы/дотов, секунд; 0 - только по событиям.
   final int colorPollSec;
 
   /// Останавливать анимации во вкладках, которые не на экране.
   final bool pauseHiddenTabs;
+
+  /// Движок отрисовки (применяется после перезапуска).
+  final Renderer renderer;
 
   AppSettings copyWith({
     ThemeMode? themeMode,
@@ -126,6 +144,7 @@ class AppSettings {
     bool? pingOnlyVisible,
     int? colorPollSec,
     bool? pauseHiddenTabs,
+    Renderer? renderer,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -147,6 +166,7 @@ class AppSettings {
         pingOnlyVisible: pingOnlyVisible ?? this.pingOnlyVisible,
         colorPollSec: colorPollSec ?? this.colorPollSec,
         pauseHiddenTabs: pauseHiddenTabs ?? this.pauseHiddenTabs,
+        renderer: renderer ?? this.renderer,
       );
 
   Map<String, Object?> toJson() => {
@@ -169,6 +189,8 @@ class AppSettings {
         'pingOnlyVisible': pingOnlyVisible,
         'colorPollSec': colorPollSec,
         'pauseHiddenTabs': pauseHiddenTabs,
+        // Читается и нативным кодом до запуска движка - ключ не переименовывать.
+        'renderer': renderer.name,
       };
 
   factory AppSettings.fromJson(Map<String, Object?> json) => AppSettings(
@@ -205,6 +227,7 @@ class AppSettings {
         pingOnlyVisible: json['pingOnlyVisible'] as bool? ?? true,
         colorPollSec: ((json['colorPollSec'] as num?)?.toInt() ?? 60).clamp(0, 3600).toInt(),
         pauseHiddenTabs: json['pauseHiddenTabs'] as bool? ?? true,
+        renderer: json['renderer'] == 'impeller' ? Renderer.impeller : Renderer.skia,
       );
 
   /// Верхний предел истории: xterm2 сразу резервирует список на столько строк.

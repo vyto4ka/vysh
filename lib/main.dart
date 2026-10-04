@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -24,6 +25,18 @@ Future<void> main() async {
     final raw = JsonStore('settings.json').readSync();
     final settings = raw is Map<String, Object?> ? AppSettings.fromJson(raw) : const AppSettings();
     final custom = DesktopEnv.useCustomTitleBar(settings.titleBarMode);
+
+    // Движок уже выбран нативным кодом по этой же настройке - запоминаем,
+    // чтобы настройки могли подсказать «нужен перезапуск».
+    startupRenderer = settings.renderer;
+    if (settings.renderer == Renderer.skia) {
+      // Кэш текстур Skia по умолчанию растёт до 48 байт на пиксель окна:
+      // для развёрнутого окна на большом мониторе это сотни мегабайт.
+      // Интерфейсу vysh с запасом хватает 64 МБ.
+      SystemChannels.skia
+          .invokeMethod<void>('Skia.setResourceCacheMaxBytes', 64 << 20)
+          .catchError((_) {});
+    }
 
     final options = WindowOptions(
       title: 'vysh',

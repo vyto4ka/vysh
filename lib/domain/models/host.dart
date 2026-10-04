@@ -2,7 +2,7 @@ import 'dart:math';
 
 enum AuthMethod { password, key, agent }
 
-/// Сохранённый хост. Секретов здесь нет — только ссылки на них.
+/// Сохранённый хост. Секретов здесь нет - только ссылки на них.
 class Host {
   const Host({
     required this.id,

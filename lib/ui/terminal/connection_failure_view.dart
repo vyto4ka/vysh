@@ -71,7 +71,7 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
 
   String _logText({bool withDebug = true}) {
     final b = StringBuffer()
-      ..writeln('vysh — журнал подключения к ${_host.displayAddress}');
+      ..writeln('vysh: журнал подключения к ${_host.displayAddress}');
     for (final e in widget.session.connLog) {
       if (e.debug && !withDebug) continue;
       final t = e.time;
@@ -133,7 +133,7 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
       SshFailureKind.other => (
           Icons.error_outline,
           'Не удалось подключиться',
-          'Подробности — в журнале ниже.',
+          'Подробности в журнале ниже.',
         ),
     };
   }

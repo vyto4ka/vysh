@@ -2,7 +2,7 @@ import 'host.dart';
 
 enum SessionStatus { connecting, ready, lost, closed }
 
-/// Вкладка с сессией. Пока без реального SSH — он приходит на этапе 2.
+/// Вкладка с сессией. Пока без реального SSH - он приходит на этапе 2.
 class SessionTab {
   const SessionTab({
     required this.id,
@@ -29,7 +29,7 @@ class TabsState {
 
   final List<SessionTab> tabs;
 
-  /// 0 — главная вкладка, 1..n — сессии.
+  /// 0 - главная вкладка, 1..n - сессии.
   final int active;
 
   bool get isHome => active == 0;

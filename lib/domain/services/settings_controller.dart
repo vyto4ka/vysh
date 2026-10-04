@@ -30,7 +30,7 @@ class SettingsController extends Notifier<AppSettings> {
 
   /// Стиль буфера: «как в Linux» (выделение копирует, средняя кнопка вставляет)
   /// или только клавишами. Правый клик подстраивается: в Linux-стиле он просто
-  /// вставляет, в клавишном — копирует выделенное, а без выделения вставляет.
+  /// вставляет, в клавишном - копирует выделенное, а без выделения вставляет.
   void setLinuxClipboard(bool linux) => _update(state.copyWith(
         copyOnSelect: linux,
         middleClickPaste: linux,
@@ -53,6 +53,7 @@ class SettingsController extends Notifier<AppSettings> {
   void setPingOnlyVisible(bool v) => _update(state.copyWith(pingOnlyVisible: v));
   void setColorPollSec(int v) => _update(state.copyWith(colorPollSec: v));
   void setPauseHiddenTabs(bool v) => _update(state.copyWith(pauseHiddenTabs: v));
+  void setRenderer(Renderer v) => _update(state.copyWith(renderer: v));
 
   void _update(AppSettings next) {
     state = next;

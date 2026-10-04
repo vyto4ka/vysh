@@ -57,7 +57,7 @@ class _SessionViewState extends ConsumerState<SessionView> {
         if (mounted) _focus.requestFocus();
       });
     }
-    // Новая попытка подключения — экран ошибки снова можно показывать.
+    // Новая попытка подключения - экран ошибки снова можно показывать.
     if (widget.tab.status == SessionStatus.connecting &&
         old.tab.status != SessionStatus.connecting) {
       _failureDismissed = false;
@@ -111,7 +111,7 @@ class _SessionViewState extends ConsumerState<SessionView> {
     _focus.requestFocus();
   }
 
-  /// true — вставить как есть, false — одной строкой, null — отмена.
+  /// true - вставить как есть, false - одной строкой, null - отмена.
   Future<bool?> _confirmPaste(List<String> lines) {
     return showDialog<bool>(
       context: context,
@@ -236,7 +236,7 @@ class _SessionViewState extends ConsumerState<SessionView> {
             !_failureDismissed);
 
     final terminalView = Listener(
-      // Средняя кнопка — вставка (если включено).
+      // Средняя кнопка - вставка (если включено).
       onPointerDown: (e) {
         if (settings.middleClickPaste && (e.buttons & kMiddleMouseButton) != 0) _paste();
         _dragFix.onPointerDown(e);

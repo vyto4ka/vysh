@@ -41,7 +41,7 @@ class TerminalSession extends ChangeNotifier {
         terminal = Terminal(maxLines: scrollbackLines);
 
   /// Пароль, введённый в этой сессии (в редакторе хоста или в диалоге).
-  /// Живёт только в памяти — чтобы переподключение не спрашивало его заново.
+  /// Живёт только в памяти - чтобы переподключение не спрашивало его заново.
   String? _memPassword;
 
   /// Хост; обновляется перед переподключением, если его отредактировали.
@@ -64,7 +64,7 @@ class TerminalSession extends ChangeNotifier {
   /// Журнал последней попытки подключения.
   final connLog = <ConnLogEntry>[];
 
-  /// Ошибка последней попытки (null — подключились или ещё подключаемся).
+  /// Ошибка последней попытки (null - подключились или ещё подключаемся).
   SshFailure? lastFailure;
 
   /// Соединение оборвалось уже после успешного входа.
@@ -222,7 +222,7 @@ class TerminalSession extends ChangeNotifier {
           keys: keys,
           password: host.auth == AuthMethod.password ? () => providePassword(retry) : null,
           interactive: (name, instruction, list) async {
-            // Обычный «Password:» через keyboard-interactive — отвечаем паролем.
+            // Обычный «Password:» через keyboard-interactive - отвечаем паролем.
             if (host.auth == AuthMethod.password && list.length == 1 && !list.first.echo) {
               final p = await providePassword(retry);
               return p == null ? null : [p];
@@ -297,7 +297,7 @@ class TerminalSession extends ChangeNotifier {
         final pem = await file.readAsString();
         if (pem.contains('PuTTY-User-Key-File')) {
           throw const SshFailure(SshFailureKind.config,
-              'Ключи PuTTY (.ppk) пока не поддерживаются — экспортируйте ключ в формат OpenSSH в PuTTYgen.');
+              'Ключи PuTTY (.ppk) пока не поддерживаются, экспортируйте ключ в формат OpenSSH в PuTTYgen.');
         }
         String? passphrase;
         if (connector.isKeyEncrypted(pem)) {
@@ -385,7 +385,7 @@ class TerminalSession extends ChangeNotifier {
   }
 }
 
-/// `~/...` → домашняя папка (на Windows — %USERPROFILE%).
+/// `~/...` → домашняя папка (на Windows - %USERPROFILE%).
 String expandHome(String path) {
   if (!path.startsWith('~')) return path;
   final env = Platform.environment;

@@ -30,7 +30,7 @@ if changelog.exists():
         if t:
             title = t.group(1).strip()
             body = body[t.end():].strip()
-        # Ссылки вида (docs/…) делаем абсолютными — страница релиза их иначе не найдёт.
+        # Ссылки вида (docs/…) делаем абсолютными - страница релиза их иначе не найдёт.
         changes = re.sub(
             r"\]\((?!https?://)([^)]+)\)",
             lambda mm: f"](https://github.com/{repo}/blob/{tag}/{mm.group(1)})",
@@ -85,7 +85,7 @@ except Exception:
 # ── Текст ────────────────────────────────────────────────────────────
 out = []
 if buttons:
-    # Иконка над кнопками — если она есть в репозитории на момент тега.
+    # Иконка над кнопками - если она есть в репозитории на момент тега.
     if os.path.exists("assets/icon/vysh.png"):
         out.append(
             f'<p align="center"><img src="https://raw.githubusercontent.com/{repo}/{tag}'
@@ -97,17 +97,17 @@ if buttons:
 out.append(changes)
 out.append(
     "\n### 📦 Установка\n"
-    "**Windows** — распакуйте zip и запустите `vysh.exe`. "
+    "**Windows:** распакуйте zip и запустите `vysh.exe`. "
     "SmartScreen может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».\n\n"
-    "**Linux** — распакуйте архив и запустите `./vysh` (нужны `libgtk-3` и `libsecret-1`).\n\n"
-    "**Обновление** — замените папку с программой: хосты, настройки и пароли хранятся отдельно и сохранятся."
+    "**Linux:** распакуйте архив и запустите `./vysh` (нужны `libgtk-3` и `libsecret-1`).\n\n"
+    "**Обновление:** замените папку с программой: хосты, настройки и пароли хранятся отдельно и сохранятся."
 )
 if prev:
     out.append(f"\n**Все изменения:** [{prev}…{tag}](https://github.com/{repo}/compare/{prev}...{tag})")
 
 print("\n".join(out))
 
-name = f"vysh {version}" + (f" — {title}" if title else "")
+name = f"vysh {version}" + (f": {title}" if title else "")
 gh_out = os.environ.get("GITHUB_OUTPUT")
 if gh_out:
     with open(gh_out, "a", encoding="utf-8") as f:

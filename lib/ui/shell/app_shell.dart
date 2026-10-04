@@ -16,7 +16,7 @@ import 'tab_strip.dart';
 import 'ui_state.dart';
 
 /// Корень интерфейса: полоса вкладок + содержимое активной вкладки.
-/// Вкладка 0 — «главная» (боковая навигация + хосты/настройки).
+/// Вкладка 0 - «главная» (боковая навигация + хосты/настройки).
 ///
 /// Хоткеи приложения перехватываются глобально (до терминала),
 /// иначе терминал отправил бы их на сервер.
@@ -44,7 +44,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   bool _onKey(KeyEvent event) {
     if (event is KeyUpEvent) return false;
-    // Открыт диалог или меню — хоткеи вкладок не трогаем.
+    // Открыт диалог или меню - хоткеи вкладок не трогаем.
     if (!(ModalRoute.of(context)?.isCurrent ?? true)) return false;
     for (final entry in _bindings.entries) {
       if (entry.key.accepts(event, HardwareKeyboard.instance)) {
@@ -105,7 +105,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             child: IndexedStack(
               index: tabs.active,
               // Скрытые вкладки живут (сессии не рвутся), но их анимации
-              // и таймеры-тикеры выключены — не тратим кадры на невидимое.
+              // и таймеры-тикеры выключены - не тратим кадры на невидимое.
               children: [
                 TickerMode(enabled: !pause || tabs.active == 0, child: const _HomeView()),
                 for (var i = 0; i < tabs.tabs.length; i++)

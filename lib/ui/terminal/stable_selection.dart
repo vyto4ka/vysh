@@ -10,7 +10,7 @@ import 'package:xterm2/xterm.dart';
 ///
 /// Зачем: xterm2 запоминает начало выделения как точку на экране и при каждом
 /// движении заново переводит её в строку буфера с учётом текущей прокрутки.
-/// Стоит терминалу прокрутиться (тянем мышь за верхний край, крутим колесо) —
+/// Стоит терминалу прокрутиться (тянем мышь за верхний край, крутим колесо) -
 /// начало выделения «уезжает» вместе с экраном, и выделение получается кривым.
 class StableSelectionController extends TerminalController {
   bool _locked = false;
@@ -19,7 +19,7 @@ class StableSelectionController extends TerminalController {
   @override
   void setSelection(CellAnchor base, CellAnchor extent, {SelectionMode? mode}) {
     if (_locked && !_own) {
-      // Выделение от библиотеки во время нашего перетаскивания — отбрасываем.
+      // Выделение от библиотеки во время нашего перетаскивания - отбрасываем.
       base.dispose();
       extent.dispose();
       return;
@@ -39,10 +39,10 @@ class StableSelectionController extends TerminalController {
 
 /// Выделение мышью, привязанное к строкам буфера, а не к точкам экрана.
 ///
-/// Начало запоминается якорем в буфере ([CellAnchor]) — он не сдвигается
+/// Начало запоминается якорем в буфере ([CellAnchor]) - он не сдвигается
 /// при прокрутке. Конец берётся из текущего положения мыши. Если увести мышь
-/// за верхний или нижний край терминала, история прокручивается сама — тем
-/// быстрее, чем дальше мышь от края, — и выделение продолжается.
+/// за верхний или нижний край терминала, история прокручивается сама - тем
+/// быстрее, чем дальше мышь от края, - и выделение продолжается.
 class DragSelectionFix {
   DragSelectionFix({
     required this.controller,
@@ -62,14 +62,14 @@ class DragSelectionFix {
   bool _dragging = false;
   Timer? _auto;
 
-  /// Мышь сдвинулась меньше — это клик (или двойной клик), не перетаскивание.
+  /// Мышь сдвинулась меньше - это клик (или двойной клик), не перетаскивание.
   static const _slop = 4.0;
 
   void onPointerDown(PointerDownEvent e) {
     _finish();
     if (e.kind != PointerDeviceKind.mouse || e.buttons != kPrimaryMouseButton) return;
     final t = terminal();
-    // Программа сама следит за мышью (mc, htop, vim с mouse=a) — не мешаем.
+    // Программа сама следит за мышью (mc, htop, vim с mouse=a) - не мешаем.
     if (t == null || t.mouseMode != MouseMode.none) return;
     final cell = _cellAt(e.position);
     if (cell == null) return;
@@ -110,7 +110,7 @@ class DragSelectionFix {
     _last = null;
   }
 
-  /// Мышь за краем терминала — крутим историю, пока она там.
+  /// Мышь за краем терминала - крутим историю, пока она там.
   void _autoScrollIfOutside() {
     if (_auto != null || _overflow() == 0) return;
     _auto = Timer.periodic(const Duration(milliseconds: 30), (_) {
@@ -121,7 +121,7 @@ class DragSelectionFix {
         return;
       }
       final line = _lineHeight();
-      // От полстроки до 8 строк за шаг — в зависимости от того, как далеко мышь.
+      // От полстроки до 8 строк за шаг - в зависимости от того, как далеко мышь.
       final speed = (0.5 + over.abs() / 30).clamp(0.5, 8.0) * line;
       final pos = scroll.position;
       final target = (pos.pixels + (over < 0 ? -speed : speed))
@@ -170,7 +170,7 @@ class DragSelectionFix {
     final base = _base;
     final last = _last;
     if (t == null || base == null || last == null) return;
-    // Строку с началом выделения вытеснило из истории — выделять нечего.
+    // Строку с началом выделения вытеснило из истории - выделять нечего.
     if (!base.attached) {
       _finish();
       return;

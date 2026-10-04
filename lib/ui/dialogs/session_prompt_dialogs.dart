@@ -100,7 +100,7 @@ class DialogSessionPrompts implements SessionPrompts {
       title: 'Пароль',
       subtitle: host.displayAddress,
       label: 'Пароль',
-      error: retry ? 'Неверный пароль — попробуйте ещё раз' : null,
+      error: retry ? 'Неверный пароль, попробуйте ещё раз' : null,
       canRemember: canRemember,
     );
   }

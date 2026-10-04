@@ -33,7 +33,7 @@ ThemeData buildTheme({
   bool compact = false,
   Map<String, Color>? roles,
 }) {
-  // Схема из одного цвета (как Material You), поверх — готовые роли из дотов.
+  // Схема из одного цвета (как Material You), поверх - готовые роли из дотов.
   final scheme = applyRoles(
     ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
     roles,
@@ -69,7 +69,7 @@ ThemeData buildTheme({
     ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
     // Меню M3 (Expressive): скруглённый контейнер с внутренним отступом,
-    // пункты — «пилюли» с тональной подсветкой при наведении.
+    // пункты - «пилюли» с тональной подсветкой при наведении.
     menuTheme: MenuThemeData(
       style: MenuStyle(
         backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerHigh),
@@ -115,7 +115,7 @@ ThemeData buildTheme({
           }
           return scheme.onSurfaceVariant;
         }),
-        // Без лишнего «серого» слоя поверх — подсветку даёт backgroundColor.
+        // Без лишнего «серого» слоя поверх - подсветку даёт backgroundColor.
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
     ),

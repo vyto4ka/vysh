@@ -47,7 +47,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   @override
   void didUpdateWidget(SftpPane old) {
     super.didUpdateWidget(old);
-    // После переподключения SFTP-канал новый — перечитываем папку.
+    // После переподключения SFTP-канал новый - перечитываем папку.
     if (widget.tab.status == SessionStatus.ready && old.tab.status != SessionStatus.ready) {
       _cwd == null ? _init() : _open(_cwd!);
     }
@@ -564,7 +564,7 @@ class _EntryRow extends StatelessWidget {
     required this.onSecondary,
   });
 
-  /// null — строка «..».
+  /// null - строка «..».
   final RemoteEntry? entry;
   final bool selected;
   final VoidCallback onTap;

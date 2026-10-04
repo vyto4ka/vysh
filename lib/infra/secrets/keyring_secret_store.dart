@@ -3,7 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../domain/ports/secret_store.dart';
 
 /// Секреты в системном хранилище:
-/// Windows — Credential Manager / DPAPI, Linux — Secret Service (libsecret).
+/// Windows - Credential Manager / DPAPI, Linux - Secret Service (libsecret).
 class KeyringSecretStore implements SecretStore {
   final _storage = const FlutterSecureStorage();
 

@@ -11,7 +11,7 @@ import '../models/external_colors.dart';
 import 'settings_controller.dart';
 
 /// Внешние цвета (акцент системы / доты) с обновлением на лету.
-/// null — источник «Свой цвет» или ничего не найдено.
+/// null - источник «Свой цвет» или ничего не найдено.
 final externalColorsProvider =
     NotifierProvider<ExternalColorsController, ExternalColors?>(ExternalColorsController.new);
 
@@ -21,7 +21,7 @@ class ExternalColorsController extends Notifier<ExternalColors?> {
   Process? _monitor;
   AppLifecycleListener? _life;
 
-  /// Запасной опрос, секунд; 0 — только события (файлы, портал, фокус окна).
+  /// Запасной опрос, секунд; 0 - только события (файлы, портал, фокус окна).
   int _pollEvery = 60;
   Timer? _debounce;
   bool _disposed = false;
@@ -63,7 +63,7 @@ class ExternalColorsController extends Notifier<ExternalColors?> {
   Future<void> _load() async {
     final gen = _gen;
     final next = await _loader();
-    // Источник успели сменить, пока читали — результат устарел.
+    // Источник успели сменить, пока читали - результат устарел.
     if (_disposed || gen != _gen) return;
     notFound = next == null;
     final cur = stateOrNull;
@@ -76,13 +76,13 @@ class ExternalColorsController extends Notifier<ExternalColors?> {
     state = next;
   }
 
-  /// Окно видно (не свёрнуто) — только тогда есть смысл опрашивать.
+  /// Окно видно (не свёрнуто) - только тогда есть смысл опрашивать.
   static bool get _visible {
     final s = WidgetsBinding.instance.lifecycleState;
     return s == null || s == AppLifecycleState.resumed || s == AppLifecycleState.inactive;
   }
 
-  /// Редкий запасной опрос; пока окно свёрнуто — не опрашиваем совсем.
+  /// Редкий запасной опрос; пока окно свёрнуто - не опрашиваем совсем.
   void _poll() {
     if (_pollEvery <= 0) return;
     _timers.add(Timer.periodic(Duration(seconds: _pollEvery), (_) {
@@ -97,7 +97,7 @@ class ExternalColorsController extends Notifier<ExternalColors?> {
 
   void _watchSystem() {
     if (Platform.isWindows) {
-      // Акцент меняют в «Параметрах» — значит, наше окно в это время не в фокусе.
+      // Акцент меняют в «Параметрах» - значит, наше окно в это время не в фокусе.
       // Перечитываем реестр, когда окно снова получает фокус, плюс запасной опрос
       // с интервалом из настроек.
       // Раньше был опрос раз в 4 с: это запуск reg.exe 15 раз в минуту.
@@ -127,7 +127,7 @@ class ExternalColorsController extends Notifier<ExternalColors?> {
 
   void _watchDots(String customPath) {
     // Генераторы (matugen, wal, caelestia) обычно пишут во временный файл и
-    // переименовывают — поэтому следим за папкой, а не за самим файлом.
+    // переименовывают - поэтому следим за папкой, а не за самим файлом.
     final dirs = <String>{};
     for (final path in ColorSources.dotsCandidates(customPath)) {
       final dir = File(path).parent;

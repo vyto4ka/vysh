@@ -21,7 +21,7 @@ Future<String?> askText(
   String initial = '',
 }) {
   final c = TextEditingController(text: initial);
-  // Выделяем имя без расширения — как в файловых менеджерах.
+  // Выделяем имя без расширения - как в файловых менеджерах.
   final dot = initial.lastIndexOf('.');
   c.selection = TextSelection(baseOffset: 0, extentOffset: dot > 0 ? dot : initial.length);
   return showDialog<String>(

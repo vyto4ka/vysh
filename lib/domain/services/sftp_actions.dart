@@ -138,7 +138,7 @@ class SftpActions {
   // ─── Открыть локально ────────────────────────────────────────────
 
   /// Скачать во временную папку, открыть программой по умолчанию и
-  /// заливать обратно при каждом сохранении. [onUploaded] — уведомление.
+  /// заливать обратно при каждом сохранении. [onUploaded] - уведомление.
   Future<void> openLocally(RemoteEntry e, {required void Function(String name) onUploaded}) async {
     final sftp = await _sftp;
     final dir = await LocalFiles.editTempDir();

@@ -53,7 +53,7 @@ class ColorSources {
           .toList();
       if (r.exitCode != 0 || nums.length < 3) return null;
       final rgb = nums.sublist(nums.length - 3);
-      // Вне 0..1 — портал сообщает «акцент не задан».
+      // Вне 0..1 - портал сообщает «акцент не задан».
       if (rgb.any((x) => x < 0 || x > 1)) return null;
       int ch(double x) => (x * 255).round().clamp(0, 255).toInt();
       return ExternalColors(
@@ -94,7 +94,7 @@ class ColorSources {
         final parsed = parse(jsonDecode(await f.readAsString()), path);
         if (parsed != null) return parsed;
       } catch (_) {
-        // Файл пишется прямо сейчас или битый — пробуем следующий.
+        // Файл пишется прямо сейчас или битый - пробуем следующий.
       }
     }
     return null;
@@ -115,7 +115,7 @@ class ColorSources {
       final bg = parseColor(special['background']) ?? list[0];
       final fg = parseColor(special['foreground']) ?? list[7];
       return ExternalColors(
-        // Самый насыщенный из цветов 1–6 — он и будет акцентом.
+        // Самый насыщенный из цветов 1-6 - он и будет акцентом.
         seed: _mostSaturated(list.sublist(1, 7)),
         source: 'pywal',
         path: name,

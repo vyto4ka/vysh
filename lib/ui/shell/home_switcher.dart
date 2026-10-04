@@ -27,7 +27,7 @@ class _HomeTabsState extends ConsumerState<HomeTabs> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    // Раздел могут переключить хоткеем (Ctrl+,) — синхронизируем вкладки.
+    // Раздел могут переключить хоткеем (Ctrl+,) - синхронизируем вкладки.
     ref.listen(homeSectionProvider, (_, next) {
       if (_tabs.index != next) _tabs.animateTo(next);
     });

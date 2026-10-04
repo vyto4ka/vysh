@@ -11,7 +11,7 @@ import '../ui/shell/app_shell.dart';
 import '../ui/shell/ui_state.dart';
 import '../ui/theme/app_theme.dart';
 
-/// Корневой навигатор — через него сессии показывают диалоги
+/// Корневой навигатор - через него сессии показывают диалоги
 /// (пароль, ключ сервера) из не-UI кода.
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -23,7 +23,7 @@ class VyshApp extends ConsumerWidget {
     final s = ref.watch(settingsProvider);
     final ext = ref.watch(externalColorsProvider);
 
-    // Переключили режим заголовка — применяем сразу, без перезапуска.
+    // Переключили режим заголовка - применяем сразу, без перезапуска.
     ref.listen<bool>(customTitleBarProvider, (_, custom) {
       if (Platform.isWindows || Platform.isLinux) {
         windowManager.setTitleBarStyle(
@@ -36,7 +36,7 @@ class VyshApp extends ConsumerWidget {
     final e = s.colorSource == ColorSource.preset ? null : ext;
     final seed = e?.seed ?? Color(s.seedColor);
 
-    // Доты задают тёмный/светлый режим — следуем им, если тема «Системная».
+    // Доты задают тёмный/светлый режим - следуем им, если тема «Системная».
     var mode = s.themeMode;
     final dotsBrightness = e?.brightness;
     if (mode == ThemeMode.system && dotsBrightness != null) {
