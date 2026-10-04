@@ -14,6 +14,7 @@ import '../sftp/sftp_pane.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
 import 'connection_failure_view.dart';
+import 'stable_selection.dart';
 import 'terminal_theme.dart';
 
 /// Вкладка сессии: терминал + строка состояния.
@@ -28,7 +29,15 @@ class SessionView extends ConsumerStatefulWidget {
 }
 
 class _SessionViewState extends ConsumerState<SessionView> {
-  final _controller = TerminalController();
+  final _controller = StableSelectionController();
+  final _viewKey = GlobalKey<TerminalViewState>();
+  final _scroll = ScrollController();
+  late final _dragFix = DragSelectionFix(
+    controller: _controller,
+    viewKey: _viewKey,
+    scroll: _scroll,
+    terminal: () => _terminal,
+  );
   final _focus = FocusNode(debugLabel: 'terminal');
   double _paneWidth = 420;
   bool _failureDismissed = false;
@@ -37,6 +46,7 @@ class _SessionViewState extends ConsumerState<SessionView> {
   void initState() {
     super.initState();
     _controller.addListener(_onSelectionChanged);
+    _scroll.addListener(_dragFix.onScroll);
   }
 
   @override
@@ -57,6 +67,8 @@ class _SessionViewState extends ConsumerState<SessionView> {
   @override
   void dispose() {
     _controller.removeListener(_onSelectionChanged);
+    _dragFix.dispose();
+    _scroll.dispose();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -227,7 +239,12 @@ class _SessionViewState extends ConsumerState<SessionView> {
       // Средняя кнопка — вставка (если включено).
       onPointerDown: (e) {
         if (settings.middleClickPaste && (e.buttons & kMiddleMouseButton) != 0) _paste();
+        _dragFix.onPointerDown(e);
       },
+      // Выделение мышью, которое не «уезжает» при прокрутке (см. stable_selection.dart).
+      onPointerMove: _dragFix.onPointerMove,
+      onPointerUp: _dragFix.onPointerUp,
+      onPointerCancel: _dragFix.onPointerUp,
       child: Actions(
         actions: {
           _PasteIntent: CallbackAction<_PasteIntent>(onInvoke: (_) {
@@ -237,7 +254,9 @@ class _SessionViewState extends ConsumerState<SessionView> {
         },
         child: TerminalView(
           session.terminal,
+          key: _viewKey,
           controller: _controller,
+          scrollController: _scroll,
           focusNode: _focus,
           autofocus: true,
           shortcuts: _shortcuts(settings.ctrlVPaste),

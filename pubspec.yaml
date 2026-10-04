@@ -1,7 +1,7 @@
 name: vysh
 description: "Минималистичный и красивый SSH-менеджер подключений для Windows и Linux."
 publish_to: 'none'
-version: 0.2.1+3
+version: 0.3.0+4
 
 environment:
   sdk: ^3.8.0
@@ -25,3 +25,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/vysh_256.png

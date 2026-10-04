@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +13,7 @@ import '../../infra/storage/app_paths.dart';
 import '../theme/app_theme.dart';
 import 'appearance_sections.dart';
 import 'clipboard_section.dart';
+import 'performance_section.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -77,11 +81,12 @@ class SettingsPage extends ConsumerWidget {
                       secondary: const Icon(Icons.network_ping),
                       title: const Text('Проверять доступность хостов'),
                       subtitle: const Text(
-                          'На главной — пинг порта SSH раз в 30 секунд. Выключите, чтобы не '
-                          'стучаться лишний раз на продовые серверы: индикатор скроется.'),
+                          'На главной — проверка порта SSH. Выключите, чтобы не стучаться '
+                          'лишний раз на продовые серверы: индикатор скроется.'),
                       value: s.pingHosts,
                       onChanged: ctrl.setPingHosts,
                     ),
+                    const PingSettings(),
                   ],
                 ),
                 _Section(
@@ -129,6 +134,11 @@ class SettingsPage extends ConsumerWidget {
                     const SizedBox(height: 20),
                     const ClipboardSection(),
                   ],
+                ),
+                const _Section(
+                  icon: Icons.speed,
+                  title: 'Производительность',
+                  children: [PerformanceSection()],
                 ),
                 _Section(
                   icon: Icons.folder_outlined,
@@ -184,11 +194,32 @@ class SettingsPage extends ConsumerWidget {
                   icon: Icons.info_outline,
                   title: 'О программе',
                   children: [
-                    Text('vysh $appVersion', style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text('Минималистичный SSH-менеджер подключений для Windows и Linux.',
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                    Row(
+                      children: [
+                        Image.asset(
+                          'assets/icon/vysh_256.png',
+                          width: 56,
+                          height: 56,
+                          cacheWidth: (56 * MediaQuery.devicePixelRatioOf(context)).ceil(),
+                          filterQuality: FilterQuality.medium,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('vysh $appVersion', style: theme.textTheme.titleMedium),
+                              const SizedBox(height: 4),
+                              Text('Минималистичный SSH-менеджер подключений для Windows и Linux.',
+                                  style: theme.textTheme.bodyMedium
+                                      ?.copyWith(color: scheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const _MemoryUsage(),
                   ],
                 ),
               ],
@@ -250,6 +281,45 @@ class _Row extends StatelessWidget {
       children: [
         SizedBox(width: 140, child: Text(title, style: Theme.of(context).textTheme.titleSmall)),
         child,
+      ],
+    );
+  }
+}
+
+/// Сколько памяти занимает процесс — чтобы сравнивать сборки и версии.
+class _MemoryUsage extends StatefulWidget {
+  const _MemoryUsage();
+
+  @override
+  State<_MemoryUsage> createState() => _MemoryUsageState();
+}
+
+class _MemoryUsageState extends State<_MemoryUsage> {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final mb = (ProcessInfo.currentRss / (1024 * 1024)).round();
+    final style = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    return Row(
+      children: [
+        Icon(Icons.memory, size: 16, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            kDebugMode
+                ? 'Память: $mb МБ · отладочная сборка, в релизе расход заметно ниже'
+                : 'Память: $mb МБ',
+            style: style,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Обновить',
+          visualDensity: VisualDensity.compact,
+          iconSize: 16,
+          icon: const Icon(Icons.refresh),
+          onPressed: () => setState(() {}),
+        ),
       ],
     );
   }

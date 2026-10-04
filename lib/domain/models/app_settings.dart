@@ -52,6 +52,11 @@ class AppSettings {
     this.colorSource = ColorSource.preset,
     this.dotsPath = '',
     this.titleBarMode = TitleBarMode.auto,
+    this.scrollbackLines = 10000,
+    this.pingIntervalSec = 30,
+    this.pingOnlyVisible = true,
+    this.colorPollSec = 60,
+    this.pauseHiddenTabs = true,
   });
 
   final ThemeMode themeMode;
@@ -84,6 +89,23 @@ class AppSettings {
 
   final TitleBarMode titleBarMode;
 
+  // ── Производительность ──
+
+  /// Строк истории терминала (для новых вкладок).
+  final int scrollbackLines;
+
+  /// Как часто проверять доступность хостов, секунд.
+  final int pingIntervalSec;
+
+  /// Проверять доступность, только пока список хостов на экране.
+  final bool pingOnlyVisible;
+
+  /// Запасной опрос цветов системы/дотов, секунд; 0 — только по событиям.
+  final int colorPollSec;
+
+  /// Останавливать анимации во вкладках, которые не на экране.
+  final bool pauseHiddenTabs;
+
   AppSettings copyWith({
     ThemeMode? themeMode,
     int? seedColor,
@@ -99,6 +121,11 @@ class AppSettings {
     ColorSource? colorSource,
     String? dotsPath,
     TitleBarMode? titleBarMode,
+    int? scrollbackLines,
+    int? pingIntervalSec,
+    bool? pingOnlyVisible,
+    int? colorPollSec,
+    bool? pauseHiddenTabs,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -115,6 +142,11 @@ class AppSettings {
         colorSource: colorSource ?? this.colorSource,
         dotsPath: dotsPath ?? this.dotsPath,
         titleBarMode: titleBarMode ?? this.titleBarMode,
+        scrollbackLines: scrollbackLines ?? this.scrollbackLines,
+        pingIntervalSec: pingIntervalSec ?? this.pingIntervalSec,
+        pingOnlyVisible: pingOnlyVisible ?? this.pingOnlyVisible,
+        colorPollSec: colorPollSec ?? this.colorPollSec,
+        pauseHiddenTabs: pauseHiddenTabs ?? this.pauseHiddenTabs,
       );
 
   Map<String, Object?> toJson() => {
@@ -132,6 +164,11 @@ class AppSettings {
         'colorSource': colorSource.name,
         'dotsPath': dotsPath,
         'titleBarMode': titleBarMode.name,
+        'scrollbackLines': scrollbackLines,
+        'pingIntervalSec': pingIntervalSec,
+        'pingOnlyVisible': pingOnlyVisible,
+        'colorPollSec': colorPollSec,
+        'pauseHiddenTabs': pauseHiddenTabs,
       };
 
   factory AppSettings.fromJson(Map<String, Object?> json) => AppSettings(
@@ -162,5 +199,14 @@ class AppSettings {
           (m) => m.name == json['titleBarMode'],
           orElse: () => TitleBarMode.auto,
         ),
+        scrollbackLines:
+            ((json['scrollbackLines'] as num?)?.toInt() ?? 10000).clamp(500, maxScrollback).toInt(),
+        pingIntervalSec: ((json['pingIntervalSec'] as num?)?.toInt() ?? 30).clamp(5, 3600).toInt(),
+        pingOnlyVisible: json['pingOnlyVisible'] as bool? ?? true,
+        colorPollSec: ((json['colorPollSec'] as num?)?.toInt() ?? 60).clamp(0, 3600).toInt(),
+        pauseHiddenTabs: json['pauseHiddenTabs'] as bool? ?? true,
       );
+
+  /// Верхний предел истории: xterm2 сразу резервирует список на столько строк.
+  static const maxScrollback = 1000000;
 }

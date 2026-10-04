@@ -85,6 +85,12 @@ except Exception:
 # ── Текст ────────────────────────────────────────────────────────────
 out = []
 if buttons:
+    # Иконка над кнопками — если она есть в репозитории на момент тега.
+    if os.path.exists("assets/icon/vysh.png"):
+        out.append(
+            f'<p align="center"><img src="https://raw.githubusercontent.com/{repo}/{tag}'
+            f'/assets/icon/vysh.png" width="96" alt=""></p>\n'
+        )
     out.append('<p align="center">')
     out.append("<br>\n".join(buttons))
     out.append("</p>\n")

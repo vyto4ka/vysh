@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../domain/services/settings_controller.dart';
 import '../../domain/services/tabs_controller.dart';
 import '../hosts/host_editor.dart';
 import '../hosts/hosts_page.dart';
@@ -95,6 +96,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     final tabs = ref.watch(tabsProvider);
+    final pause = ref.watch(settingsProvider.select((s) => s.pauseHiddenTabs));
 
     final body = Column(
         children: [
@@ -102,13 +104,18 @@ class _AppShellState extends ConsumerState<AppShell> {
           Expanded(
             child: IndexedStack(
               index: tabs.active,
+              // Скрытые вкладки живут (сессии не рвутся), но их анимации
+              // и таймеры-тикеры выключены — не тратим кадры на невидимое.
               children: [
-                const _HomeView(),
+                TickerMode(enabled: !pause || tabs.active == 0, child: const _HomeView()),
                 for (var i = 0; i < tabs.tabs.length; i++)
-                  SessionView(
+                  TickerMode(
                     key: ValueKey(tabs.tabs[i].id),
-                    tab: tabs.tabs[i],
-                    active: tabs.active == i + 1,
+                    enabled: !pause || tabs.active == i + 1,
+                    child: SessionView(
+                      tab: tabs.tabs[i],
+                      active: tabs.active == i + 1,
+                    ),
                   ),
               ],
             ),

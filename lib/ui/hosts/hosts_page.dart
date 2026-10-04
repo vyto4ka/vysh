@@ -24,6 +24,32 @@ class _HostsPageState extends ConsumerState<HostsPage> {
   final _search = TextEditingController();
   String _query = '';
   Timer? _pingTimer;
+  DateTime _lastPing = DateTime.now();
+
+  /// Хосты видны: открыта главная и окно не свёрнуто
+  /// (или в настройках разрешено проверять и в фоне).
+  bool get _visible {
+    if (!ref.read(settingsProvider).pingOnlyVisible) return true;
+    final life = WidgetsBinding.instance.lifecycleState;
+    final shown = life == null ||
+        life == AppLifecycleState.resumed ||
+        life == AppLifecycleState.inactive;
+    return shown && ref.read(tabsProvider).isHome;
+  }
+
+  void _ping() {
+    if (!mounted || !ref.read(settingsProvider).pingHosts) return;
+    _lastPing = DateTime.now();
+    ref.invalidate(reachabilityProvider);
+  }
+
+  /// Вернулись на главную после перерыва — обновим сразу, не дожидаясь таймера.
+  void _pingIfStale() {
+    final every = Duration(seconds: ref.read(settingsProvider).pingIntervalSec);
+    if (DateTime.now().difference(_lastPing) >= every) _ping();
+  }
+
+  AppLifecycleListener? _life;
 
   /// Отмеченные для массовых действий хосты (id).
   final _selected = <String>{};
@@ -102,17 +128,23 @@ class _HostsPageState extends ConsumerState<HostsPage> {
   @override
   void initState() {
     super.initState();
-    // Пока главная открыта и проверка включена — обновляем доступность раз в 30 с.
-    _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted && ref.read(settingsProvider).pingHosts) {
-        ref.invalidate(reachabilityProvider);
-      }
+    // Пингуем только пока список виден: в терминале и при свёрнутом окне
+    // незачем стучаться во все серверы (можно включить в настройках).
+    // Интервал задаётся в настройках, поэтому таймер тикает часто (дёшево),
+    // а сама проверка — только когда подошло время.
+    _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_visible) _pingIfStale();
+    });
+    // Развернули окно — обновим, если данные устарели.
+    _life = AppLifecycleListener(onShow: () {
+      if (_visible) _pingIfStale();
     });
   }
 
   @override
   void dispose() {
     _pingTimer?.cancel();
+    _life?.dispose();
     _search.dispose();
     _keysFocus.dispose();
     super.dispose();
@@ -136,6 +168,9 @@ class _HostsPageState extends ConsumerState<HostsPage> {
   @override
   Widget build(BuildContext context) {
     final hosts = ref.watch(hostsProvider);
+    ref.listen(tabsProvider.select((t) => t.isHome), (_, home) {
+      if (home) _pingIfStale();
+    });
     final filtered = hosts.where(_matches).toList();
     final quick = filtered.isEmpty ? Host.tryParseQuick(_query) : null;
 

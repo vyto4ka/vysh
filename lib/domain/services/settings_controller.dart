@@ -48,6 +48,11 @@ class SettingsController extends Notifier<AppSettings> {
   void setColorSource(ColorSource v) => _update(state.copyWith(colorSource: v));
   void setDotsPath(String v) => _update(state.copyWith(dotsPath: v));
   void setTitleBarMode(TitleBarMode v) => _update(state.copyWith(titleBarMode: v));
+  void setScrollbackLines(int v) => _update(state.copyWith(scrollbackLines: v));
+  void setPingIntervalSec(int v) => _update(state.copyWith(pingIntervalSec: v));
+  void setPingOnlyVisible(bool v) => _update(state.copyWith(pingOnlyVisible: v));
+  void setColorPollSec(int v) => _update(state.copyWith(colorPollSec: v));
+  void setPauseHiddenTabs(bool v) => _update(state.copyWith(pauseHiddenTabs: v));
 
   void _update(AppSettings next) {
     state = next;

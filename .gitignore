@@ -46,3 +46,6 @@ desktop.ini
 id_rsa*
 id_ed25519*
 .env
+
+# Служебная папка, не для репозитория
+Claude outputs/

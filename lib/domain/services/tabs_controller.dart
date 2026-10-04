@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/host.dart';
 import '../models/session_tab.dart';
 import 'hosts_controller.dart';
+import 'settings_controller.dart';
 import 'known_hosts.dart';
 import 'ports_providers.dart';
 import 'terminal_session.dart';
@@ -41,6 +42,7 @@ class TabsController extends Notifier<TabsState> {
       knownHosts: ref.read(knownHostsProvider),
       onStatus: (s) => _setStatus(tab.id, s),
       initialPassword: password,
+      scrollbackLines: ref.read(settingsProvider).scrollbackLines,
     );
     _sessions[tab.id] = session;
     state = TabsState(tabs: [...state.tabs, tab], active: state.tabs.length + 1);

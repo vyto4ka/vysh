@@ -36,7 +36,9 @@ class TerminalSession extends ChangeNotifier {
     required this.knownHosts,
     required this.onStatus,
     String? initialPassword,
-  }) : _memPassword = initialPassword;
+    int scrollbackLines = 10000,
+  })  : _memPassword = initialPassword,
+        terminal = Terminal(maxLines: scrollbackLines);
 
   /// Пароль, введённый в этой сессии (в редакторе хоста или в диалоге).
   /// Живёт только в памяти — чтобы переподключение не спрашивало его заново.
@@ -50,7 +52,8 @@ class TerminalSession extends ChangeNotifier {
   final KnownHosts knownHosts;
   final void Function(SessionStatus status) onStatus;
 
-  final terminal = Terminal(maxLines: 10000);
+  /// Эмулятор терминала; размер истории задаётся в настройках.
+  final Terminal terminal;
 
   SessionStatus _status = SessionStatus.connecting;
   SessionStatus get status => _status;
