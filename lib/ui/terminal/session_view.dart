@@ -13,6 +13,7 @@ import '../shell/ui_state.dart';
 import '../sftp/sftp_pane.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/modifiers.dart';
 import 'connection_failure_view.dart';
 import 'stable_selection.dart';
 import 'terminal_theme.dart';
@@ -160,7 +161,7 @@ class _SessionViewState extends ConsumerState<SessionView> {
   void _onSecondaryClick(Offset position) {
     final action = ref.read(settingsProvider).rightClick;
     // Shift + правый клик всегда открывает меню.
-    if (HardwareKeyboard.instance.isShiftPressed || action == RightClickAction.menu) {
+    if (Modifiers.instance.shift || action == RightClickAction.menu) {
       _showMenu(position);
       return;
     }

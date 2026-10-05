@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xterm2/xterm.dart';
+
+import '../widgets/modifiers.dart';
 
 /// Контроллер терминала, который на время перетаскивания мышью принимает
 /// выделение только от [DragSelectionFix].
@@ -60,6 +61,7 @@ class DragSelectionFix {
   Offset? _down;
   Offset? _last;
   bool _dragging = false;
+  bool _block = false;
   Timer? _auto;
 
   /// Мышь сдвинулась меньше - это клик (или двойной клик), не перетаскивание.
@@ -75,6 +77,7 @@ class DragSelectionFix {
     if (cell == null) return;
     _base = t.buffer.createAnchorFromOffset(cell);
     _down = e.position;
+    _block = Modifiers.instance.alt;
   }
 
   void onPointerMove(PointerMoveEvent e) {
@@ -179,8 +182,8 @@ class DragSelectionFix {
     if (to == null) return;
     final from = base.offset;
 
-    final alt = HardwareKeyboard.instance.isAltPressed;
-    final mode = alt ? SelectionMode.block : SelectionMode.line;
+    // Прямоугольное выделение - только если Alt был зажат в момент нажатия мыши.
+    final mode = _block ? SelectionMode.block : SelectionMode.line;
     final buffer = t.buffer;
 
     final (CellOffset a, CellOffset b) = to.isAfterOrSame(from)

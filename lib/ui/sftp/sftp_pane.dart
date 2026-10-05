@@ -13,6 +13,7 @@ import '../../domain/services/transfer_queue.dart';
 import '../../infra/platform/local_files.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/modifiers.dart';
 import 'sftp_dialogs.dart';
 import 'transfers_view.dart';
 
@@ -255,9 +256,9 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
   void _select(RemoteEntry e) {
     _listFocus.requestFocus();
-    final keys = HardwareKeyboard.instance;
+    final keys = Modifiers.instance;
     setState(() {
-      if (keys.isShiftPressed && _anchor != null) {
+      if (keys.shift && _anchor != null) {
         final list = _visible;
         final a = list.indexWhere((x) => x.path == _anchor);
         final b = list.indexOf(e);
@@ -268,7 +269,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
           return;
         }
       }
-      if (keys.isControlPressed) {
+      if (keys.ctrl) {
         _selected.contains(e.path) ? _selected.remove(e.path) : _selected.add(e.path);
       } else {
         _selected

@@ -13,9 +13,11 @@ import 'infra/platform/window_placement.dart';
 import 'infra/storage/app_paths.dart';
 import 'infra/storage/json_store.dart';
 import 'ui/dialogs/session_prompt_dialogs.dart';
+import 'ui/widgets/modifiers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  Modifiers.init();
   await AppPaths.init();
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {

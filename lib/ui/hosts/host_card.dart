@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/host.dart';
@@ -8,6 +7,7 @@ import '../../domain/services/settings_controller.dart';
 import '../../domain/services/tabs_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/modifiers.dart';
 import 'host_editor.dart';
 
 class HostCard extends ConsumerWidget {
@@ -29,9 +29,9 @@ class HostCard extends ConsumerWidget {
   final VoidCallback? onToggleSelect;
 
   void _onTap(WidgetRef ref) {
-    final ctrl = HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed;
-    if ((selecting || ctrl) && onToggleSelect != null) {
+    // Win/Meta не считаем: после Win+Shift+S он «залипал» и обычный клик
+    // отмечал хост вместо подключения.
+    if ((selecting || Modifiers.instance.ctrl) && onToggleSelect != null) {
       onToggleSelect!();
     } else {
       ref.read(tabsProvider.notifier).openHost(host);
@@ -68,7 +68,6 @@ class HostCard extends ConsumerWidget {
       ),
       child: InkWell(
         onTap: () => _onTap(ref),
-        onLongPress: onToggleSelect,
         onSecondaryTapUp: (d) =>
             ContextMenuArea.of(areaContext)?.open(d.globalPosition, _items(context, ref)),
         child: Padding(
