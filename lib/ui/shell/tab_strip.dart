@@ -92,16 +92,6 @@ class TabStrip extends ConsumerWidget {
                   )
                 : Align(alignment: Alignment.centerLeft, child: tabs),
           ),
-          IconButton(
-            tooltip: 'Настройки (Ctrl+,)',
-            iconSize: 20,
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.tune),
-            onPressed: () {
-              ctrl.activate(0);
-              ref.read(homeSectionProvider.notifier).select(1);
-            },
-          ),
           if (custom) ...[
             const SizedBox(width: 6),
             const WindowButtons(),

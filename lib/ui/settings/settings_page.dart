@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import 'appearance_sections.dart';
 import 'clipboard_section.dart';
 import 'performance_section.dart';
+import 'setting_row.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -40,8 +41,8 @@ class SettingsPage extends ConsumerWidget {
                   icon: Icons.palette_outlined,
                   title: 'Внешний вид',
                   children: [
-                    _Row(
-                      title: 'Тема',
+                    SettingRow(
+                      label: 'Тема',
                       child: SegmentedButton<ThemeMode>(
                         segments: const [
                           ButtonSegment(value: ThemeMode.system, label: Text('Системная'),
@@ -55,12 +56,10 @@ class SettingsPage extends ConsumerWidget {
                         onSelectionChanged: (v) => ctrl.setThemeMode(v.first),
                       ),
                     ),
-                    const SizedBox(height: 20),
                     const ColorSourceSection(),
-                    const SizedBox(height: 8),
+                    const TitleBarSection(),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.density_medium),
                       title: const Text('Компактный интерфейс'),
                       value: s.compact,
                       onChanged: ctrl.setCompact,
@@ -68,21 +67,12 @@ class SettingsPage extends ConsumerWidget {
                   ],
                 ),
                 _Section(
-                  icon: Icons.web_asset,
-                  title: 'Окно',
-                  children: const [TitleBarSection()],
-                ),
-                _Section(
                   icon: Icons.dns_outlined,
                   title: 'Хосты',
                   children: [
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.network_ping),
                       title: const Text('Проверять доступность хостов'),
-                      subtitle: const Text(
-                          'Пинг порта SSH на главной. Выключите, чтобы не трогать '
-                          'продовые серверы лишний раз.'),
                       value: s.pingHosts,
                       onChanged: ctrl.setPingHosts,
                     ),
@@ -93,8 +83,8 @@ class SettingsPage extends ConsumerWidget {
                   icon: Icons.terminal,
                   title: 'Терминал',
                   children: [
-                    _Row(
-                      title: 'Размер шрифта',
+                    SettingRow(
+                      label: 'Размер шрифта',
                       child: SizedBox(
                         width: 320,
                         child: Row(
@@ -126,12 +116,12 @@ class SettingsPage extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        'root@server:~\$ htop   # пример шрифта',
+                        'root@server:~\$ htop',
                         style: monoStyle(context,
                             size: s.terminalFontSize, color: scheme.onSurface),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 8),
                     const ClipboardSection(),
                   ],
                 ),
@@ -148,9 +138,7 @@ class SettingsPage extends ConsumerWidget {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Папка для скачанных файлов'),
                       subtitle: Text(
-                          s.downloadsDir.isEmpty
-                              ? '${LocalFiles.defaultDownloadsDir()} (по умолчанию)'
-                              : s.downloadsDir,
+                          s.downloadsDir.isEmpty ? LocalFiles.defaultDownloadsDir() : s.downloadsDir,
                           style: monoStyle(context, size: 12, color: scheme.onSurfaceVariant)),
                       trailing: Wrap(
                         spacing: 4,
@@ -209,17 +197,12 @@ class SettingsPage extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('vysh $appVersion', style: theme.textTheme.titleMedium),
-                              const SizedBox(height: 4),
-                              Text('Минималистичный SSH-менеджер подключений для Windows и Linux.',
-                                  style: theme.textTheme.bodyMedium
-                                      ?.copyWith(color: scheme.onSurfaceVariant)),
+                              const _MemoryUsage(),
                             ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    const _MemoryUsage(),
                   ],
                 ),
               ],
@@ -266,26 +249,6 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _Row extends StatelessWidget {
-  const _Row({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 16,
-      runSpacing: 8,
-      children: [
-        SizedBox(width: 140, child: Text(title, style: Theme.of(context).textTheme.titleSmall)),
-        child,
-      ],
-    );
-  }
-}
-
 /// Сколько памяти занимает процесс - чтобы сравнивать сборки и версии.
 class _MemoryUsage extends StatefulWidget {
   const _MemoryUsage();
@@ -308,7 +271,7 @@ class _MemoryUsageState extends State<_MemoryUsage> {
         Flexible(
           child: Text(
             kDebugMode
-                ? 'Память: $mb МБ · отладочная сборка, в релизе расход заметно ниже'
+                ? 'Память: $mb МБ (отладочная сборка)'
                 : 'Память: $mb МБ',
             style: style,
           ),

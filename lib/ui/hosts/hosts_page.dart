@@ -355,7 +355,7 @@ class _EmptyState extends StatelessWidget {
           Text('Пока нет ни одного хоста', style: theme.textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            'Добавьте сервер по адресу и логину\nили введите user@host в поиске для быстрого подключения',
+            'Добавьте хост или введите user@host в поиске',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant),

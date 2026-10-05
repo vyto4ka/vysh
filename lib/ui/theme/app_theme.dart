@@ -67,7 +67,8 @@ ThemeData buildTheme({
       ),
       textStyle: TextStyle(color: scheme.onInverseSurface, fontSize: 12),
     ),
-    snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+    // Уведомление компактное и по центру, а не полоса на всю ширину окна.
+    snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating, width: 420),
     // Меню M3 (Expressive): скруглённый контейнер с внутренним отступом,
     // пункты - «пилюли» с тональной подсветкой при наведении.
     menuTheme: MenuThemeData(

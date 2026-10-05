@@ -70,7 +70,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
     _address = TextEditingController(text: h?.address ?? '');
     _lastAddressLen = _address.text.length;
     _port = TextEditingController(text: '${h?.port ?? 22}');
-    _user = TextEditingController(text: h?.username ?? 'root');
+    _user = TextEditingController(text: h?.username ?? '');
     _password = TextEditingController();
     _keyPath = TextEditingController(text: h?.keyPath ?? '');
     _group = TextEditingController(text: h?.group ?? '');
@@ -134,7 +134,8 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
       label: _label.text.trim(),
       address: _address.text.trim(),
       port: int.parse(_port.text.trim()),
-      username: _user.text.trim(),
+      // Пусто - значит root (он и показан серой подсказкой в поле).
+      username: _user.text.trim().isEmpty ? 'root' : _user.text.trim(),
       auth: _auth,
       keyPath: _auth == AuthMethod.key && key.isNotEmpty ? key : null,
       group: _group.text.trim(),
@@ -193,7 +194,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
       );
 
   Widget _sectionTitle(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.only(top: 20, bottom: 10),
+        padding: const EdgeInsets.only(top: 24, bottom: 14),
         child: Text(text,
             style: Theme.of(context)
                 .textTheme
@@ -214,9 +215,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
               decoration: _dec(
                 'Пароль',
                 icon: const Icon(Icons.lock_outline),
-                helper: _hasSavedPassword
-                    ? 'Пароль уже сохранён. Оставьте поле пустым, чтобы не менять'
-                    : 'Можно оставить пустым, спросим при подключении',
+                helper: _hasSavedPassword ? 'Сохранён. Пустое поле его не меняет' : null,
                 suffix: IconButton(
                   tooltip: _obscure ? 'Показать' : 'Скрыть',
                   icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
@@ -230,8 +229,6 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
               value: _rememberPassword,
               onChanged: (v) => setState(() => _rememberPassword = v ?? false),
               title: const Text('Запомнить пароль'),
-              subtitle: const Text('В системном хранилище. Без галочки пароль '
-                  'используется только для текущего подключения'),
             ),
           ],
         );
@@ -243,7 +240,6 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
             'Приватный ключ',
             hint: '~/.ssh/id_ed25519',
             icon: const Icon(Icons.vpn_key_outlined),
-            helper: 'Парольную фразу ключа спросим при подключении',
             suffix: IconButton(
               tooltip: 'Выбрать файл',
               icon: const Icon(Icons.folder_open_outlined),
@@ -253,8 +249,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
         );
       case AuthMethod.agent:
         return const _Note(
-          'Попробуем стандартные ключи из ~/.ssh: id_ed25519, id_ecdsa, id_rsa '
-          '(без парольной фразы). ssh-agent и Pageant появятся позже.',
+          'Стандартные ключи из ~/.ssh: id_ed25519, id_ecdsa, id_rsa',
           key: ValueKey('agent'),
         );
     }
@@ -317,7 +312,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                               controller: _address,
                               autofocus: !_isEdit,
                               decoration: _dec('Адрес',
-                                  hint: '10.0.0.1, example.com или user@host:port',
+                                  hint: 'host или user@host:port',
                                   icon: const Icon(Icons.public)),
                               onChanged: _onAddressChanged,
                               validator: (v) =>
@@ -343,9 +338,10 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _user,
-                        decoration: _dec('Пользователь', icon: const Icon(Icons.person_outline)),
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Укажите логин' : null,
+                        // Подсказка видна всегда, а не только в фокусе: пустое поле = root.
+                        decoration: _dec('Пользователь',
+                                hint: 'root', icon: const Icon(Icons.person_outline))
+                            .copyWith(floatingLabelBehavior: FloatingLabelBehavior.always),
                       ),
 
                       // ── Вход ──
@@ -374,15 +370,13 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                       TextFormField(
                         controller: _label,
                         decoration: _dec('Название',
-                            hint: _address.text.trim().isEmpty
-                                ? 'Например: роутер, web-prod'
-                                : 'По умолчанию: ${_address.text.trim()}',
+                            hint: _address.text.trim().isEmpty ? null : _address.text.trim(),
                             icon: const Icon(Icons.label_outline)),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _group,
-                        decoration: _dec('Группа', hint: 'Например: prod, дом, клиенты',
+                        decoration: _dec('Группа',
                             icon: const Icon(Icons.folder_outlined)),
                         onChanged: (_) => setState(() {}),
                       ),
