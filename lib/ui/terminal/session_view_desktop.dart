@@ -29,17 +29,19 @@ mixin _DesktopMenu on _SessionViewBase {
         onPressed: _paste,
       ),
       menuDivider(),
-      menuItem(
-        ru ? 'Файлы (SFTP)' : 'Files (SFTP)',
-        icon: Icons.folder_outlined,
-        shortcut: mac ? Keys.macFiles : Keys.files,
-        onPressed: () => ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
-      ),
-      menuItem(
-        ru ? 'Журнал и диагностика' : 'Log and diagnostics',
-        icon: Icons.receipt_long_outlined,
-        onPressed: () => setState(() => _showLogManually = true),
-      ),
+      if (!widget.tab.isLocal)
+        menuItem(
+          ru ? 'Файлы (SFTP)' : 'Files (SFTP)',
+          icon: Icons.folder_outlined,
+          shortcut: mac ? Keys.macFiles : Keys.files,
+          onPressed: () => ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
+        ),
+      if (!widget.tab.isLocal)
+        menuItem(
+          ru ? 'Журнал и диагностика' : 'Log and diagnostics',
+          icon: Icons.receipt_long_outlined,
+          onPressed: () => setState(() => _showLogManually = true),
+        ),
       menuItem(
         ru ? 'Переподключить' : 'Reconnect',
         icon: Icons.refresh,

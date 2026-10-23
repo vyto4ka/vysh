@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../app/settings/app_settings.dart';
 import '../domain/models/local_file_failure.dart';
+import '../domain/ports/local_shell.dart';
 import '../domain/ports/sftp.dart';
 import '../domain/ports/ssh_transport.dart';
 import '../domain/services/font_info.dart' show AddFontError;

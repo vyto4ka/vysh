@@ -9,18 +9,21 @@ class SessionTab {
     required this.host,
     required this.title,
     this.status = SessionStatus.connecting,
+    this.isLocal = false,
   });
 
   final String id;
   final Host host;
   final String title;
   final SessionStatus status;
+  final bool isLocal;
 
   SessionTab copyWith({String? title, SessionStatus? status}) => SessionTab(
         id: id,
         host: host,
         title: title ?? this.title,
         status: status ?? this.status,
+        isLocal: isLocal,
       );
 }
 

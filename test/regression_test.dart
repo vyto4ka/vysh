@@ -11,10 +11,12 @@ import 'package:vysh/domain/models/external_colors.dart';
 import 'package:vysh/domain/models/host.dart';
 import 'package:vysh/domain/models/session_tab.dart';
 import 'package:vysh/domain/ports/document_store.dart';
+import 'package:vysh/domain/ports/local_shell.dart';
 import 'package:vysh/domain/ports/secret_store.dart';
 import 'package:vysh/domain/ports/session_prompts.dart';
 import 'package:vysh/domain/ports/sftp.dart';
 import 'package:vysh/domain/ports/ssh_transport.dart';
+import 'package:vysh/domain/ports/terminal_shell.dart';
 import 'package:vysh/domain/services/known_hosts.dart';
 import 'package:vysh/app/terminal/session_auth.dart';
 import 'package:vysh/app/terminal/terminal_session.dart';
@@ -368,6 +370,56 @@ void main() {
     }
   });
 
+  group('локальный терминал', () {
+    test('запускает оболочку без SSH и закрывается вместе с процессом', () async {
+      final shell = _LocalShell();
+      final launcher = _LocalLauncher(shell);
+      final statuses = <SessionStatus>[];
+      final session = TerminalSession(
+        host: const Host(id: 'local', label: '', address: 'localhost'),
+        connector: _Connector((_) async => fail('SSH не должен использоваться')),
+        prompts: _Prompts(),
+        secrets: _Secrets(),
+        knownHosts: KnownHosts(_MemoryStore()),
+        localShells: launcher,
+        local: true,
+        onStatus: statuses.add,
+      );
+      try {
+        await session.connect();
+        expect(launcher.started, isTrue);
+        expect(statuses, contains(SessionStatus.connecting));
+        expect(statuses.last, SessionStatus.ready);
+        expect(session.isLocal, isTrue);
+        shell.end.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(statuses.last, SessionStatus.closed);
+      } finally {
+        session.dispose();
+      }
+    });
+
+    test('ошибка запуска не подменяется SSH-подключением', () async {
+      final statuses = <SessionStatus>[];
+      final session = TerminalSession(
+        host: const Host(id: 'local', label: '', address: 'localhost'),
+        connector: _Connector((_) async => fail('SSH не должен использоваться')),
+        prompts: _Prompts(),
+        secrets: _Secrets(),
+        knownHosts: KnownHosts(_MemoryStore()),
+        localShells: _FailingLauncher(),
+        local: true,
+        onStatus: statuses.add,
+      );
+      try {
+        await session.connect();
+        expect(statuses.last, SessionStatus.lost);
+      } finally {
+        session.dispose();
+      }
+    });
+  });
+
   test('F07 после смены адреса пароль прежнего сервера не используется', () async {
     final sent = <(String, String?)>[];
     final session = _session(
@@ -389,6 +441,61 @@ void main() {
       session.dispose();
     }
   });
+}
+
+class _LocalShell implements TerminalShell {
+  final _output = StreamController<Uint8List>.broadcast();
+  final end = Completer<void>();
+  bool closed = false;
+
+  @override
+  Stream<Uint8List> get output => _output.stream;
+
+  @override
+  Future<void> get done => end.future;
+
+  @override
+  void write(Uint8List data) {}
+
+  @override
+  void resize(int columns, int rows) {}
+
+  @override
+  void close() {
+    closed = true;
+    _output.close();
+  }
+}
+
+class _LocalLauncher implements LocalShellLauncher {
+  _LocalLauncher(this.shell);
+  final _LocalShell shell;
+  bool started = false;
+
+  @override
+  bool get supported => true;
+
+  @override
+  String get shellName => 'sh';
+
+  @override
+  Future<TerminalShell> start({required int columns, required int rows}) async {
+    started = true;
+    return shell;
+  }
+}
+
+class _FailingLauncher implements LocalShellLauncher {
+  @override
+  bool get supported => true;
+
+  @override
+  String get shellName => 'sh';
+
+  @override
+  Future<TerminalShell> start({required int columns, required int rows}) async {
+    throw const LocalShellFailure(LocalShellError.launchFailed);
+  }
 }
 
 /// Документ в памяти вместо файла.

@@ -10,6 +10,7 @@ import '../../domain/models/host.dart';
 import '../../app/controllers/hosts_controller.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../app/controllers/tabs_controller.dart';
+import '../../app/dependencies.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../shell/ui_state.dart';
 import '../widgets/context_menu.dart';
@@ -203,6 +204,7 @@ class _HostsPageState extends ConsumerState<HostsPage> {
     final selecting = selectedHosts.isNotEmpty;
 
     final isCompact = MediaQuery.sizeOf(context).width < 600 || DesktopEnv.isMobile;
+    final localSupported = ref.watch(localShellLauncherProvider).supported;
 
     return CallbackShortcuts(
       bindings: {
@@ -278,6 +280,21 @@ class _HostsPageState extends ConsumerState<HostsPage> {
                               ),
                             ),
                             SizedBox(width: isCompact ? 10 : 12),
+                            if (localSupported) ...[
+                              if (isCompact)
+                                IconButton.outlined(
+                                  onPressed: () => ref.read(tabsProvider.notifier).openLocal(),
+                                  tooltip: strings.localTerminal,
+                                  icon: const Icon(Icons.terminal),
+                                )
+                              else
+                                OutlinedButton.icon(
+                                  onPressed: () => ref.read(tabsProvider.notifier).openLocal(),
+                                  icon: const Icon(Icons.terminal),
+                                  label: Text(strings.localTerminal),
+                                ),
+                              SizedBox(width: isCompact ? 10 : 12),
+                            ],
                             if (isCompact)
                               IconButton.filled(
                                 onPressed: () => showHostEditor(context),

@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'sftp.dart';
+import 'terminal_shell.dart';
 
 /// Порт SSH-подключения. Домен знает только эти типы;
 /// реализация на dartssh2 живёт в `infra/ssh/`.
@@ -248,11 +247,4 @@ abstract interface class SshTransport {
   Future<void> close();
 }
 
-abstract interface class SshShell {
-  /// stdout и stderr вместе.
-  Stream<Uint8List> get output;
-  void write(Uint8List data);
-  void resize(int columns, int rows);
-  Future<void> get done;
-  void close();
-}
+abstract interface class SshShell implements TerminalShell {}

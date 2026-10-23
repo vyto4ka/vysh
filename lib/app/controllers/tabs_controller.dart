@@ -33,13 +33,36 @@ class TabsController extends Notifier<TabsState> {
   /// [password] - введённый в редакторе пароль: используется для этой сессии,
   /// даже если пользователь не стал сохранять его в хранилище.
   void openHost(Host host, {String? password}) {
-    final tab = SessionTab(id: newId(), host: host, title: host.title);
+    _open(host, password: password);
+    ref.read(hostsProvider.notifier).touch(host.id);
+  }
+
+  void openLocal() {
+    final strings = AppStrings.forLanguage(ref.read(settingsProvider).language);
+    final host = Host(
+      id: newId(),
+      label: strings.localTerminal,
+      address: 'localhost',
+      username: 'local',
+    );
+    _open(host, local: true, title: strings.localTerminal);
+  }
+
+  void _open(Host host, {String? password, bool local = false, String? title}) {
+    final tab = SessionTab(
+      id: newId(),
+      host: host,
+      title: title ?? host.title,
+      isLocal: local,
+    );
     final session = TerminalSession(
       host: host,
       connector: ref.read(sshConnectorProvider),
       prompts: ref.read(sessionPromptsProvider),
       secrets: ref.read(secretStoreProvider),
       knownHosts: ref.read(knownHostsProvider),
+      localShells: local ? ref.read(localShellLauncherProvider) : null,
+      local: local,
       onStatus: (s) => _setStatus(tab.id, s),
       strings: () => AppStrings.forLanguage(ref.read(settingsProvider).language),
       defaultKeepAliveSeconds: ref.read(settingsProvider).keepAliveSeconds,
@@ -49,7 +72,6 @@ class TabsController extends Notifier<TabsState> {
     session.onReconnect = () => reconnect(tab.id);
     _sessions[tab.id] = session;
     state = TabsState(tabs: [...state.tabs, tab], active: state.tabs.length + 1);
-    ref.read(hostsProvider.notifier).touch(host.id);
     // Даём вкладке отрисоваться (терминал узнает свой размер), потом подключаемся.
     Future<void>.delayed(const Duration(milliseconds: 50), session.connect);
   }
@@ -75,9 +97,11 @@ class TabsController extends Notifier<TabsState> {
   void reconnect(String id) {
     final session = _sessions[id];
     if (session == null) return;
-    // Хост могли изменить в редакторе - берём свежую версию.
-    final fresh = ref.read(hostsProvider).where((h) => h.id == session.host.id).firstOrNull;
-    if (fresh != null) session.host = fresh;
+    if (!session.isLocal) {
+      // Хост могли изменить в редакторе - берём свежую версию.
+      final fresh = ref.read(hostsProvider).where((h) => h.id == session.host.id).firstOrNull;
+      if (fresh != null) session.host = fresh;
+    }
     session.connect();
   }
 
@@ -103,7 +127,10 @@ class TabsController extends Notifier<TabsState> {
       (t) => t.status == SessionStatus.ready || t.status == SessionStatus.connecting,
     );
     if (hasActive) {
-      ref.read(backgroundSessionsProvider).active(activeTab.host.displayAddress);
+      final title = activeTab.isLocal
+          ? AppStrings.forLanguage(ref.read(settingsProvider).language).localTerminal
+          : activeTab.host.displayAddress;
+      ref.read(backgroundSessionsProvider).active(title);
     } else {
       ref.read(backgroundSessionsProvider).idle();
     }
@@ -111,7 +138,12 @@ class TabsController extends Notifier<TabsState> {
 
   void duplicate(String id) {
     final tab = state.tabs.where((t) => t.id == id).firstOrNull;
-    if (tab != null) openHost(tab.host);
+    if (tab == null) return;
+    if (tab.isLocal) {
+      openLocal();
+    } else {
+      openHost(tab.host);
+    }
   }
 
   void close(String id) {

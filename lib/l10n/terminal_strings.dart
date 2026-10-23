@@ -2,6 +2,27 @@ part of 'app_strings.dart';
 
 /// Терминал: выделение, вставка, служебные подписи.
 extension TerminalStrings on AppStrings {
+  String get localTerminal =>
+      isRu ? 'Локальный терминал' : 'Local terminal';
+  String get localShellStarting =>
+      isRu ? 'Запуск локальной оболочки…' : 'Starting local shell…';
+  String get localShellRunning =>
+      isRu ? 'Локальная сессия' : 'Local session';
+  String get localShellFailed =>
+      isRu ? 'Оболочка остановлена' : 'Shell stopped';
+  String localShellFailure(LocalShellFailure f) {
+    final detail = f.detail;
+    final tail = detail == null || detail.isEmpty ? '' : ': $detail';
+    return switch (f.error) {
+      LocalShellError.unsupported => isRu
+          ? 'Локальный терминал недоступен на этой платформе'
+          : 'Local terminal is not available on this platform',
+      LocalShellError.launchFailed => isRu
+          ? 'Не удалось запустить локальную оболочку$tail'
+          : 'Could not start the local shell$tail',
+    };
+  }
+
   String get eraseLine => isRu ? 'Стереть строку' : 'Erase line';
 
   String get trailingEnterTitle =>
@@ -31,6 +52,7 @@ extension TerminalStrings on AppStrings {
   String errorText(Object e) => switch (e) {
         SshFailure() => sshFailure(e),
         SftpFailure() => sftpFailure(e),
+        LocalShellFailure() => localShellFailure(e),
         LocalFileFailure() => localFileFailure(e),
         FileSystemException(:final message, :final osError) =>
           osError == null ? message : '$message: ${osError.message}',

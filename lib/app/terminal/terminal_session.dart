@@ -7,10 +7,12 @@ import 'package:xterm2/core.dart';
 
 import '../../domain/models/host.dart';
 import '../../domain/models/session_tab.dart';
+import '../../domain/ports/local_shell.dart';
 import '../../domain/ports/secret_store.dart';
 import '../../domain/ports/session_prompts.dart';
 import '../../domain/ports/sftp.dart';
 import '../../domain/ports/ssh_transport.dart';
+import '../../domain/ports/terminal_shell.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../domain/services/known_hosts.dart';
 import 'session_auth.dart';
@@ -43,6 +45,8 @@ class TerminalSession extends ChangeNotifier {
     required this.secrets,
     required this.knownHosts,
     required this.onStatus,
+    this.localShells,
+    this.local = false,
     AppStrings Function()? strings,
     this.defaultKeepAliveSeconds = 60,
     String? initialPassword,
@@ -91,7 +95,11 @@ class TerminalSession extends ChangeNotifier {
   final SessionPrompts prompts;
   final SecretStore secrets;
   final KnownHosts knownHosts;
+  final LocalShellLauncher? localShells;
+  final bool local;
   final void Function(SessionStatus status) onStatus;
+
+  bool get isLocal => local;
 
   /// Переподключение по Enter - тем же путём, что и кнопка (со свежим хостом).
   VoidCallback? onReconnect;
@@ -164,7 +172,7 @@ class TerminalSession extends ChangeNotifier {
   }
 
   SshTransport? _transport;
-  SshShell? _shell;
+  TerminalShell? _shell;
   Future<SftpSession>? _sftp;
 
   /// Файлы, открытые «локально» (автозагрузка при сохранении).
@@ -214,81 +222,30 @@ class TerminalSession extends ChangeNotifier {
     connLog.clear();
     lastFailure = null;
     droppedAfterReady = false;
-    final address = host.displayAddress, auth = host.auth.name;
-    _log((s) => s.logConnecting(address, auth));
     _setStatus(SessionStatus.connecting);
     terminal.onOutput = null;
-    _info(_strings().terminalConnecting(address));
 
     bool stale() => _disposed || gen != _gen;
 
+    if (local) {
+      _info(_strings().localShellStarting);
+    } else {
+      final address = host.displayAddress, auth = host.auth.name;
+      _log((s) => s.logConnecting(address, auth));
+      _info(_strings().terminalConnecting(address));
+    }
+
     try {
-      final transport = await _authenticate(cancel.future);
-      if (stale()) {
-        await transport.close();
-        return;
+      if (local) {
+        await _connectLocal(stale, gen);
+      } else {
+        await _connectRemote(cancel, stale, gen);
       }
-      _transport = transport;
-      _serverVersion = transport.serverVersion;
-
-      final SshShell shell;
-      try {
-        shell = await transport.openShell(
-          columns: max(terminal.viewWidth, 20),
-          rows: max(terminal.viewHeight, 5),
-        );
-      } catch (_) {
-        // Без оболочки соединение не нужно - не оставляем его висеть.
-        if (identical(_transport, transport)) _transport = null;
-        await transport.close();
-        rethrow;
-      }
-      if (stale()) {
-        // Вкладку закрыли (или начали новое подключение), пока сервер
-        // открывал оболочку: поздний ресурс сразу освобождаем.
-        shell.close();
-        if (identical(_transport, transport)) _transport = null;
-        await transport.close();
-        return;
-      }
-      _shell = shell;
-
-      terminal.onOutput = (data) {
-        if (ctrlModifier && data.isNotEmpty) {
-          if (data == '\x1b') {
-            resetModifiers();
-            return;
-          }
-          final mapped = mapToCtrlChar(data);
-          if (mapped != null) {
-            sendCtrlChar(mapped);
-            return;
-          }
-        }
-
-        _updateClientTypedCommand(data);
-        var output = data;
-        if (altModifier && output.isNotEmpty) {
-          output = '\x1b$output';
-          altModifier = false;
-          onModifiersChanged?.call();
-        }
-        shell.write(utf8.encode(output));
-      };
-      terminal.onResize = (w, h, _, _) {
-        if (w >= 10 && h >= 2) shell.resize(w, h);
-      };
-      _outputSub = shell.output
-          .cast<List<int>>()
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .listen(terminal.write);
-
-      _setStatus(SessionStatus.ready);
-
-      // Завершение действует только на своё поколение: запоздалый done
-      // прежнего транспорта не закроет новое соединение.
-      shell.done.then((_) => _onEnded(gen, clean: true));
-      transport.done.then((_) => _onEnded(gen, clean: false));
+    } on LocalShellFailure catch (e) {
+      if (stale()) return;
+      _error((s) => s.localShellFailure(e));
+      _setStatus(SessionStatus.lost);
+      _offerReconnect();
     } on SshFailure catch (e) {
       if (stale()) return;
       if (e.kind == SshFailureKind.cancelled) {
@@ -310,6 +267,97 @@ class TerminalSession extends ChangeNotifier {
       if (identical(_cancelAttempt, cancel)) _cancelAttempt = null;
       if (gen == _gen) _connecting = false;
     }
+  }
+
+  Future<void> _connectLocal(bool Function() stale, int gen) async {
+    final launcher = localShells;
+    if (launcher == null || !launcher.supported) {
+      throw const LocalShellFailure(LocalShellError.unsupported);
+    }
+    final shell = await launcher.start(
+      columns: max(terminal.viewWidth, 20),
+      rows: max(terminal.viewHeight, 5),
+    );
+    if (stale()) {
+      shell.close();
+      return;
+    }
+    _shell = shell;
+    _attachShell(shell);
+
+    _setStatus(SessionStatus.ready);
+    shell.done.then((_) => _onEnded(gen, clean: true));
+  }
+
+  Future<void> _connectRemote(
+    Completer<void> cancel,
+    bool Function() stale,
+    int gen,
+  ) async {
+    final transport = await _authenticate(cancel.future);
+    if (stale()) {
+      await transport.close();
+      return;
+    }
+    _transport = transport;
+    _serverVersion = transport.serverVersion;
+
+    final SshShell shell;
+    try {
+      shell = await transport.openShell(
+        columns: max(terminal.viewWidth, 20),
+        rows: max(terminal.viewHeight, 5),
+      );
+    } catch (_) {
+      if (identical(_transport, transport)) _transport = null;
+      await transport.close();
+      rethrow;
+    }
+    if (stale()) {
+      shell.close();
+      if (identical(_transport, transport)) _transport = null;
+      await transport.close();
+      return;
+    }
+    _shell = shell;
+    _attachShell(shell);
+
+    _setStatus(SessionStatus.ready);
+
+    shell.done.then((_) => _onEnded(gen, clean: true));
+    transport.done.then((_) => _onEnded(gen, clean: false));
+  }
+
+  void _attachShell(TerminalShell shell) {
+    terminal.onOutput = (data) {
+      if (ctrlModifier && data.isNotEmpty) {
+        if (data == '\x1b') {
+          resetModifiers();
+          return;
+        }
+        final mapped = mapToCtrlChar(data);
+        if (mapped != null) {
+          sendCtrlChar(mapped);
+          return;
+        }
+      }
+
+      _updateClientTypedCommand(data);
+      var output = data;
+      if (altModifier && output.isNotEmpty) {
+        output = '\x1b$output';
+        altModifier = false;
+        onModifiersChanged?.call();
+      }
+      shell.write(utf8.encode(output));
+    };
+    terminal.onResize = (w, h, _, _) {
+      if (w >= 10 && h >= 2) shell.resize(w, h);
+    };
+    _outputSub = shell.output
+        .cast<List<int>>()
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen(terminal.write);
   }
 
   @override

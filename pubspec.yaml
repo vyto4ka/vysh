@@ -1,7 +1,7 @@
 name: vysh
 description: "Минималистичный и красивый SSH-менеджер подключений для Windows, Linux, macOS и Android."
 publish_to: 'none'
-version: 0.5.6+61
+version: 0.5.8+63
 
 environment:
   sdk: ^3.8.0
@@ -21,6 +21,7 @@ dependencies:
   path_provider: ^2.1.0
   super_drag_and_drop: ^0.9.1
   super_clipboard: ^0.9.1
+  flutter_pty: ^0.4.2
 
 # xterm2 с правкой: клавиатура Android не в анонимном режиме (third_party/xterm2/PATCHES.md).
 dependency_overrides:
@@ -36,6 +37,11 @@ dependency_overrides:
     path: third_party/super_native_extensions
   irondash_engine_context:
     path: third_party/irondash_engine_context
+  # Копия с правками для Android (compileSdk 36, minSdk 26), см.
+  # third_party/flutter_pty/VYSH_PATCH.md. Нужна для настоящего PTY
+  # в локальном терминале на Android.
+  flutter_pty:
+    path: third_party/flutter_pty
 
 dev_dependencies:
   flutter_test:

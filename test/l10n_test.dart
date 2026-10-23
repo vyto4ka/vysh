@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vysh/domain/models/local_file_failure.dart';
+import 'package:vysh/domain/ports/local_shell.dart';
 import 'package:vysh/domain/ports/sftp.dart';
 import 'package:vysh/domain/ports/ssh_transport.dart';
 import 'package:vysh/l10n/app_strings.dart';
@@ -38,6 +39,9 @@ void main() {
     }
     for (final e in LocalFileError.values) {
       checkBoth((s) => s.localFileFailure(LocalFileFailure(e)), e.name);
+    }
+    for (final e in LocalShellError.values) {
+      checkBoth((s) => s.localShellFailure(LocalShellFailure(e)), e.name);
     }
   });
 
