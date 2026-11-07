@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/controllers/backup_controller.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../domain/services/backup.dart';
+import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
+import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
 
 /// Раздел настроек «Резервная копия»: экспорт профиля (хосты, настройки,
@@ -58,10 +60,16 @@ class BackupSection extends ConsumerWidget {
           SnackBar(content: Text(text)),
         );
 
-    // 1. Куда сохранить.
+    // 1. Куда сохранить. На Android своего диалога «Сохранить как» нет -
+    // файл пишем во временную папку и публикуем в общую Download
+    // (MediaStore), как это делает скачивание из SFTP.
     final stamp =
         DateTime.now().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
     final defaultName = 'vysh-backup-$stamp.vyshbak';
+    if (PlatformCapabilities.sharedDownloads) {
+      await _createOnAndroid(context, ref, ctrl, defaultName);
+      return;
+    }
     final path = await getSaveLocation(
       suggestedName: defaultName,
       confirmButtonText: strings.save,
@@ -94,6 +102,50 @@ class BackupSection extends ConsumerWidget {
       snack(part);
     } on Object catch (e) {
       snack(strings.backupFailed('$e'));
+    }
+  }
+
+  /// Создание бэкапа на Android: пароль → временный файл → публикация
+  /// в общую Download через MediaStore (системного «Сохранить как» нет).
+  Future<void> _createOnAndroid(BuildContext context, WidgetRef ref,
+      BackupController ctrl, String name) async {
+    final strings = AppStrings.of(context, ref.read(settingsProvider).language);
+    final messenger = ScaffoldMessenger.of(context);
+    void snack(String text) =>
+        messenger.showSnackBar(SnackBar(content: Text(text)));
+
+    final password = await _askPassword(context, strings);
+    if (password == null || !context.mounted) return;
+    if (password.isNotEmpty && password.length < 6) {
+      snack(strings.backupPasswordTooShort);
+      return;
+    }
+
+    // Временный файл в кэше приложения, оттуда - в Download.
+    final tmpDir = Directory.systemTemp;
+    final tmp = File('${tmpDir.path}/$name.vysh-tmp');
+    try {
+      final count = await ctrl.create(tmp, password: password);
+      await LocalFiles.saveToDownloads(
+        tmp.path,
+        name,
+        mimeType: password.isEmpty
+            ? 'application/json'
+            : 'application/octet-stream',
+      );
+      if (!context.mounted) return;
+      final part = password.isEmpty
+          ? strings.backupDoneNoSecrets
+          : (count > 0
+              ? strings.backupDoneWithSecrets(count)
+              : strings.backupDonePlain);
+      snack(part);
+    } on Object catch (e) {
+      snack(strings.backupFailed('$e'));
+    } finally {
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
     }
   }
 
