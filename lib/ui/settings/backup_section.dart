@@ -21,7 +21,6 @@ class BackupSection extends ConsumerWidget {
     final s = ref.watch(settingsProvider);
     final strings = AppStrings.of(context, s.language);
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final isMobile = DesktopEnv.isMobile;
     final ctrl = ref.read(backupControllerProvider);
 
@@ -29,15 +28,9 @@ class BackupSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          strings.backupSectionTitle,
-          style: theme.textTheme.titleSmall
-              ?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 12),
-        Text(
           strings.backupSectionHint,
           style: theme.textTheme.bodySmall
-              ?.copyWith(color: scheme.onSurfaceVariant),
+              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 16),
         FilledButton.tonalIcon(
