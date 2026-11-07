@@ -42,7 +42,10 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
       'LINES': '$rows',
     };
 
-    if (Platform.isAndroid) {
+    // Windows и Android: настоящий псевдотерминал (ConPTY / forkpty).
+    // Без него на Windows cmd запускается по пайпам: нет эха, нет
+    // мигающего курсора и не работает Ctrl+C - только заголовок cmd.
+    if (Platform.isAndroid || Platform.isWindows) {
       final pty = _tryStartPty(shell, columns, rows, environment);
       if (pty != null) return pty;
     }
@@ -164,6 +167,7 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
   }
 
   List<String> _directArguments() {
+    // cmd.exe запускается без аргументов; INTERACTIVE-режим даёт ConPTY.
     if (Platform.isWindows) return const [];
     return const ['-i'];
   }
