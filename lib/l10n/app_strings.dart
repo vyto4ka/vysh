@@ -275,6 +275,43 @@ class AppStrings {
   String get confirmMultilinePasteDesc => isRu ? 'Защита от случайного выполнения команд' : 'Protection from accidental command execution';
   String get aboutApp => isRu ? 'О программе' : 'About';
   String get thirdPartyLicenses => isRu ? 'Лицензии компонентов' : 'Third-party licenses';
+
+  // Резервная копия (Настройки → Данные)
+  String get backupSectionTitle => isRu ? 'Резервная копия' : 'Backup';
+  String get backupSectionHint => isRu
+      ? 'Хосты, настройки и сохранённые пароли в одном файле. С паролем файл шифруется (AES-256-GCM), без - остаётся читаемым JSON'
+      : 'Hosts, settings and saved passwords in a single file. With a password the file is encrypted (AES-256-GCM); without one it stays readable JSON';
+  String get backupCreate => isRu ? 'Создать резервную копию' : 'Create backup';
+  String get backupRestore => isRu ? 'Восстановить из копии' : 'Restore from backup';
+  String get backupPasswordTitle => isRu ? 'Пароль копии' : 'Backup password';
+  String get backupPasswordField => isRu ? 'Пароль' : 'Password';
+  String get backupPasswordRepeat => isRu ? 'Повторите пароль' : 'Repeat password';
+  String get backupPasswordHint => isRu
+      ? 'Пустой пароль - файл без шифрования. С паролем копию можно открыть только с ним'
+      : 'An empty password keeps the file unencrypted. With a password the backup opens only with it';
+  String get backupPasswordEnterForRestore => isRu
+      ? 'Введите пароль копии' : 'Enter the backup password';
+  String get backupPasswordTooShort => isRu
+      ? 'Пароль - минимум 6 символов' : 'Password must be at least 6 characters';
+  String get backupPasswordMismatch => isRu ? 'Пароли не совпадают' : 'Passwords do not match';
+  String get backupWrongPassword => isRu ? 'Неверный пароль' : 'Wrong password';
+  String backupDoneWithSecrets(int count) => isRu
+      ? 'Копия создана: хосты, настройки и $count паролей'
+      : 'Backup created: hosts, settings and $count passwords';
+  String get backupDonePlain => isRu
+      ? 'Копия создана: хосты и настройки (сохранённых паролей нет)'
+      : 'Backup created: hosts and settings (no saved passwords)';
+  String get backupDoneNoSecrets => isRu
+      ? 'Копия создана (не зашифрована)' : 'Backup created (not encrypted)';
+  String backupRestored(int hostCount) => isRu
+      ? 'Восстановлено: $hostCount хостов' : 'Restored: $hostCount hosts';
+  String backupFailed(String detail) => isRu
+      ? 'Не удалось: $detail' : 'Failed: $detail';
+  String get backupRestoreTitle => isRu ? 'Восстановление' : 'Restore';
+  String backupRestoreConfirm(int hostCount) => isRu
+      ? 'Заменить текущие хосты и настройки данными из копии ($hostCount хостов)? Текущие данные будут перезаписаны'
+      : 'Replace current hosts and settings with the backup ($hostCount hosts)? Current data will be overwritten';
+  String get restore => isRu ? 'Восстановить' : 'Restore';
   String get appDescription => isRu
       ? 'Минималистичный и красивый SSH-клиент и менеджер подключений.'
       : 'Minimalist and elegant SSH client & connection manager.';

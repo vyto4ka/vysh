@@ -17,6 +17,7 @@ import '../../infra/platform/local_files.dart';
 import '../../infra/storage/app_paths.dart';
 import '../theme/app_theme.dart';
 import 'appearance_sections.dart';
+import 'backup_section.dart';
 import 'clipboard_section.dart';
 import 'performance_section.dart';
 import 'setting_row.dart';
@@ -187,6 +188,13 @@ class SettingsPage extends ConsumerWidget {
                   title: strings.isRu ? 'Производительность' : 'Performance',
                   children: const [PerformanceSection()],
                 ),
+                // Бэкап - на всех платформах: на Android он не менее нужен,
+                // а выбор файла там работает через системные интенты.
+                _Section(
+                  icon: Icons.backup_outlined,
+                  title: strings.isRu ? 'Резервная копия' : 'Backup',
+                  children: const [BackupSection()],
+                ),
                 // Папки - только на компьютере: на Android файлы идут в системную Download.
                 if (!isMobile)
                   _Section(
@@ -219,6 +227,7 @@ class SettingsPage extends ConsumerWidget {
                           ],
                         ),
                       ),
+                      const SizedBox(height: 8),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(strings.isRu ? 'Папка с данными' : 'Data folder'),

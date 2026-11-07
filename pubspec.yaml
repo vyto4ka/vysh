@@ -1,7 +1,7 @@
 name: vysh
 description: "Минималистичный и красивый SSH-менеджер подключений для Windows, Linux, macOS и Android."
 publish_to: 'none'
-version: 0.5.8+63
+version: 0.5.9+64
 
 environment:
   sdk: ^3.8.0
@@ -15,6 +15,8 @@ dependencies:
   window_manager: ^0.5.0
   screen_retriever: ^0.2.0
   dartssh2: ^4.1.0
+  # Шифрование резервных копий (AES-256-GCM + PBKDF2), уже в дереве зависимостей.
+  pointycastle: ^4.0.0
   xterm2: ^5.2.0
   flutter_secure_storage: ^11.0.0
   file_selector: ^1.0.3

@@ -56,6 +56,27 @@ class LocalFiles {
     }
   }
 
+  /// Системный диалог «Сохранить как» (Android, SAF ACTION_CREATE_DOCUMENT):
+  /// пользователь выбирает место и имя файла, байты [bytes] записываются туда.
+  /// Возвращает URI сохранённого файла; null - пользователь отменил диалог.
+  /// На других платформах/неудаче бросает исключение или возвращает null.
+  static Future<String?> saveDocument(
+      List<int> bytes, String suggestedName, String mimeType) async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      return await _filesChannel.invokeMethod<String>('saveDocument', {
+        'bytes': Uint8List.fromList(bytes),
+        'suggestedName': suggestedName,
+        'mimeType': mimeType,
+      });
+    } on PlatformException catch (e) {
+      if (e.code == 'PERMISSION_DENIED') {
+        throw const LocalFileFailure(LocalFileError.storagePermissionDenied);
+      }
+      throw LocalFileFailure(LocalFileError.publishFailed, {'detail': e.message ?? e.code});
+    }
+  }
+
   /// Отправить текст через системное меню «Поделиться» (Android).
   /// false - платформа так не умеет или отправка не удалась.
   static Future<bool> shareText(String text) async {
