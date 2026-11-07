@@ -45,6 +45,16 @@ class BackupController {
     );
   }
 
+  /// Собрать байты бэкапа. С пустым [password] - открытый JSON,
+  /// с паролем - AES-256-GCM. Возвращает байты и число секретов.
+  Future<(Uint8List, int)> createBytes({String password = ''}) async {
+    final data = await _collect();
+    final plain = Uint8List.fromList(utf8.encode(data.encodeJson()));
+    final bytes =
+        password.isEmpty ? plain : BackupCrypto.encrypt(plain, password);
+    return (bytes, data.secrets.length);
+  }
+
   /// Записать бэкап в [file]. С пустым [password] - открытый JSON,
   /// с паролем - AES-256-GCM. Возвращает число секретов в бэкапе.
   Future<int> create(File file, {String password = ''}) async {

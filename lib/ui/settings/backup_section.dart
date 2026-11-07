@@ -105,8 +105,9 @@ class BackupSection extends ConsumerWidget {
     }
   }
 
-  /// Создание бэкапа на Android: пароль → временный файл → публикация
-  /// в общую Download через MediaStore (системного «Сохранить как» нет).
+  /// Создание бэкапа на Android: пароль → системный диалог
+  /// «Сохранить как» (SAF) → запись байтов по выбранному URI.
+  /// Пользователь сам выбирает место и имя файла.
   Future<void> _createOnAndroid(BuildContext context, WidgetRef ref,
       BackupController ctrl, String name) async {
     final strings = AppStrings.of(context, ref.read(settingsProvider).language);
@@ -114,6 +115,8 @@ class BackupSection extends ConsumerWidget {
     void snack(String text) =>
         messenger.showSnackBar(SnackBar(content: Text(text)));
 
+    // Пароль спрашиваем до пикера: байты должны быть готовы к записи,
+    // пока открыт диалог (Activity может пересоздаваться).
     final password = await _askPassword(context, strings);
     if (password == null || !context.mounted) return;
     if (password.isNotEmpty && password.length < 6) {
@@ -121,32 +124,22 @@ class BackupSection extends ConsumerWidget {
       return;
     }
 
-    // Временный файл в кэше приложения, оттуда - в Download.
-    final tmpDir = Directory.systemTemp;
-    final tmp = File('${tmpDir.path}/$name.vysh-tmp');
-    try {
-      final count = await ctrl.create(tmp, password: password);
-      await LocalFiles.saveToDownloads(
-        tmp.path,
-        name,
-        mimeType: password.isEmpty
-            ? 'application/json'
-            : 'application/octet-stream',
-      );
-      if (!context.mounted) return;
-      final part = password.isEmpty
-          ? strings.backupDoneNoSecrets
-          : (count > 0
-              ? strings.backupDoneWithSecrets(count)
-              : strings.backupDonePlain);
-      snack(part);
-    } on Object catch (e) {
-      snack(strings.backupFailed('$e'));
-    } finally {
-      try {
-        if (await tmp.exists()) await tmp.delete();
-      } catch (_) {}
-    }
+    final (bytes, count) = await ctrl.createBytes(password: password);
+
+    // Системный «Сохранить как»: пользователь выбирает место и имя.
+    final uri = await LocalFiles.saveDocument(
+      bytes,
+      name,
+      password.isEmpty ? 'application/json' : 'application/octet-stream',
+    );
+    if (uri == null) return; // отмена диалога - не ошибка
+    if (!context.mounted) return;
+    final part = password.isEmpty
+        ? strings.backupDoneNoSecrets
+        : (count > 0
+            ? strings.backupDoneWithSecrets(count)
+            : strings.backupDonePlain);
+    snack(part);
   }
 
   /// null - пользователь отменил; '' - без пароля.

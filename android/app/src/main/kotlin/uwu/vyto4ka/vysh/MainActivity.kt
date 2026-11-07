@@ -20,6 +20,13 @@ class MainActivity : FlutterActivity() {
     private val pendingSaves = mutableListOf<Pair<MethodCall, MethodChannel.Result>>()
     private val storagePermissionRequest = 4041
     private val notificationsPermissionRequest = 4042
+
+    /// Ожидание выбора места сохранения в системном диалоге (SAF).
+    private var pendingSaveDocument: MethodChannel.Result? = null
+    /// Байты для записи в файл, выбранный в диалоге saveDocument.
+    /// Держим в Activity: данные уже собраны, до записи - только выбор места.
+    private var dataBytes: ByteArray? = null
+    private val saveDocumentRequest = 4043
     private var notificationsAsked = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -56,6 +63,28 @@ class MainActivity : FlutterActivity() {
                         }
                     } else {
                         handleSave(call, result)
+                    }
+                }
+                "saveDocument" -> {
+                    // Системный диалог «Сохранить как» (SAF): пользователь
+                    // сам выбирает место и имя файла. Второй вызов до ответа
+                    // на первый не имеет смысла - отменяем прежний.
+                    pendingSaveDocument?.error("CANCELLED", "Superseded", null)
+                    pendingSaveDocument = result
+                    dataBytes = call.argument<ByteArray>("bytes")
+                    try {
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = call.argument<String>("mimeType")
+                                ?: "application/octet-stream"
+                            putExtra(Intent.EXTRA_TITLE, call.argument<String>("suggestedName") ?: "")
+                        }
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, saveDocumentRequest)
+                    } catch (e: Exception) {
+                        pendingSaveDocument = null
+                        dataBytes = null
+                        result.error("SAVE_ERROR", e.message, null)
                     }
                 }
                 "shareText" -> {
@@ -118,6 +147,8 @@ class MainActivity : FlutterActivity() {
         // SSH-сессии живут в Dart-движке этой Activity и погибают вместе с ней:
         // держать процесс дальше незачем.
         SshForegroundService.stop(this)
+        pendingSaveDocument?.error("CANCELLED", "Activity destroyed", null)
+        pendingSaveDocument = null
         val waiting = pendingSaves.toList()
         pendingSaves.clear()
         for ((_, result) in waiting) {
@@ -172,6 +203,34 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != saveDocumentRequest) return
+        val result = pendingSaveDocument ?: return
+        pendingSaveDocument = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) {
+            // Пользователь закрыл диалог - не ошибка, просто отмена.
+            result.success(null)
+            return
+        }
+        // Запись в content:// - тяжёлая операция, не в главном потоке.
+        val bytes = dataBytes
+        dataBytes = null
+        Thread {
+            try {
+                contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                    out.write(bytes ?: ByteArray(0))
+                    out.flush()
+                } ?: throw IllegalStateException("Output stream failed")
+                runOnUiThread { result.success(uri.toString()) }
+            } catch (e: Exception) {
+                runOnUiThread { result.error("SAVE_ERROR", e.message ?: e.toString(), null) }
+            }
+        }.start()
     }
 
     private fun handleSave(call: MethodCall, result: MethodChannel.Result) {
