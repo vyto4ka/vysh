@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vysh/app/controllers/backup_controller.dart';
@@ -15,8 +14,8 @@ import 'package:vysh/domain/services/backup.dart';
 import 'package:vysh/infra/secrets/backup_crypto.dart';
 
 /// Один общий DocumentStore для всех имён (как JsonStore пишет в файлы).
-class _NamedStore implements DocumentStore {
-  _NamedStore(this.name);
+class NamedStore implements DocumentStore {
+  NamedStore(this.name);
   final String name;
   Object? data;
   @override
@@ -28,12 +27,12 @@ class _NamedStore implements DocumentStore {
   }
 }
 
-class _Stores {
-  final map = <String, _NamedStore>{};
-  _NamedStore get(String name) => map.putIfAbsent(name, () => _NamedStore(name));
+class Stores {
+  final map = <String, NamedStore>{};
+  NamedStore get(String name) => map.putIfAbsent(name, () => NamedStore(name));
 }
 
-class _Secrets implements SecretStore {
+class Secrets implements SecretStore {
   final values = <String, String>{};
   @override
   Future<String?> read(String key) async => values[key];
@@ -43,7 +42,7 @@ class _Secrets implements SecretStore {
   Future<void> delete(String key) async => values.remove(key);
 }
 
-ProviderContainer makeContainer(_Stores stores, _Secrets secrets) => ProviderContainer(
+ProviderContainer makeContainer(Stores stores, Secrets secrets) => ProviderContainer(
       overrides: [
         secretStoreProvider.overrideWithValue(secrets),
         documentStoreProvider.overrideWith((ref, name) => stores.get(name)),
@@ -53,13 +52,13 @@ ProviderContainer makeContainer(_Stores stores, _Secrets secrets) => ProviderCon
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory tmp;
-  late _Stores stores;
-  late _Secrets secrets;
+  late Stores stores;
+  late Secrets secrets;
 
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('vysh-backup-test');
-    stores = _Stores();
-    secrets = _Secrets();
+    stores = Stores();
+    secrets = Secrets();
   });
   tearDown(() {
     tmp.deleteSync(recursive: true);
