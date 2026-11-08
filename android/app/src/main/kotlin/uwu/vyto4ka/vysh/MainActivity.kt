@@ -100,6 +100,19 @@ class MainActivity : FlutterActivity() {
                         result.error("SHARE_ERROR", e.message, null)
                     }
                 }
+                "openUrl" -> {
+                    try {
+                        // Браузер/системное приложение для ссылки (страница
+                        // релиза при обновлении). Процессов на Android нет,
+                        // openWithSystem до этого URL не открывал.
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url") ?: ""))
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("OPEN_URL_ERROR", e.message, null)
+                    }
+                }
                 "revealPath" -> {
                     try {
                         // Открываем системный экран «Загрузки» - там лежат файлы

@@ -22,6 +22,7 @@ import 'clipboard_section.dart';
 import 'performance_section.dart';
 import 'setting_row.dart';
 import 'terminal_font_section.dart';
+import 'update_section.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -246,6 +247,11 @@ class SettingsPage extends ConsumerWidget {
                       ),
                     ],
                   ),
+                _Section(
+                  icon: Icons.system_update_outlined,
+                  title: strings.updatesSection,
+                  children: const [UpdateSection()],
+                ),
                 _Section(
                   icon: Icons.info_outline,
                   title: strings.aboutApp,

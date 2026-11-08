@@ -277,6 +277,17 @@ class LocalFiles {
     }
   }
 
+  /// Открыть ссылку https в браузере или системном приложении.
+  /// На Android openWithSystem не работает (процессов нет) - ACTION_VIEW.
+  static Future<void> openUrl(String url) async {
+    if (kIsWeb) return;
+    if (Platform.isAndroid) {
+      await _filesChannel.invokeMethod('openUrl', {'url': url});
+      return;
+    }
+    await openWithSystem(url);
+  }
+
   /// Показать файл/папку в файловом менеджере.
   static Future<void> reveal(String path) async {
     if (kIsWeb) return;

@@ -92,6 +92,9 @@ class SettingsController extends Notifier<AppSettings> {
   void setPauseHiddenTabs(bool v) => _update(state.copyWith(pauseHiddenTabs: v));
   void setRenderer(Renderer v) => _update(state.copyWith(renderer: v));
 
+  void setUpdatePromptDays(int days) =>
+      _update(state.copyWith(updatePromptDays: days));
+
   void _update(AppSettings next) {
     state = next;
     final json = next.toJson();

@@ -4,10 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../infra/platform/capabilities.dart';
+import 'dart:async' show unawaited;
+
 import '../../app/controllers/settings_controller.dart';
+import '../../app/controllers/update_controller.dart';
 import '../../infra/storage/app_paths.dart';
 import '../../infra/storage/json_store.dart';
 import '../../app/controllers/tabs_controller.dart';
+import '../../infra/update/update_service.dart';
+import '../dialogs/update_dialog.dart';
 import '../hosts/host_editor.dart';
 import '../hosts/hosts_page.dart';
 import '../settings/settings_page.dart';
@@ -150,6 +155,24 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget build(BuildContext context) {
     final tabs = ref.watch(tabsProvider);
     final pause = ref.watch(settingsProvider.select((s) => s.pauseHiddenTabs));
+
+    // Нашлось обновление - всплывающее окно (с периодичностью из настроек,
+    // пропущенная версия не показывается). Первый показ - не в момент
+    // подключения, а когда проверка завершится.
+    ref.listen<AsyncValue<UpdateInfo?>>(updateInfoProvider, (prev, next) {
+      final info = next.value;
+      if (info == null) return;
+      // Повторная проверка с той же версией не всплывает заново.
+      if (prev != null &&
+          !prev.isLoading &&
+          prev.value?.latestVersion == info.latestVersion) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(autoPromptForUpdate(context, ref, info));
+      });
+    });
 
     final body = Column(
         children: [

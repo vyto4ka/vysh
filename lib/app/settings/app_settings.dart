@@ -99,6 +99,7 @@ class AppSettings {
     this.catppuccinFlavor = 'mocha',
     this.catppuccinAccent = 'mauve',
     this.serverStats = true,
+    this.updatePromptDays = 3,
   });
 
   final ThemeMode themeMode;
@@ -182,6 +183,9 @@ class AppSettings {
   /// Нагрузка сервера в строке состояния терминала.
   final bool serverStats;
 
+  /// Как часто всплывать окном о новой версии, дней (1, 3, 7).
+  final int updatePromptDays;
+
   AppSettings copyWith({
     ThemeMode? themeMode,
     int? seedColor,
@@ -213,6 +217,7 @@ class AppSettings {
     String? catppuccinFlavor,
     String? catppuccinAccent,
     bool? serverStats,
+    int? updatePromptDays,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -247,6 +252,7 @@ class AppSettings {
         catppuccinFlavor: catppuccinFlavor ?? this.catppuccinFlavor,
         catppuccinAccent: catppuccinAccent ?? this.catppuccinAccent,
         serverStats: serverStats ?? this.serverStats,
+        updatePromptDays: updatePromptDays ?? this.updatePromptDays,
       );
 
   Map<String, Object?> toJson() => {
@@ -281,6 +287,7 @@ class AppSettings {
         'catppuccinFlavor': catppuccinFlavor,
         'catppuccinAccent': catppuccinAccent,
         'serverStats': serverStats,
+        'updatePromptDays': updatePromptDays,
       };
 
   factory AppSettings.fromJson(Map<String, Object?> json) => AppSettings(
@@ -344,6 +351,10 @@ class AppSettings {
         catppuccinFlavor: json.str('catppuccinFlavor') ?? 'mocha',
         catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
         serverStats: json.boolean('serverStats') ?? true,
+        updatePromptDays: json.integer('updatePromptDays') == 1 ||
+                json.integer('updatePromptDays') == 7
+            ? json.integer('updatePromptDays')!
+            : 3,
       );
 
   static double _finite(double? v, double fallback) =>
