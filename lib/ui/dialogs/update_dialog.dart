@@ -177,7 +177,6 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       ],
     );
   }
-
   String _statusLabel(BuildContext context) {
     final s = context.strings;
     if (_applying) return s.updateApplying;

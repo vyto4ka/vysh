@@ -288,6 +288,13 @@ class LocalFiles {
     await openWithSystem(url);
   }
 
+  /// Запустить системный установщик APK (Android): показывается диалог
+  /// «Обновить это приложение?». [path] - скачанный .apk.
+  static Future<void> installApk(String path) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    await _filesChannel.invokeMethod('installApk', {'path': path});
+  }
+
   /// Показать файл/папку в файловом менеджере.
   static Future<void> reveal(String path) async {
     if (kIsWeb) return;

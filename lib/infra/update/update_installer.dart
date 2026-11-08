@@ -53,13 +53,31 @@ class UpdateInstaller {
         );
       }
 
+      // Android: системный диалог пакетного установщика
+      // «Обновить это приложение?» после скачивания с прогрессом.
+      if (Platform.isAndroid && ext == '.apk') {
+        await LocalFiles.installApk(file.path);
+        return false;
+      }
+
+      // macOS: монтируем DMG - Finder открывает окно с vysh.app,
+      // дальше пользователь переносит приложение в Applications.
+      if (Platform.isMacOS && ext == '.dmg') {
+        await MacOSDmgUpdate.mountDmg(file.path);
+        return false;
+      }
+
       // Неизвестная комбинация: не молчим, отдаём пользователю файл.
       await LocalFiles.openUrl(file.uri.toString());
       return false;
     } catch (_) {
-      try {
-        await dir.delete(recursive: true);
-      } catch (_) {}
+      // Ловим и пробрасываем; временную папку подчищаем, но на Android и
+      // macOS копия файла уже у установщика/в монтированном образе.
+      if (!Platform.isAndroid && !Platform.isMacOS) {
+        try {
+          await dir.delete(recursive: true);
+        } catch (_) {}
+      }
       rethrow;
     }
   }
@@ -558,3 +576,58 @@ sleep 1
 ''';
 }
 
+
+// ── macOS: DMG ──
+
+/// Обновление на macOS: смонтировать скачанный DMG через `hdiutil attach` -
+/// Finder открывает окно с vysh.app и ссылкой на /Applications, дальше
+/// пользователь переносит приложение (стандартный UX установки на macOS).
+/// Приложение продолжает работать: подмена запущенного .app на macOS
+/// возможна, но требует отключения Gatekeeper-проверок и права на запись
+/// в /Applications - система надёжнее.
+class MacOSDmgUpdate {
+  MacOSDmgUpdate._();
+
+  static Future<void> mountDmg(String dmgPath) async {
+    final result = await Process.run(
+      'hdiutil',
+      ['attach', '-noverify', '-noautoopen', dmgPath],
+    );
+    if (result.exitCode != 0) {
+      final message = (result.stderr as String).trim();
+      throw UpdateInstallException(
+        UpdateInstallError.badArchive,
+        message.isEmpty ? null : message,
+      );
+    }
+    // В Finder окно образа открывает сам hdiutil при монтировании без
+    // -noautoopen; с ним открываем вручную, чтобы пользователь увидел
+    // vysh.app сразу.
+    final mountPoint = _mountPointOf(result.stdout as String);
+    if (mountPoint != null) {
+      await Process.start(
+        'open',
+        [mountPoint],
+        mode: ProcessStartMode.detached,
+      );
+    }
+  }
+
+  /// stdout hdiutil: таблица смонтированных разделов, точка монтирования -
+  /// последняя колонка последней строки вида:
+  /// `/dev/disk4s1  Apple_HFS  /Volumes/vysh`.
+  static String? _mountPointOf(String stdout) {
+    final lines = stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    for (final line in lines.reversed) {
+      final parts = line.split(RegExp(r'\s+'));
+      if (parts.length >= 3 && parts.last.startsWith('/Volumes/')) {
+        return parts.last;
+      }
+    }
+    return null;
+  }
+}

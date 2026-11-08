@@ -214,18 +214,16 @@ class UpdateService {
         'https://github.com/$_owner/$_repo/releases/latest') as String;
     final checksumAsset = _findChecksumAsset(assets, assetName);
 
-    final openInBrowser = Platform.isAndroid ||
-        Platform.isMacOS ||
-        _isSetupAsset(assetName);
+    // Установщики Linux (deb/rpm/AppImage): системный установщик пусть
+    // решает пользователь - ведём на страницу релиза.
+    final openInBrowser = _isSetupAsset(assetName);
 
     return UpdateInfo(
       currentVersion: currentVersion,
       latestVersion: latestTag,
-      // Android и macOS: установка вручную (APK активирует систему, DMG
-      // монтируется) - ведём на страницу релиза.
-      downloadUrl: openInBrowser
-          ? releaseUrl
-          : (asset['browser_download_url'] ?? '') as String,
+      // Android и macOS качают файл и ставят сами (системный установщик
+      // APK / монтирование DMG), остальные платформы - прямой файл.
+      downloadUrl: (asset['browser_download_url'] ?? '') as String,
       releaseUrl: releaseUrl,
       releaseNotes: latest['body']?.toString(),
       assetSize: (asset['size'] ?? 0) as int,
