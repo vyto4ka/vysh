@@ -192,7 +192,7 @@ flutter run -d <устройство>    # отладка
 
 [Flutter](https://flutter.dev) · [Riverpod](https://riverpod.dev) · [dartssh2](https://pub.dev/packages/dartssh2) (SSH и SFTP) · [xterm2](https://pub.dev/packages/xterm2) (терминал) · [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) · [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) (шрифт)
 
-Версия для Android подготовлена [Gitveu](https://github.com/Gitveu) ([vysh-apk](https://github.com/Gitveu/vysh-apk)).
+Версия для Android подготовлена [Gitveu](https://github.com/Gitveu)
 
 Устройство проекта описано в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), история изменений в [CHANGELOG.md](CHANGELOG.md).
 
