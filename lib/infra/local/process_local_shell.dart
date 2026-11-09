@@ -97,16 +97,32 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
       return _PtyShell(
         Pty.start(
           shell,
-          arguments: _directArguments(),
+          arguments: _ptyArguments(shell),
           columns: columns,
           rows: rows,
           environment: environment,
           workingDirectory: workingDirectory,
         ),
       );
-    } catch (_) {
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('Local shell PTY start failed: $e\n$st');
+      }
       return null;
     }
+  }
+
+  List<String> _ptyArguments(String shell) {
+    if (Platform.isWindows) {
+      final name = shell.split(RegExp(r'[/\\]')).last.toLowerCase();
+      // В ConPTY кодировка UTF-8 транслируется самой псевдоконсолью,
+      // а запуск cmd без аргументов выводит стандартный копирайт
+      // Microsoft Windows вместо технического "Active code page: 65001".
+      if (name == 'cmd.exe' || name == 'cmd') {
+        return const [];
+      }
+    }
+    return _directArguments();
   }
 
   Future<TerminalShell> _startWithPty(

@@ -45,7 +45,7 @@ static LPWSTR build_command(char *executable, char **arguments)
     int start_index = 0;
     if (arguments != NULL && arguments[0] != NULL && executable != NULL)
     {
-        if (strcmp(arguments[0], executable) == 0)
+        if (_stricmp(arguments[0], executable) == 0)
         {
             start_index = 1;
         }
@@ -122,46 +122,51 @@ static LPWSTR build_command(char *executable, char **arguments)
 
 static LPWSTR build_environment(char **environment)
 {
-    LPWSTR environment_block = NULL;
-    int environment_block_length = 0;
-
-    if (environment != NULL)
-    {
-        int i = 0;
-
-        while (environment[i] != NULL)
-        {
-            environment_block_length += (int)strlen(environment[i]) + 1;
-            i++;
-        }
-    }
-
-    char *block = malloc(environment_block_length + 1);
-
-    if (block == NULL)
+    if (environment == NULL)
     {
         return NULL;
     }
 
-    if (environment != NULL)
-    {
-        int i = 0;
-        int offset = 0;
+    int total_wchars = 0;
+    int i = 0;
 
-        while (environment[i] != NULL)
+    while (environment[i] != NULL)
+    {
+        int len = MultiByteToWideChar(CP_UTF8, 0, environment[i], -1, NULL, 0);
+        if (len <= 0)
         {
-            int length = (int)strlen(environment[i]);
-            memcpy(block + offset, environment[i], length);
-            offset += length;
-            block[offset++] = 0;
-            i++;
+            return NULL;
         }
+        total_wchars += len;
+        i++;
     }
 
-    block[environment_block_length] = 0;
+    // Дополнительный \0 для завершения блока двойным нулём (\0\0).
+    total_wchars += 1;
 
-    LPWSTR wide = utf8_to_wide(block);
-    free(block);
+    LPWSTR wide = malloc(total_wchars * sizeof(WCHAR));
+    if (wide == NULL)
+    {
+        return NULL;
+    }
+
+    int offset = 0;
+    i = 0;
+
+    while (environment[i] != NULL)
+    {
+        int len = MultiByteToWideChar(CP_UTF8, 0, environment[i], -1, wide + offset, total_wchars - offset);
+        if (len <= 0)
+        {
+            free(wide);
+            return NULL;
+        }
+        offset += len;
+        i++;
+    }
+
+    wide[offset] = 0;
+
     return wide;
 }
 
@@ -351,16 +356,18 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
         return NULL;
     }
 
-    STARTUPINFOEX startupInfo;
+    STARTUPINFOEXW startupInfo;
 
     ZeroMemory(&startupInfo, sizeof(startupInfo));
     startupInfo.StartupInfo.cb = sizeof(startupInfo);
-
-    // STARTF_USESTDHANDLES с NULL-хэндлами не ставится: с атрибутом
-    // PSEUDOCONSOLE Windows сам подключает std-потоки процесса к
-    // псевдоконсоли. С NULL-хэндлами cmd работает, но запущенные из него
-    // powershell / wsl / bash наследуют невалидный stdout и сразу падают.
-    SIZE_T bytesRequired;
+    // ConPTY строго требует STARTF_USESTDHANDLES с NULL-дескрипторами,
+    // чтобы стандартные потоки (stdin/stdout/stderr) процесса были
+    // корректно перенаправлены в созданную псевдоконсоль.
+    startupInfo.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+    startupInfo.StartupInfo.hStdInput = NULL;
+    startupInfo.StartupInfo.hStdOutput = NULL;
+    startupInfo.StartupInfo.hStdError = NULL;
+    SIZE_T bytesRequired = 0;
     InitializeProcThreadAttributeList(NULL, 1, 0, &bytesRequired);
     startupInfo.lpAttributeList = (PPROC_THREAD_ATTRIBUTE_LIST)malloc(bytesRequired);
 
@@ -368,6 +375,11 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!ok)
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
+        ClosePseudoConsole(hPty);
         error_message = "Failed to initialize proc thread attribute list";
         return NULL;
     }
@@ -382,6 +394,13 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!ok)
     {
+        DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+        free(startupInfo.lpAttributeList);
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
+        ClosePseudoConsole(hPty);
         error_message = "Failed to update proc thread attribute list";
         return NULL;
     }
@@ -395,16 +414,25 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
     PROCESS_INFORMATION processInfo;
     ZeroMemory(&processInfo, sizeof(processInfo));
 
+    DWORD creation_flags = EXTENDED_STARTUPINFO_PRESENT;
+    if (environment_block != NULL)
+    {
+        creation_flags |= CREATE_UNICODE_ENVIRONMENT;
+    }
+
     ok = CreateProcessW(NULL,
                         command,
                         NULL,
                         NULL,
                         FALSE,
-                        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                        creation_flags,
                         environment_block,
                         working_directory,
                         &startupInfo.StartupInfo,
                         &processInfo);
+
+    DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+    free(startupInfo.lpAttributeList);
 
     if (command != NULL)
     {
@@ -424,6 +452,8 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
     if (!ok)
     {
         CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
         CloseHandle(outputWriteSide);
         ClosePseudoConsole(hPty);
         error_message = "Failed to create process";

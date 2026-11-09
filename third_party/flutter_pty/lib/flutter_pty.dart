@@ -103,12 +103,18 @@ class Pty {
     argv.elementAt(arguments.length + 1).value = nullptr;
 
     //build env
-    final envp = calloc<Pointer<Utf8>>(effectiveEnv.length + 1);
-    for (var i = 0; i < effectiveEnv.length; i++) {
-      final entry = effectiveEnv.entries.elementAt(i);
+    final envEntries = effectiveEnv.entries.toList();
+    if (Platform.isWindows) {
+      envEntries.sort(
+        (a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()),
+      );
+    }
+    final envp = calloc<Pointer<Utf8>>(envEntries.length + 1);
+    for (var i = 0; i < envEntries.length; i++) {
+      final entry = envEntries[i];
       envp.elementAt(i).value = '${entry.key}=${entry.value}'.toNativeUtf8();
     }
-    envp.elementAt(effectiveEnv.length).value = nullptr;
+    envp.elementAt(envEntries.length).value = nullptr;
 
     final options = calloc<PtyOptions>();
     options.ref.rows = rows;
