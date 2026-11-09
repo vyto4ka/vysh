@@ -17,6 +17,13 @@
 - UTF-8 → UTF-16 теперь через `MultiByteToWideChar` (команда, окружение,
   рабочая папка). Прежнее «побайтовое» расширение искажало всё вне ASCII:
   пути и переменные с русскими буквами приходили в процесс мусором.
+- Исправлено дублирование `executable` в `build_command`: `arguments[0]`
+  в `flutter_pty.dart` уже содержит имя исполняемого файла, из-за чего в
+  `CreateProcessW` передавалось `cmd.exe cmd.exe /k ...`, запускавшее
+  вложенный процесс и блокировавшее ввод.
+- Закрываются концы пайпов ConPTY (`inputReadSide` и `outputWriteSide`)
+  сразу после `CreatePseudoConsole`, убран блокирующий `FlushFileBuffers`
+  в `pty_write`, убран `Sleep(1000)` и закрывается `processInfo.hThread`.
 
 **lib/flutter_pty.dart:**
 

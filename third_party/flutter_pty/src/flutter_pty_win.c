@@ -37,20 +37,34 @@ static LPWSTR utf8_to_wide(const char *utf8)
 
 static LPWSTR build_command(char *executable, char **arguments)
 {
+    // flutter_pty.dart кладёт в argv первым элементом (arguments[0]) сам
+    // executable (стандартный POSIX argv для execvp). Если не пропустить
+    // arguments[0], в CreateProcessW передавалось «cmd.exe cmd.exe /k ...» -
+    // внешний cmd запускал внутренний как дочерний процесс, блокировал ввод
+    // и ломал работу псевдотерминала.
+    int start_index = 0;
+    if (arguments != NULL && arguments[0] != NULL && executable != NULL)
+    {
+        if (strcmp(arguments[0], executable) == 0)
+        {
+            start_index = 1;
+        }
+    }
+
     int command_length = 0;
 
     if (executable != NULL)
     {
-        command_length += (int)strlen(executable) + 1;
+        command_length += (int)strlen(executable) + 3;
     }
 
     if (arguments != NULL)
     {
-        int i = 0;
+        int i = start_index;
 
         while (arguments[i] != NULL)
         {
-            command_length += (int)strlen(arguments[i]) + 1;
+            command_length += (int)strlen(arguments[i]) + 3;
             i++;
         }
     }
@@ -66,17 +80,37 @@ static LPWSTR build_command(char *executable, char **arguments)
 
     if (executable != NULL)
     {
-        strcpy(command, executable);
+        int has_space = strchr(executable, ' ') != NULL;
+        if (has_space && executable[0] != '"')
+        {
+            strcat(command, "\"");
+            strcat(command, executable);
+            strcat(command, "\"");
+        }
+        else
+        {
+            strcpy(command, executable);
+        }
     }
 
     if (arguments != NULL)
     {
-        int i = 0;
+        int i = start_index;
 
         while (arguments[i] != NULL)
         {
             strcat(command, " ");
-            strcat(command, arguments[i]);
+            int has_space = strchr(arguments[i], ' ') != NULL;
+            if (has_space && arguments[i][0] != '"')
+            {
+                strcat(command, "\"");
+                strcat(command, arguments[i]);
+                strcat(command, "\"");
+            }
+            else
+            {
+                strcat(command, arguments[i]);
+            }
             i++;
         }
     }
@@ -258,9 +292,9 @@ static void start_wait_exit_thread(HANDLE pid, Dart_Port port, HANDLE mutex)
 
 typedef struct PtyHandle
 {
-    PHANDLE inputWriteSide;
+    HANDLE inputWriteSide;
 
-    PHANDLE outputReadSide;
+    HANDLE outputReadSide;
 
     HPCON hPty;
 
@@ -303,8 +337,17 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     HRESULT result = CreatePseudoConsole(size, inputReadSide, outputWriteSide, 0, &hPty);
 
+    // Псевдоконсоль дублирует/забирает себе переданные концы пайпов.
+    // Сторона вызывающего процесса должна быть закрыта сразу: иначе
+    // inputReadSide держит открытый лишний дескриптор на чтение, а
+    // outputWriteSide не даст ReadFile завершиться с EOF при выходе процесса.
+    CloseHandle(inputReadSide);
+    CloseHandle(outputWriteSide);
+
     if (FAILED(result))
     {
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
         error_message = "Failed to create pseudo console";
         return NULL;
     }
@@ -353,8 +396,6 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
     PROCESS_INFORMATION processInfo;
     ZeroMemory(&processInfo, sizeof(processInfo));
 
-    Sleep(1000);
-
     ok = CreateProcessW(NULL,
                         command,
                         NULL,
@@ -389,9 +430,7 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
         return NULL;
     }
 
-    // free(startupInfo.lpAttributeList);
-
-    // CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hThread);
 
     HANDLE mutex = CreateSemaphore(
         NULL, // default security attributes
@@ -426,8 +465,6 @@ FFI_PLUGIN_EXPORT void pty_write(PtyHandle *handle, char *buffer, int length)
     DWORD bytesWritten;
 
     WriteFile(handle->inputWriteSide, buffer, length, &bytesWritten, NULL);
-
-    FlushFileBuffers(handle->inputWriteSide);
 
     return;
 }
