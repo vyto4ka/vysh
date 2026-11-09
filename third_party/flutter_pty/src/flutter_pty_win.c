@@ -7,13 +7,41 @@
 #include "include/dart_api_dl.h"
 #include "include/dart_native_api.h"
 
+// UTF-8 → UTF-16. Простое расширение байта в wchar ломало все символы вне
+// ASCII: пути и переменные окружения с русскими буквами приходили в процесс
+// мусором (cmd их и печатал мусором).
+static LPWSTR utf8_to_wide(const char *utf8)
+{
+    if (utf8 == NULL)
+    {
+        return NULL;
+    }
+
+    int length = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+
+    if (length <= 0)
+    {
+        return NULL;
+    }
+
+    LPWSTR wide = malloc(length * sizeof(WCHAR));
+
+    if (wide != NULL && MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, length) <= 0)
+    {
+        free(wide);
+        return NULL;
+    }
+
+    return wide;
+}
+
 static LPWSTR build_command(char *executable, char **arguments)
 {
     int command_length = 0;
 
     if (executable != NULL)
     {
-        command_length += (int)strlen(executable);
+        command_length += (int)strlen(executable) + 1;
     }
 
     if (arguments != NULL)
@@ -27,49 +55,35 @@ static LPWSTR build_command(char *executable, char **arguments)
         }
     }
 
-    LPWSTR command = malloc((command_length + 1) * sizeof(WCHAR));
+    char *command = malloc(command_length + 1);
 
-    if (command != NULL)
+    if (command == NULL)
+    {
+        return NULL;
+    }
+
+    command[0] = 0;
+
+    if (executable != NULL)
+    {
+        strcpy(command, executable);
+    }
+
+    if (arguments != NULL)
     {
         int i = 0;
 
-        if (executable != NULL)
+        while (arguments[i] != NULL)
         {
-            int j = 0;
-
-            while (executable[j] != 0)
-            {
-                command[i] = (WCHAR)executable[j];
-                i++;
-                j++;
-            }
+            strcat(command, " ");
+            strcat(command, arguments[i]);
+            i++;
         }
-
-        if (arguments != NULL)
-        {
-            int j = 0;
-
-            while (arguments[j] != NULL)
-            {
-                command[i++] = ' ';
-
-                int k = 0;
-
-                while (arguments[j][k] != 0)
-                {
-                    command[i] = (WCHAR)arguments[j][k];
-                    i++;
-                    k++;
-                }
-
-                j++;
-            }
-        }
-
-        command[i] = 0;
     }
 
-    return command;
+    LPWSTR wide = utf8_to_wide(command);
+    free(command);
+    return wide;
 }
 
 static LPWSTR build_environment(char **environment)
@@ -88,37 +102,33 @@ static LPWSTR build_environment(char **environment)
         }
     }
 
-    environment_block = malloc((environment_block_length + 1) * sizeof(WCHAR));
+    char *block = malloc(environment_block_length + 1);
 
-    if (environment_block != NULL)
+    if (block == NULL)
     {
-        int i = 0;
-
-        if (environment != NULL)
-        {
-            int j = 0;
-
-            while (environment[j] != NULL)
-            {
-                int k = 0;
-
-                while (environment[j][k] != 0)
-                {
-                    environment_block[i] = (WCHAR)environment[j][k];
-                    i++;
-                    k++;
-                }
-
-                environment_block[i++] = 0;
-
-                j++;
-            }
-        }
-
-        environment_block[i] = 0;
+        return NULL;
     }
 
-    return environment_block;
+    if (environment != NULL)
+    {
+        int i = 0;
+        int offset = 0;
+
+        while (environment[i] != NULL)
+        {
+            int length = (int)strlen(environment[i]);
+            memcpy(block + offset, environment[i], length);
+            offset += length;
+            block[offset++] = 0;
+            i++;
+        }
+    }
+
+    block[environment_block_length] = 0;
+
+    LPWSTR wide = utf8_to_wide(block);
+    free(block);
+    return wide;
 }
 
 static LPWSTR build_working_directory(char *working_directory)
@@ -128,25 +138,7 @@ static LPWSTR build_working_directory(char *working_directory)
         return NULL;
     }
 
-    int working_directory_length = (int)strlen(working_directory);
-
-    LPWSTR working_directory_block = malloc((working_directory_length + 1) * sizeof(WCHAR));
-
-    if (working_directory_block == NULL)
-    {
-        return NULL;
-    }
-
-    int i = 0;
-
-    while (working_directory[i] != 0)
-    {
-        working_directory_block[i] = (WCHAR)working_directory[i++];
-    }
-
-    working_directory_block[i] = 0;
-
-    return working_directory_block;
+    return utf8_to_wide(working_directory);
 }
 
 typedef struct ReadLoopOptions
@@ -322,11 +314,10 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
     ZeroMemory(&startupInfo, sizeof(startupInfo));
     startupInfo.StartupInfo.cb = sizeof(startupInfo);
 
-    startupInfo.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    startupInfo.StartupInfo.hStdInput = NULL;
-    startupInfo.StartupInfo.hStdOutput = NULL;
-    startupInfo.StartupInfo.hStdError = NULL;
-
+    // STARTF_USESTDHANDLES с NULL-хэндлами не ставится: с атрибутом
+    // PSEUDOCONSOLE Windows сам подключает std-потоки процесса к
+    // псевдоконсоли. С NULL-хэндлами cmd работает, но запущенные из него
+    // powershell / wsl / bash наследуют невалидный stdout и сразу падают.
     SIZE_T bytesRequired;
     InitializeProcThreadAttributeList(NULL, 1, 0, &bytesRequired);
     startupInfo.lpAttributeList = (PPROC_THREAD_ATTRIBUTE_LIST)malloc(bytesRequired);

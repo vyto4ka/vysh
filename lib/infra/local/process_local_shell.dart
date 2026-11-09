@@ -167,8 +167,11 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
   }
 
   List<String> _directArguments() {
-    // cmd.exe запускается без аргументов; INTERACTIVE-режим даёт ConPTY.
-    if (Platform.isWindows) return const [];
+    // cmd.exe в русской локали печатает текст в OEM-кодировке (cp866), а
+    // vysh читает поток как UTF-8 - русские буквы превращались в мусор.
+    // chcp 65001 переводит и вывод, и ввод на UTF-8. /k - выполнить команду
+    // и остаться в интерактивном режиме.
+    if (Platform.isWindows) return const ['/k', 'chcp', '65001'];
     return const ['-i'];
   }
 
