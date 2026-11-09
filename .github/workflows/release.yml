@@ -237,6 +237,10 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: python3 tools/release/make_pkgbuild.py dist
+      - name: Контрольные суммы SHA-256 для встроенного обновления
+        run: |
+          cd dist
+          sha256sum vysh-* > SHA256SUMS
       - name: Текст релиза из CHANGELOG.md
         id: notes
         env:

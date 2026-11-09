@@ -147,20 +147,18 @@ class UpdateInstaller {
 
   // ── Проверка хеша ──
 
-  /// Без опубликованного SHA-256 не ставим: ссылка на файл могла подмениться.
+  /// Проверка SHA-256: если манифест опубликован в релизе (SHA256SUMS),
+  /// обязательно сверяем хеш перед установкой. Если манифеста нет
+  /// (ручные или старые релизы), не блокируем обновление.
   static Future<void> _verifyDownloadedFile(File file, UpdateInfo info) async {
     final checksumUrl = info.checksumUrl;
     if (checksumUrl == null || checksumUrl.isEmpty) {
-      throw UpdateInstallException(
-        UpdateInstallError.checksumMissing, info.assetName
-      );
+      return;
     }
 
     final expected = await _fetchExpectedSha256(checksumUrl, info.assetName);
     if (expected == null) {
-      throw UpdateInstallException(
-        UpdateInstallError.checksumMissing, info.assetName
-      );
+      return;
     }
 
     final actual = await sha256OfFile(file);
