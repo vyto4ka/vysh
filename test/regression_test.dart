@@ -251,6 +251,13 @@ void main() {
     test('«одной строкой» не содержит ни CR, ни LF', () {
       expect(PastePlan('a\r\nb\rc\n').singleLine, 'a b c');
     });
+
+    test('переводы строк CRLF и CR нормализуются при вставке без дублирования пустых строк', () {
+      final plan = PastePlan('line1\r\nline2\r\nline3');
+      expect(plan.normalized, 'line1\nline2\nline3');
+      expect(PastePlan('a\r\n\r\nb').normalized, 'a\n\nb');
+      expect(PastePlan('a\rb\n').normalized, 'a\nb\n');
+    });
   });
 
   group('F04 keyboard-interactive', () {

@@ -155,6 +155,7 @@ mixin _ClipboardActions on _SessionViewBase {
 
     // Проверяем ровно то, что уйдёт в терминал: любой CR или LF.
     final plan = PastePlan(text);
+    var toPaste = plan.normalized;
 
     if (plan.hasLineBreaks && ref.read(settingsProvider).confirmMultilinePaste) {
       final ok = await _confirmPaste(plan);
@@ -165,11 +166,11 @@ mixin _ClipboardActions on _SessionViewBase {
       }
 
       if (ok == false) {
-        text = plan.singleLine;
+        toPaste = plan.singleLine;
       }
     }
 
-    _terminal?.paste(text);
+    _terminal?.paste(toPaste);
     _controller.clearSelection();
     _focus.requestFocus();
 
