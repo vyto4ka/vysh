@@ -21,9 +21,13 @@
   в `flutter_pty.dart` уже содержит имя исполняемого файла, из-за чего в
   `CreateProcessW` передавалось `cmd.exe cmd.exe /k ...`, запускавшее
   вложенный процесс и блокировавшее ввод.
-- Закрываются концы пайпов ConPTY (`inputReadSide` и `outputWriteSide`)
-  сразу после `CreatePseudoConsole`, убран блокирующий `FlushFileBuffers`
-  в `pty_write`, убран `Sleep(1000)` и закрывается `processInfo.hThread`.
+- Концы пайпов ConPTY (`inputReadSide` и `outputWriteSide`) закрываются
+  ПОСЛЕ `CreateProcessW` (не сразу после `CreatePseudoConsole`): ConPTY не
+  дублирует переданные хэндлы, а читает/пишет через них сам. Преждевременное
+  закрытие убивало канал ввода - cmd печатал промпт, но нажатия клавиш до
+  него не доходили (по образцу Microsoft «creating a pseudoconsole session»).
+  Также убран блокирующий `FlushFileBuffers` в `pty_write`, убран `Sleep(1000)`
+  и закрывается `processInfo.hThread`.
 
 **lib/flutter_pty.dart:**
 

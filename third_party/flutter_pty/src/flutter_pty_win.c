@@ -337,13 +337,12 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     HRESULT result = CreatePseudoConsole(size, inputReadSide, outputWriteSide, 0, &hPty);
 
-    // Псевдоконсоль дублирует/забирает себе переданные концы пайпов.
-    // Сторона вызывающего процесса должна быть закрыта сразу: иначе
-    // inputReadSide держит открытый лишний дескриптор на чтение, а
-    // outputWriteSide не даст ReadFile завершиться с EOF при выходе процесса.
-    CloseHandle(inputReadSide);
-    CloseHandle(outputWriteSide);
-
+    // Концы пайпов, переданные в CreatePseudoConsole (inputReadSide и
+    // outputWriteSide), нельзя закрывать до запуска процесса: ConPTY не
+    // дублирует их, а читает/пишет через эти же хэндлы. Если закрыть их
+    // сразу после CreatePseudoConsole, канал ввода псевдоконсоли умирает:
+    // cmd печатает промпт, но нажатия клавиш до него не доходят.
+    // По образцу Microsoft их закрывают ПОСЛЕ CreateProcessW.
     if (FAILED(result))
     {
         CloseHandle(inputWriteSide);
@@ -424,11 +423,17 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!ok)
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(outputWriteSide);
+        ClosePseudoConsole(hPty);
         error_message = "Failed to create process";
         DWORD error = GetLastError();
         printf("error no: %d\n", error);
         return NULL;
     }
+
+    CloseHandle(inputReadSide);
+    CloseHandle(outputWriteSide);
 
     CloseHandle(processInfo.hThread);
 
