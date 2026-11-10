@@ -197,7 +197,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         widget.info,
         onProgress: (received, total) {
           if (total > 0 && mounted) {
-            setState(() => _progress = received / total);
+            setState(() {
+              _progress = received / total;
+              // Скачано - дальше проверка хеша и применение.
+              _applying = received >= total;
+            });
           }
         },
       );
@@ -207,14 +211,23 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         setState(() => _downloading = false);
         Navigator.pop(context);
       }
-    } on UpdateInstallException catch (e) {
+    } catch (e) {
+      // Ловим всё: необработанная ошибка (HttpException, PlatformException
+      // от установщика APK, ProcessException...) оставила бы окно с
+      // выключенными кнопками, а закрыть его нельзя (barrierDismissible).
       if (mounted) {
         setState(() {
           _downloading = false;
           _applying = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.updateInstallFailure(e))),
+          SnackBar(
+            content: Text(
+              e is UpdateInstallException
+                  ? s.updateInstallFailure(e)
+                  : s.updateInstallUnexpected('$e'),
+            ),
+          ),
         );
       }
     }

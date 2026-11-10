@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -14,7 +15,8 @@ import '../../infra/update/update_service.dart';
 /// * Windows portable zip: распаковка и подмена файлов PS-скриптом после
 ///   выхода приложения, затем перезапуск (как в keqdroid).
 /// * Linux tar.gz: то же через sh-скрипт с `cp -a --remove-destination`.
-/// * Android / macOS / установщики Linux: открыть страницу релиза.
+/// * Android: системный установщик APK; macOS: монтирование DMG.
+/// * Установщики Linux (deb/rpm/AppImage): открыть ссылку в браузере.
 class UpdateInstaller {
   UpdateInstaller._();
 
@@ -125,7 +127,9 @@ class UpdateInstaller {
       var received = 0;
       final total = response.contentLength;
       try {
-        await for (final chunk in response) {
+        // Таймаут простоя: оборванное соединение без FIN иначе вешало бы
+        // скачивание (и окно обновления) навсегда.
+        await for (final chunk in response.timeout(const Duration(seconds: 60))) {
           sink.add(chunk);
           received += chunk.length;
           if (total > 0) onProgress?.call(received, total);
@@ -134,10 +138,21 @@ class UpdateInstaller {
       } finally {
         await sink.close();
       }
+      // Недокачанный файл не применяем, даже если для релиза нет хеша.
+      if (total > 0 && received != total) {
+        throw UpdateInstallException(
+          UpdateInstallError.downloadFailed,
+          '$received / $total',
+        );
+      }
     } on UpdateInstallException {
       rethrow;
     } on SocketException catch (e) {
       throw UpdateInstallException(UpdateInstallError.downloadFailed, '$e');
+    } on HttpException catch (e) {
+      throw UpdateInstallException(UpdateInstallError.downloadFailed, '$e');
+    } on TimeoutException {
+      throw const UpdateInstallException(UpdateInstallError.downloadFailed, 'timeout');
     } on FileSystemException catch (e) {
       throw UpdateInstallException(UpdateInstallError.writeFailed, '$e');
     } finally {
@@ -147,18 +162,22 @@ class UpdateInstaller {
 
   // ── Проверка хеша ──
 
-  /// Проверка SHA-256: если манифест опубликован в релизе (SHA256SUMS),
-  /// обязательно сверяем хеш перед установкой. Если манифеста нет
-  /// (ручные или старые релизы), не блокируем обновление.
+  /// Проверка SHA-256. Если в релизе опубликован манифест (SHA256SUMS или
+  /// `<файл>.sha256`), хеш сверяется обязательно: манифест не скачался или
+  /// в нём нет нашего файла - установка отменяется. Если манифеста в
+  /// релизе нет совсем (старые и ручные релизы), обновление не блокируем.
   static Future<void> _verifyDownloadedFile(File file, UpdateInfo info) async {
     final checksumUrl = info.checksumUrl;
     if (checksumUrl == null || checksumUrl.isEmpty) {
       return;
     }
 
-    final expected = await _fetchExpectedSha256(checksumUrl, info.assetName);
+    final manifest = await _fetchManifest(checksumUrl);
+    final expected = parseSha256(manifest, info.assetName);
     if (expected == null) {
-      return;
+      throw UpdateInstallException(
+        UpdateInstallError.checksumMissing, info.assetName
+      );
     }
 
     final actual = await sha256OfFile(file);
@@ -169,60 +188,77 @@ class UpdateInstaller {
     }
   }
 
+  /// SHA-256 файла потоком, без чтения целиком в память.
   static Future<String> sha256OfFile(File file) async {
     final digest = SHA256Digest();
-    final bytes = await file.readAsBytes();
-    // Чанками, чтобы не держать весь файл в памяти.
-    const chunkSize = 1 << 20;
-    for (var offset = 0; offset < bytes.length; offset += chunkSize) {
-      final end = (offset + chunkSize).clamp(0, bytes.length);
-      final chunk = Uint8List.sublistView(bytes, offset, end);
-      digest.update(chunk, 0, chunk.length);
+    await for (final chunk in file.openRead()) {
+      final bytes = chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
+      digest.update(bytes, 0, bytes.length);
     }
     final full = Uint8List(digest.digestSize);
-    var off = 0;
-    while (off < full.length) {
-      final n = digest.doFinal(full, off);
-      off += n;
-    }
+    digest.doFinal(full, 0);
     return full.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
-  static Future<String?> _fetchExpectedSha256(
-    String url,
-    String assetName,
-  ) async {
+  static Future<String> _fetchManifest(String url) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      final request = await client.getUrl(Uri.parse(url));
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 15));
       request.headers.set(HttpHeaders.userAgentHeader, 'vysh-updater');
       final response = await request.close().timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200) return null;
-      final text = await response.transform(utf8.decoder).join();
-      return parseSha256(text, assetName);
-    } catch (_) {
-      return null;
+      if (response.statusCode != 200) {
+        throw UpdateInstallException(
+          UpdateInstallError.downloadFailed,
+          'SHA256SUMS: HTTP ${response.statusCode}',
+        );
+      }
+      return await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 30));
+    } on UpdateInstallException {
+      rethrow;
+    } catch (e) {
+      throw UpdateInstallException(
+        UpdateInstallError.downloadFailed,
+        'SHA256SUMS: $e',
+      );
     } finally {
       client.close(force: true);
     }
   }
 
+  /// Хеш [assetName] из манифеста формата `sha256sum`
+  /// (`<hex>  <имя>` или `<hex> *<имя>`). Имя сверяется целиком, без учёта
+  /// регистра. Строка без имени (файл `<имя>.sha256` с одним хешем)
+  /// принимается, только если в манифесте ровно один хеш. Хеш чужого файла
+  /// не подставляется никогда.
   @visibleForTesting
   static String? parseSha256(String manifest, String assetName) {
-    final hexPattern = RegExp(r'\b[a-fA-F0-9]{64}\b');
+    final linePattern = RegExp(r'^\s*([a-fA-F0-9]{64})(?:\s+\*?(.*?))?\s*$');
     final lowerAsset = assetName.toLowerCase();
+    final entries = <({String hash, String name})>[];
 
-    if (lowerAsset.isNotEmpty) {
-      for (final line in const LineSplitter().convert(manifest)) {
-        if (line.toLowerCase().contains(lowerAsset)) {
-          final m = hexPattern.firstMatch(line);
-          if (m != null) return m.group(0)!.toLowerCase();
-        }
-      }
+    for (final line in const LineSplitter().convert(manifest)) {
+      final m = linePattern.firstMatch(line);
+      if (m == null) continue;
+      final name = (m.group(2) ?? '').trim();
+      // В манифесте бывает путь: dist/vysh-...zip - сравниваем имя файла.
+      final base = name.split(RegExp(r'[/\\]')).last.toLowerCase();
+      entries.add((hash: m.group(1)!.toLowerCase(), name: base));
     }
 
-    final m = hexPattern.firstMatch(manifest);
-    return m?.group(0)?.toLowerCase();
+    if (lowerAsset.isNotEmpty) {
+      for (final e in entries) {
+        if (e.name == lowerAsset) return e.hash;
+      }
+    }
+    if (entries.length == 1 && entries.single.name.isEmpty) {
+      return entries.single.hash;
+    }
+    return null;
   }
 }
 
@@ -331,18 +367,21 @@ class WindowsZipUpdate {
         flush: true,
       );
 
-      // Вне нашего дерева процессов, чтобы пережил exit.
+      // Напрямую, без `cmd /c start "" ...`: Dart экранирует аргумент `""`
+      // как `"\"\""`, а cmd обратных слэшей не понимает и разбирает
+      // заголовок start неверно. ProcessStartMode.detached на Windows -
+      // отдельный процесс без консоли, он переживает exit(0).
+      // CleanupDir - вся временная папка обновления (zip + staging).
       await Process.start(
-        'cmd.exe',
+        'powershell.exe',
         [
-          '/c', 'start', '""', '/min', 'powershell.exe',
           '-NoProfile', '-ExecutionPolicy', 'Bypass',
           '-WindowStyle', 'Hidden', '-File', scriptPath,
           '-SourceDir', payloadRoot,
           '-TargetDir', appDir,
           '-ExePath', exePath,
           '-AppPid', '$pid',
-          '-CleanupDir', staging.path,
+          '-CleanupDir', zipFile.parent.path,
         ],
         mode: ProcessStartMode.detached,
       );
@@ -418,12 +457,21 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] `
 
 if (-not $writable -and -not $isAdmin) {
   Log "target not writable; relaunching elevated"
+  # PowerShell 5.1 склеивает массив -ArgumentList через пробел без кавычек:
+  # путь "C:\Program Files\vysh" развалился бы на части. Собираем строку
+  # сами; хвостовые \ удваиваются, чтобы не экранировать закрывающую кавычку.
+  function Quote([string]$s) { '"' + ($s -replace '(\\+)$', '$1$1') + '"' }
+  $argLine = @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+    '-File', (Quote $PSCommandPath),
+    '-SourceDir', (Quote $SourceDir),
+    '-TargetDir', (Quote $TargetDir),
+    '-ExePath', (Quote $ExePath),
+    '-AppPid', $AppPid,
+    '-CleanupDir', (Quote $CleanupDir)
+  ) -join ' '
   try {
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
-      '-File', $PSCommandPath,
-      '-SourceDir', $SourceDir, '-TargetDir', $TargetDir, '-ExePath', $ExePath,
-      '-AppPid', $AppPid, '-CleanupDir', $CleanupDir)
+    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine
     exit 0
   } catch {
     Log "elevation failed: $_"
@@ -485,6 +533,13 @@ class LinuxTarUpdate {
     }
 
     final appDir = File(Platform.resolvedExecutable).parent.path;
+    // Скрипт копирует уже после выхода приложения: если в папку программы
+    // писать нельзя (/opt, /usr, AppImage), cp упадёт, и запустится старая
+    // версия без единого сообщения. Проверяем заранее, пока можно показать
+    // ошибку.
+    if (!await _isWritable(appDir)) {
+      throw UpdateInstallException(UpdateInstallError.copyFailed, appDir);
+    }
     final staging = await Directory.systemTemp.createTemp('vysh-update-');
     try {
       final result = await Process.run(
@@ -492,9 +547,8 @@ class LinuxTarUpdate {
         ['-xzf', archive, '-C', staging.path],
       );
       if (result.exitCode != 0) {
-        final tail = _tail(result.stderr);
         throw UpdateInstallException(
-          tail != null ? UpdateInstallError.badArchive : UpdateInstallError.badArchive, tail
+          UpdateInstallError.badArchive, _tail(result.stderr)
         );
       }
 
@@ -519,6 +573,17 @@ class LinuxTarUpdate {
     exit(0);
   }
 
+  static Future<bool> _isWritable(String dir) async {
+    try {
+      final probe = File('$dir/.vysh_update_probe_$pid');
+      await probe.writeAsString('x', flush: true);
+      await probe.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static String? _tail(Object? stderr) {
     final lines = '$stderr'
         .split('\n')
@@ -529,6 +594,8 @@ class LinuxTarUpdate {
     return lines.skip(lines.length > 3 ? lines.length - 3 : 0).join('\n');
   }
 
+  // ARCHIVE лежит в своей временной папке vysh-update-* - удаляем её
+  // целиком, вместе со скриптом.
   static const _portableScript = r'''
 SRC="$1"; DST="$2"; STAGING="$3"; ARCHIVE="$4"
 log "=== portable update: $SRC -> $DST"
@@ -537,7 +604,8 @@ if cp -a --remove-destination "$SRC/." "$DST/" 2>>"$LOG"; then
 else
   log "copy FAILED"
 fi
-rm -rf "$STAGING" "$ARCHIVE" 2>/dev/null
+rm -rf "$STAGING" "$(dirname "$ARCHIVE")" 2>/dev/null
+rm -f "$0" 2>/dev/null
 setsid "$DST/vysh" >/dev/null 2>&1 < /dev/null &
 ''';
 
@@ -601,7 +669,7 @@ class MacOSDmgUpdate {
     // В Finder окно образа открывает сам hdiutil при монтировании без
     // -noautoopen; с ним открываем вручную, чтобы пользователь увидел
     // vysh.app сразу.
-    final mountPoint = _mountPointOf(result.stdout as String);
+    final mountPoint = mountPointOf(result.stdout as String);
     if (mountPoint != null) {
       await Process.start(
         'open',
@@ -612,19 +680,20 @@ class MacOSDmgUpdate {
   }
 
   /// stdout hdiutil: таблица смонтированных разделов, точка монтирования -
-  /// последняя колонка последней строки вида:
-  /// `/dev/disk4s1  Apple_HFS  /Volumes/vysh`.
-  static String? _mountPointOf(String stdout) {
+  /// последняя колонка (колонки разделены табуляцией) строки вида:
+  /// `/dev/disk4s1  Apple_HFS  /Volumes/vysh`. В имени тома бывают
+  /// пробелы (`/Volumes/vysh 0.5`), поэтому берём всё от `/Volumes/` до
+  /// конца строки, а не последнее «слово».
+  @visibleForTesting
+  static String? mountPointOf(String stdout) {
     final lines = stdout
         .split('\n')
-        .map((l) => l.trim())
+        .map((l) => l.trimRight())
         .where((l) => l.isNotEmpty)
         .toList();
     for (final line in lines.reversed) {
-      final parts = line.split(RegExp(r'\s+'));
-      if (parts.length >= 3 && parts.last.startsWith('/Volumes/')) {
-        return parts.last;
-      }
+      final at = line.indexOf('/Volumes/');
+      if (at >= 0) return line.substring(at);
     }
     return null;
   }

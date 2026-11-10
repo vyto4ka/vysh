@@ -351,10 +351,11 @@ class AppSettings {
         catppuccinFlavor: json.str('catppuccinFlavor') ?? 'mocha',
         catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
         serverStats: json.boolean('serverStats') ?? true,
-        updatePromptDays: json.integer('updatePromptDays') == 1 ||
-                json.integer('updatePromptDays') == 7
-            ? json.integer('updatePromptDays')!
-            : 3,
+        updatePromptDays: switch (json.integer('updatePromptDays')) {
+          1 => 1,
+          7 => 7,
+          _ => 3,
+        },
       );
 
   static double _finite(double? v, double fallback) =>

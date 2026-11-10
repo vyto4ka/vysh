@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../domain/ports/document_store.dart';
+import '../storage/json_store.dart';
 
 /// Почему проверка обновлений не удалась. Текст выбирает интерфейс (l10n).
 enum UpdateCheckError {
@@ -126,10 +127,13 @@ class UpdateService {
   }
 
   /// Поставщик состояния (окно проверок, пропущенная версия).
-  /// Тесты подменяют его на память.
+  /// Файл лежит в папке профиля (AppPaths), как settings.json: относительный
+  /// путь писал бы в текущую папку процесса (`/` на Android, Program Files
+  /// на Windows), где записи нет. Тесты подменяют его на память.
   @visibleForTesting
-  static DocumentStore Function() stateStore =
-      () => JsonUpdateStateStore.file(_stateFile);
+  static DocumentStore Function() stateStore = () => _fileStateStore;
+
+  static final DocumentStore _fileStateStore = JsonStore(_stateFile);
 
   static Map<String, Object?> _readState() {
     final raw = stateStore().readSync();
@@ -143,7 +147,14 @@ class UpdateService {
   /// Проверить обновление. `force` - по кнопке, минуя интервал.
   /// Бросает исключение при сетевой ошибке.
   static Future<UpdateInfo?> checkForUpdate({bool force = false}) async {
-    if (force) return await fetchUpdate();
+    if (force) {
+      // Удачная ручная проверка обновляет кэш: иначе карточка в настройках
+      // (провайдер без force) до 30 минут показывала бы старый результат.
+      final result = await fetchUpdate();
+      _cachedAutoResult = result;
+      _lastAutoCheckAt = DateTime.now();
+      return result;
+    }
 
     final last = _lastAutoCheckAt;
     if (last != null && DateTime.now().difference(last) < minAutoCheckGap) {
@@ -189,7 +200,20 @@ class UpdateService {
     List<Map<String, dynamic>> releases,
     String currentVersion,
   ) {
-    final latest = releases.first;
+    // Последний релиз - с наибольшим номером, а не самый свежий по дате:
+    // исправление для старой ветки, выпущенное позже, не должно заслонять
+    // более новую версию. Список отсортирован по дате (новые первыми),
+    // поэтому при равных номерах остаётся самый свежий.
+    var latest = releases.first;
+    for (final r in releases.skip(1)) {
+      if (compareVersions(
+            (r['tag_name'] ?? '').toString(),
+            (latest['tag_name'] ?? '').toString(),
+          ) >
+          0) {
+        latest = r;
+      }
+    }
     final latestTag = (latest['tag_name'] ?? '').toString();
     final currentRelease = _findReleaseForVersion(releases, currentVersion);
     final latestPublished = _releaseDate(latest);
@@ -322,6 +346,8 @@ class UpdateService {
       throw const UpdateCheckException(UpdateCheckError.timeout);
     } on FormatException {
       throw const UpdateCheckException(UpdateCheckError.empty);
+    } finally {
+      client.close(force: true);
     }
   }
 
@@ -343,18 +369,27 @@ class UpdateService {
 
   // ── Выбор файла под платформу ──
 
-  static const _arm32ApkMarker = 'armeabi-v7a';
+  /// ABI сборки APK (суффикс `--split-per-abi`) для запущенного процесса.
+  /// Platform.version заканчивается на `on "android_arm64"` / `"android_arm"`
+  /// / `"android_x64"` - это архитектура самого Dart VM, то есть именно та
+  /// ABI, под которую надо ставить обновление.
+  @visibleForTesting
+  static String androidAbiFromVersion(String version) {
+    if (version.contains('"android_arm64"')) return 'arm64-v8a';
+    if (version.contains('"android_arm"')) return 'armeabi-v7a';
+    if (version.contains('"android_x64"')) return 'x86_64';
+    return 'arm64-v8a';
+  }
 
   /// APK своей ABI: arm64 на 32-битную прошивку не встанет, первый .apk
   /// брать нельзя - до него в списке может быть чужая ABI.
-  static Map<String, dynamic>? _findApkAsset(List? assets,
-      {required bool arm32}) {
+  @visibleForTesting
+  static Map<String, dynamic>? findApkAsset(List? assets, String abi) {
     if (assets == null) return null;
+    final marker = '-${abi.toLowerCase()}.apk';
     for (final asset in assets) {
       final name = (asset['name'] ?? '').toString().toLowerCase();
-      if (name.endsWith('.apk') && name.contains(_arm32ApkMarker) == arm32) {
-        return asset as Map<String, dynamic>;
-      }
+      if (name.endsWith(marker)) return asset as Map<String, dynamic>;
     }
     return null;
   }
@@ -369,9 +404,10 @@ class UpdateService {
     if (Platform.isMacOS) {
       return _findBySuffixes(assets, const ['-macos.dmg', '.dmg']);
     }
-    return _findApkAsset(assets,
-        arm32: Platform.version.contains('armv7') ||
-            const bool.fromEnvironment('dart.library.io.arm32'));
+    if (Platform.isAndroid) {
+      return findApkAsset(assets, androidAbiFromVersion(Platform.version));
+    }
+    return null;
   }
 
   static Map<String, dynamic>? _findBySuffixes(
@@ -459,8 +495,11 @@ class UpdateService {
     return 0;
   }
 
-  /// Новее ли [latestTag], чем [currentTag]. При равных номерах сравниваются
-  /// даты релизов: таг с тем же номером мог быть переиздан.
+  /// Новее ли [latestTag], чем [currentTag]. Решают номера версий; даты
+  /// нужны только как защита от странной истории (больший номер, но
+  /// опубликован раньше текущего). Меньший номер никогда не считается
+  /// обновлением, даже если опубликован позже: выпуск исправления для
+  /// старой ветки не должен предлагать пользователям откат.
   static bool isNewerRelease(
     String latestTag,
     String currentTag, {
@@ -468,21 +507,14 @@ class UpdateService {
     DateTime? currentPublished,
   }) {
     final cmp = compareVersions(latestTag, currentTag);
-    if (cmp == 0) return false;
+    if (cmp <= 0) return false;
 
-    final hasDates = latestPublished != null && currentPublished != null;
-
-    if (cmp > 0) {
-      if (hasDates && currentPublished.isAfter(latestPublished)) {
-        return false;
-      }
-      return true;
+    if (latestPublished != null &&
+        currentPublished != null &&
+        currentPublished.isAfter(latestPublished)) {
+      return false;
     }
-
-    if (hasDates && latestPublished.isAfter(currentPublished)) {
-      return true;
-    }
-    return false;
+    return true;
   }
 
   // ── Пропуск версии и периодичность окна ──
@@ -512,41 +544,5 @@ class UpdateService {
     state['autoPromptedAt'] =
         (now ?? DateTime.now()).millisecondsSinceEpoch;
     await _writeState(state);
-  }
-}
-
-/// Хранилище состояния апдейтера в файле профиля.
-/// Отдельный класс ради подмены в тестах через `stateStore`.
-class JsonUpdateStateStore implements DocumentStore {
-  JsonUpdateStateStore.file(String name) : _fileName = name;
-
-  final String _fileName;
-
-  @override
-  Object? readSync() {
-    try {
-      final f = File(_fileName);
-      if (!f.existsSync()) return null;
-      final text = f.readAsStringSync();
-      if (text.trim().isEmpty) return null;
-      return jsonDecode(text);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  @override
-  Future<bool> write(Object? data) async {
-    try {
-      final f = File(_fileName);
-      await f.parent.create(recursive: true);
-      await f.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(data),
-        flush: true,
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
   }
 }

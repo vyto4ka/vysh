@@ -505,4 +505,7 @@ class AppStrings {
     };
   }
 
+  String updateInstallUnexpected(String error) => isRu
+      ? 'Не удалось установить обновление: $error'
+      : 'Could not install the update: $error';
 }

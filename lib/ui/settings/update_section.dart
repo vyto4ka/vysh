@@ -44,6 +44,7 @@ class UpdateSection extends ConsumerWidget {
           state: update,
           strings: strings,
           onCheck: () => _checkNow(context, ref),
+          onUpdate: (info) => showUpdateDialog(context, info),
         ),
       ],
     );
@@ -76,11 +77,13 @@ class _UpdateStatusCard extends StatelessWidget {
     required this.state,
     required this.strings,
     required this.onCheck,
+    required this.onUpdate,
   });
 
   final AsyncValue<UpdateInfo?> state;
   final AppStrings strings;
   final VoidCallback onCheck;
+  final void Function(UpdateInfo info) onUpdate;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +121,7 @@ class _UpdateStatusCard extends StatelessWidget {
           ),
           if (info != null)
             FilledButton.tonal(
-              onPressed: onCheck,
+              onPressed: () => onUpdate(info),
               child: Text(strings.updateNow),
             )
           else

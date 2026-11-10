@@ -228,6 +228,7 @@ static DWORD WINAPI read_loop(LPVOID arg)
         Dart_PostCObject_DL(options->port, &result);
     }
 
+    free(options);
     return 0;
 }
 
@@ -247,6 +248,10 @@ static void start_read_thread(HANDLE fd, Dart_Port port, HANDLE mutex, BOOL ackR
     if (thread == NULL)
     {
         free(options);
+    }
+    else
+    {
+        CloseHandle(thread);
     }
 }
 
@@ -274,6 +279,7 @@ static DWORD WINAPI wait_exit_thread(LPVOID arg)
 
     Dart_PostInteger_DL(options->port, exit_code);
 
+    free(options);
     return 0;
 }
 
@@ -292,6 +298,10 @@ static void start_wait_exit_thread(HANDLE pid, Dart_Port port, HANDLE mutex)
     if (thread == NULL)
     {
         free(options);
+    }
+    else
+    {
+        CloseHandle(thread);
     }
 }
 
@@ -329,6 +339,8 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!CreatePipe(&outputReadSide, &outputWriteSide, NULL, 0))
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
         error_message = "Failed to create output pipe";
         return NULL;
     }
@@ -350,8 +362,10 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
     // По образцу Microsoft их закрывают ПОСЛЕ CreateProcessW.
     if (FAILED(result))
     {
+        CloseHandle(inputReadSide);
         CloseHandle(inputWriteSide);
         CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
         error_message = "Failed to create pseudo console";
         return NULL;
     }

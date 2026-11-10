@@ -49,9 +49,9 @@ void main() {
       );
     });
 
-    test('isNewerRelease: меньший номер, переизданный позже, считается новым', () {
-      // Как в keqdroid: при несовпадающих номерах даты могут
-      // перебить порядок тегов (релиз с меньшим номером переиздали).
+    test('isNewerRelease: меньший номер никогда не считается новым (нет отката)', () {
+      // Выпуск исправления для старой ветки не должен предлагать откат,
+      // даже если он опубликован позже.
       expect(
         UpdateService.isNewerRelease(
           '0.5.8',
@@ -59,9 +59,8 @@ void main() {
           latestPublished: DateTime(2026, 11, 8),
           currentPublished: DateTime(2026, 11, 7),
         ),
-        isTrue,
+        isFalse,
       );
-      // А без дат - только номера.
       expect(
         UpdateService.isNewerRelease('0.5.8', '0.5.9'),
         isFalse,
@@ -108,17 +107,41 @@ void main() {
       expect(UpdateService.buildUpdateInfo(releases, '0.6.0'), isNull);
     });
 
-    test('черновики и пререлизы отфильтрованы в fetchReleases', () {
-      // fetchReleases ходит в сеть - проверяем только паттерн тега.
+    test('выбирается наибольший номер версии, даже если старую ветку выпустили позже', () {
+      final releases = [
+        release('v0.5.10', assets, at: DateTime(2026, 11, 9)),
+        release('v0.6.0', assets, at: DateTime(2026, 11, 8)),
+      ];
+      final info = UpdateService.buildUpdateInfo(releases, '0.5.9');
+      expect(info?.latestVersion, 'v0.6.0');
+    });
+
+    test('APK выбирается по ABI процесса из Platform.version', () {
       expect(
-        RegExp(r'^v?\d+\.\d+(\.\d+)?(-[\w.]+)?$', caseSensitive: false)
-            .hasMatch('v0.6.0'),
-        isTrue,
+        UpdateService.androidAbiFromVersion(
+          '3.8.0 (stable) on "android_arm"',
+        ),
+        'armeabi-v7a',
       );
       expect(
-        RegExp(r'^v?\d+\.\d+(\.\d+)?(-[\w.]+)?$', caseSensitive: false)
-            .hasMatch('windows-build-42'),
-        isFalse,
+        UpdateService.androidAbiFromVersion(
+          '3.8.0 (stable) on "android_arm64"',
+        ),
+        'arm64-v8a',
+      );
+      expect(
+        UpdateService.androidAbiFromVersion(
+          '3.8.0 (stable) on "android_x64"',
+        ),
+        'x86_64',
+      );
+      final apkAssets = [
+        {'name': 'vysh-v0.6.0-android-arm64-v8a.apk'},
+        {'name': 'vysh-v0.6.0-android-armeabi-v7a.apk'},
+      ];
+      expect(
+        UpdateService.findApkAsset(apkAssets, 'armeabi-v7a')?['name'],
+        'vysh-v0.6.0-android-armeabi-v7a.apk',
       );
     });
   });
@@ -136,16 +159,35 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  vysh-v0.6.0-wi
       );
     });
 
-    test('без своей строки - первый хеш в тексте', () {
-      const manifest = 'hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    test('не подставляет хеш чужого файла, если нашего нет в SHA256SUMS', () {
+      const manifest = '''
+aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
+''';
       expect(
         UpdateInstaller.parseSha256(manifest, 'no-such-file.zip'),
+        isNull,
+      );
+    });
+
+    test('одиночный хеш без имени файла (<файл>.sha256) принимается', () {
+      const manifest =
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n';
+      expect(
+        UpdateInstaller.parseSha256(manifest, 'any.zip'),
         '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       );
     });
 
     test('пустой манифест - null', () {
       expect(UpdateInstaller.parseSha256('', 'x.zip'), isNull);
+    });
+  });
+
+  group('MacOSDmgUpdate.mountPointOf', () {
+    test('находит точку монтирования, в том числе с пробелами в имени тома', () {
+      const out = '/dev/disk4\tGUID_partition_scheme\t\n'
+          '/dev/disk4s1\tApple_HFS\t/Volumes/vysh 0.5.11\n';
+      expect(MacOSDmgUpdate.mountPointOf(out), '/Volumes/vysh 0.5.11');
     });
   });
 
