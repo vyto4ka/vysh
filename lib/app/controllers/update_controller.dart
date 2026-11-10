@@ -5,11 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/version.dart';
 import '../../infra/update/update_service.dart';
+import 'settings_controller.dart';
 
 /// Как часто провайдер сам перепроверяет GitHub (6 часов).
 const updateRecheckInterval = Duration(hours: 6);
 
-/// Найденное обновление: null - установлен последний релиз.
+/// Найденное обновление: null - установлен последний релиз (или проверка отключена).
 ///
 /// Провайдер сам перепроверяется каждые 6 часов и после возврата из фона
 /// (в замороженном процессе таймеры стоят). Ошибки не роняют провайдер:
@@ -17,6 +18,8 @@ const updateRecheckInterval = Duration(hours: 6);
 /// жёг лимит GitHub API (60 запросов в час) - ошибка остаётся в AsyncValue.
 final updateInfoProvider = FutureProvider<UpdateInfo?>((ref) async {
   UpdateService.currentVersion = appVersion;
+  final enabled = ref.watch(settingsProvider.select((s) => s.checkForUpdates));
+  if (!enabled) return null;
 
   final timer = Timer(updateRecheckInterval, ref.invalidateSelf);
   ref.onDispose(timer.cancel);

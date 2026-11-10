@@ -441,6 +441,9 @@ class AppStrings {
       ? 'Не удалось проверить обновления'
       : 'Could not check for updates';
   String get updatesSection => isRu ? 'Обновления' : 'Updates';
+  String get updateAutoCheck => isRu
+      ? 'Проверять обновления автоматически'
+      : 'Check for updates automatically';
   String get updatePromptFrequency => isRu
       ? 'Сообщать о новой версии'
       : 'Notify about new versions';

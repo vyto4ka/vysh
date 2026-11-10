@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vysh/app/controllers/update_controller.dart';
 import 'package:vysh/app/dependencies.dart';
 import 'package:vysh/domain/ports/document_store.dart';
 import 'package:vysh/domain/ports/secret_store.dart';
@@ -47,6 +48,7 @@ void main() {
         overrides: [
           secretStoreProvider.overrideWithValue(_Secrets()),
           documentStoreProvider.overrideWith((ref, name) => _MemoryStore()),
+          updateInfoProvider.overrideWith((ref) async => null),
         ],
         child: const MaterialApp(
           home: Scaffold(

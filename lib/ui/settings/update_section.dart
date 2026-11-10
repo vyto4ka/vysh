@@ -9,16 +9,21 @@ import '../dialogs/update_dialog.dart';
 import '../widgets/strings_context.dart';
 import 'setting_row.dart';
 
-/// Раздел «Обновления»: периодичность всплывающего окна и статус.
-///
-/// Карточка показывает найденное обновление из [updateInfoProvider] (он
-/// проверяет GitHub в фоне); кнопка «Проверить обновления» делает
-/// принудительную проверку и открывает окно, если что-то нашлось.
-class UpdateSection extends ConsumerWidget {
+/// Раздел «Обновления»: переключатель автопроверки, периодичность
+/// всплывающего окна и компактная строка статуса с точкой-индикатором.
+class UpdateSection extends ConsumerStatefulWidget {
   const UpdateSection({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<UpdateSection> createState() => _UpdateSectionState();
+}
+
+class _UpdateSectionState extends ConsumerState<UpdateSection> {
+  /// Результат ручной проверки, когда автопроверка отключена.
+  UpdateInfo? _manualInfo;
+
+  @override
+  Widget build(BuildContext context) {
     final s = ref.watch(settingsProvider);
     final ctrl = ref.read(settingsProvider.notifier);
     final strings = AppStrings.of(context, s.language);
@@ -27,35 +32,48 @@ class UpdateSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SettingRow(
-          label: strings.updatePromptFrequency,
-          child: SettingChoice<int>(
-            value: s.updatePromptDays,
-            options: [
-              (1, strings.updateEveryDay),
-              (3, strings.updateEvery3Days),
-              (7, strings.updateEveryWeek),
-            ],
-            onChanged: ctrl.setUpdatePromptDays,
-          ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(strings.updateAutoCheck),
+          value: s.checkForUpdates,
+          onChanged: (v) {
+            setState(() => _manualInfo = null);
+            ctrl.setCheckForUpdates(v);
+          },
         ),
-        const SizedBox(height: 8),
-        _UpdateStatusCard(
-          state: update,
+        if (s.checkForUpdates)
+          SettingRow(
+            label: strings.updatePromptFrequency,
+            child: SettingChoice<int>(
+              value: s.updatePromptDays,
+              options: [
+                (1, strings.updateEveryDay),
+                (3, strings.updateEvery3Days),
+                (7, strings.updateEveryWeek),
+              ],
+              onChanged: ctrl.setUpdatePromptDays,
+            ),
+          ),
+        const SizedBox(height: 4),
+        _UpdateStatusLine(
+          info: update.value ?? _manualInfo,
+          loading: update.isLoading,
+          autoCheckEnabled: s.checkForUpdates,
           strings: strings,
-          onCheck: () => _checkNow(context, ref),
+          onCheck: () => _checkNow(context),
           onUpdate: (info) => showUpdateDialog(context, info),
         ),
       ],
     );
   }
 
-  Future<void> _checkNow(BuildContext context, WidgetRef ref) async {
+  Future<void> _checkNow(BuildContext context) async {
     final strings = context.strings;
     try {
       final info = await UpdateService.checkForUpdate(force: true);
       ref.invalidate(updateInfoProvider);
       if (!context.mounted) return;
+      setState(() => _manualInfo = info);
       if (info != null) {
         await showUpdateDialog(context, info);
       } else {
@@ -72,65 +90,64 @@ class UpdateSection extends ConsumerWidget {
   }
 }
 
-class _UpdateStatusCard extends StatelessWidget {
-  const _UpdateStatusCard({
-    required this.state,
+class _UpdateStatusLine extends StatelessWidget {
+  const _UpdateStatusLine({
+    required this.info,
+    required this.loading,
+    required this.autoCheckEnabled,
     required this.strings,
     required this.onCheck,
     required this.onUpdate,
   });
 
-  final AsyncValue<UpdateInfo?> state;
+  final UpdateInfo? info;
+  final bool loading;
+  final bool autoCheckEnabled;
   final AppStrings strings;
   final VoidCallback onCheck;
   final void Function(UpdateInfo info) onUpdate;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final info = state.value;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final current = info;
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            info != null
-                ? Icons.system_update_alt_rounded
-                : Icons.verified_outlined,
-            size: 20,
-            color: info != null ? scheme.primary : scheme.onSurfaceVariant,
+    return Row(
+      children: [
+        if (current != null) ...[
+          Badge(
+            smallSize: 8,
+            backgroundColor: scheme.primary,
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              info != null
-                  ? 'vysh ${info.displayLatestVersion} · ${info.formattedSize}'
-                  : state.isLoading
-                      ? strings.updateCheck
-                      : strings.updateLatest,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ),
-          if (info != null)
-            FilledButton.tonal(
-              onPressed: () => onUpdate(info),
-              child: Text(strings.updateNow),
-            )
-          else
-            TextButton(
-              onPressed: state.isLoading ? null : onCheck,
-              child: Text(strings.updateCheck),
-            ),
+          const SizedBox(width: 8),
         ],
-      ),
+        Expanded(
+          child: Text(
+            current != null
+                ? 'vysh ${current.displayLatestVersion} · ${current.formattedSize}'
+                : loading
+                    ? strings.updateCheck
+                    : autoCheckEnabled
+                        ? strings.updateLatest
+                        : '',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: current != null ? scheme.onSurface : scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        if (current != null)
+          FilledButton.tonal(
+            onPressed: () => onUpdate(current),
+            child: Text(strings.updateNow),
+          )
+        else
+          TextButton(
+            onPressed: loading ? null : onCheck,
+            child: Text(strings.updateCheck),
+          ),
+      ],
     );
   }
 }
+

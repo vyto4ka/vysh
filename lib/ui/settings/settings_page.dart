@@ -12,6 +12,7 @@ import '../../app/version.dart';
 import '../../app/settings/app_settings.dart';
 import '../../l10n/app_strings.dart';
 import '../../app/controllers/settings_controller.dart';
+import '../../app/controllers/update_controller.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../infra/storage/app_paths.dart';
@@ -250,6 +251,9 @@ class SettingsPage extends ConsumerWidget {
                 _Section(
                   icon: Icons.system_update_outlined,
                   title: strings.updatesSection,
+                  dot: ref.watch(
+                    updateInfoProvider.select((u) => u.value != null),
+                  ),
                   children: const [UpdateSection()],
                 ),
                 _Section(
@@ -324,11 +328,13 @@ class _Section extends StatelessWidget {
   const _Section({
     required this.icon,
     required this.title,
+    this.dot = false,
     required this.children,
   });
 
   final IconData icon;
   final String title;
+  final bool dot;
   final List<Widget> children;
 
   @override
@@ -347,6 +353,13 @@ class _Section extends StatelessWidget {
                   Icon(icon, size: 20, color: theme.colorScheme.primary),
                   const SizedBox(width: 10),
                   Text(title, style: theme.textTheme.titleMedium),
+                  if (dot) ...[
+                    const SizedBox(width: 8),
+                    Badge(
+                      smallSize: 8,
+                      backgroundColor: theme.colorScheme.primary,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 16),
