@@ -60,20 +60,31 @@ class Pty {
 
     effectiveEnv['TERM'] = 'xterm-256color';
     // Without this, tools like "vi" produce sequences that are not UTF-8 friendly
-    effectiveEnv['LANG'] = 'en_US.UTF-8';
+    if (!Platform.isWindows) {
+      effectiveEnv['LANG'] = 'en_US.UTF-8';
+    }
 
-    const envValuesToCopy = {
-      'LOGNAME',
-      'USER',
-      'DISPLAY',
-      'LC_TYPE',
-      'HOME',
-      'PATH'
-    };
+    if (Platform.isWindows) {
+      // Windows: полное окружение родительского процесса. Белый список из 6
+      // переменных ломал cmd: без SYSTEMROOT не работал WSL и падали
+      // некоторые системные вызовы, без COMSPEC/TMP/USERPROFILE ломались
+      // вложенные powershell и скрипты. Пустое или неполное окружение у
+      // CreateProcessW на Windows не «наследуется» само.
+      effectiveEnv.addAll(Platform.environment);
+    } else {
+      const envValuesToCopy = {
+        'LOGNAME',
+        'USER',
+        'DISPLAY',
+        'LC_TYPE',
+        'HOME',
+        'PATH'
+      };
 
-    for (var entry in Platform.environment.entries) {
-      if (envValuesToCopy.contains(entry.key)) {
-        effectiveEnv[entry.key] = entry.value;
+      for (var entry in Platform.environment.entries) {
+        if (envValuesToCopy.contains(entry.key)) {
+          effectiveEnv[entry.key] = entry.value;
+        }
       }
     }
 
@@ -92,12 +103,18 @@ class Pty {
     argv.elementAt(arguments.length + 1).value = nullptr;
 
     //build env
-    final envp = calloc<Pointer<Utf8>>(effectiveEnv.length + 1);
-    for (var i = 0; i < effectiveEnv.length; i++) {
-      final entry = effectiveEnv.entries.elementAt(i);
+    final envEntries = effectiveEnv.entries.toList();
+    if (Platform.isWindows) {
+      envEntries.sort(
+        (a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()),
+      );
+    }
+    final envp = calloc<Pointer<Utf8>>(envEntries.length + 1);
+    for (var i = 0; i < envEntries.length; i++) {
+      final entry = envEntries[i];
       envp.elementAt(i).value = '${entry.key}=${entry.value}'.toNativeUtf8();
     }
-    envp.elementAt(effectiveEnv.length).value = nullptr;
+    envp.elementAt(envEntries.length).value = nullptr;
 
     final options = calloc<PtyOptions>();
     options.ref.rows = rows;

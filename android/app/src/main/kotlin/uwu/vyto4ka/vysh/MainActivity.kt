@@ -100,6 +100,50 @@ class MainActivity : FlutterActivity() {
                         result.error("SHARE_ERROR", e.message, null)
                     }
                 }
+                "openUrl" -> {
+                    try {
+                        // Браузер/системное приложение для ссылки (страница
+                        // релиза при обновлении). Процессов на Android нет,
+                        // openWithSystem до этого URL не открывал.
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url") ?: ""))
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("OPEN_URL_ERROR", e.message, null)
+                    }
+                }
+                "installApk" -> {
+                    try {
+                        // Системный диалог пакетного установщика:
+                        // «Обновить это приложение?». APK кладём в приватный
+                        // cache/updates и отдаём через FileProvider - прямые
+                        // file:// URI с targetSdk 24+ запрещены.
+                        val source = java.io.File(call.argument<String>("path") ?: "")
+                        if (!source.exists()) {
+                            result.error("INSTALL_ERROR", "APK not found: $source", null)
+                            return@setMethodCallHandler
+                        }
+                        val dir = java.io.File(cacheDir, "updates").apply { mkdirs() }
+                        // Своя копия: исходный файл живёт во временной папке,
+                        // которую установщик мог бы не дочитать.
+                        val apk = java.io.File(dir, "vysh_update.apk")
+                        if (apk.exists()) apk.delete()
+                        source.copyTo(apk, overwrite = true)
+
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            this, "$packageName.fileprovider", apk)
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INSTALL_ERROR", e.message, null)
+                    }
+                }
                 "revealPath" -> {
                     try {
                         // Открываем системный экран «Загрузки» - там лежат файлы

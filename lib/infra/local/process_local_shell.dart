@@ -35,6 +35,7 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     }
 
     final shell = _shellPath();
+    final workingDirectory = _initialDirectory();
     final environment = <String, String>{
       'TERM': 'xterm-256color',
       'COLORTERM': 'truecolor',
@@ -46,7 +47,13 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     // Без него на Windows cmd запускается по пайпам: нет эха, нет
     // мигающего курсора и не работает Ctrl+C - только заголовок cmd.
     if (Platform.isAndroid || Platform.isWindows) {
-      final pty = _tryStartPty(shell, columns, rows, environment);
+      final pty = _tryStartPty(
+        shell,
+        columns,
+        rows,
+        environment,
+        workingDirectory: workingDirectory,
+      );
       if (pty != null) return pty;
     }
 
@@ -54,7 +61,14 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
       final script = _findExecutable('script');
       if (script != null) {
         try {
-          return await _startWithPty(script, shell, columns, rows, environment);
+          return await _startWithPty(
+            script,
+            shell,
+            columns,
+            rows,
+            environment,
+            workingDirectory: workingDirectory,
+          );
         } catch (_) {}
       }
     }
@@ -64,6 +78,7 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
         shell,
         _directArguments(),
         environment: environment,
+        workingDirectory: workingDirectory,
       );
       return _ProcessShell(process, pty: false);
     } catch (e) {
@@ -75,21 +90,39 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     String shell,
     int columns,
     int rows,
-    Map<String, String> environment,
-  ) {
+    Map<String, String> environment, {
+    String? workingDirectory,
+  }) {
     try {
       return _PtyShell(
         Pty.start(
           shell,
-          arguments: _directArguments(),
+          arguments: _ptyArguments(shell),
           columns: columns,
           rows: rows,
           environment: environment,
+          workingDirectory: workingDirectory,
         ),
       );
-    } catch (_) {
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('Local shell PTY start failed: $e\n$st');
+      }
       return null;
     }
+  }
+
+  List<String> _ptyArguments(String shell) {
+    if (Platform.isWindows) {
+      final name = shell.split(RegExp(r'[/\\]')).last.toLowerCase();
+      // В ConPTY кодировка UTF-8 транслируется самой псевдоконсолью,
+      // а запуск cmd без аргументов выводит стандартный копирайт
+      // Microsoft Windows вместо технического "Active code page: 65001".
+      if (name == 'cmd.exe' || name == 'cmd') {
+        return const [];
+      }
+    }
+    return _directArguments();
   }
 
   Future<TerminalShell> _startWithPty(
@@ -97,8 +130,9 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     String shell,
     int columns,
     int rows,
-    Map<String, String> environment,
-  ) async {
+    Map<String, String> environment, {
+    String? workingDirectory,
+  }) async {
     final directory = await Directory.systemTemp.createTemp('vysh-local-');
     final control = File('${directory.path}${Platform.pathSeparator}pty');
     final command = _ptyCommand(shell, control.path, columns, rows);
@@ -110,12 +144,14 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
           script,
           ['-q', '/dev/null', '/bin/sh', '-c', command],
           environment: environment,
+          workingDirectory: workingDirectory,
         );
       } else {
         process = await Process.start(
           script,
           ['-q', '-f', '-c', command, '/dev/null'],
           environment: environment,
+          workingDirectory: workingDirectory,
         );
       }
     } catch (_) {
@@ -167,9 +203,35 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
   }
 
   List<String> _directArguments() {
-    // cmd.exe запускается без аргументов; INTERACTIVE-режим даёт ConPTY.
-    if (Platform.isWindows) return const [];
+    // cmd.exe в русской локали печатает текст в OEM-кодировке (cp866), а
+    // vysh читает поток как UTF-8 - русские буквы превращались в мусор.
+    // chcp 65001 переводит и вывод, и ввод на UTF-8. /k - выполнить команду
+    // и остаться в интерактивном режиме.
+    if (Platform.isWindows) return const ['/k', 'chcp', '65001'];
     return const ['-i'];
+  }
+
+  String? _initialDirectory() {
+    if (Platform.isWindows) {
+      final userProfile = Platform.environment['USERPROFILE'];
+      if (userProfile != null &&
+          userProfile.isNotEmpty &&
+          Directory(userProfile).existsSync()) {
+        return userProfile;
+      }
+      final homeDrive = Platform.environment['HOMEDRIVE'];
+      final homePath = Platform.environment['HOMEPATH'];
+      if (homeDrive != null && homePath != null) {
+        final combined = '$homeDrive$homePath';
+        if (Directory(combined).existsSync()) return combined;
+      }
+    } else {
+      final home = Platform.environment['HOME'];
+      if (home != null && home.isNotEmpty && Directory(home).existsSync()) {
+        return home;
+      }
+    }
+    return null;
   }
 
   String _shellPath() {

@@ -99,6 +99,8 @@ class AppSettings {
     this.catppuccinFlavor = 'mocha',
     this.catppuccinAccent = 'mauve',
     this.serverStats = true,
+    this.checkForUpdates = true,
+    this.updatePromptDays = 3,
   });
 
   final ThemeMode themeMode;
@@ -182,6 +184,12 @@ class AppSettings {
   /// Нагрузка сервера в строке состояния терминала.
   final bool serverStats;
 
+  /// Проверять обновления автоматически.
+  final bool checkForUpdates;
+
+  /// Как часто всплывать окном о новой версии, дней (1, 3, 7).
+  final int updatePromptDays;
+
   AppSettings copyWith({
     ThemeMode? themeMode,
     int? seedColor,
@@ -213,6 +221,8 @@ class AppSettings {
     String? catppuccinFlavor,
     String? catppuccinAccent,
     bool? serverStats,
+    bool? checkForUpdates,
+    int? updatePromptDays,
   }) =>
       AppSettings(
         themeMode: themeMode ?? this.themeMode,
@@ -247,6 +257,8 @@ class AppSettings {
         catppuccinFlavor: catppuccinFlavor ?? this.catppuccinFlavor,
         catppuccinAccent: catppuccinAccent ?? this.catppuccinAccent,
         serverStats: serverStats ?? this.serverStats,
+        checkForUpdates: checkForUpdates ?? this.checkForUpdates,
+        updatePromptDays: updatePromptDays ?? this.updatePromptDays,
       );
 
   Map<String, Object?> toJson() => {
@@ -281,6 +293,8 @@ class AppSettings {
         'catppuccinFlavor': catppuccinFlavor,
         'catppuccinAccent': catppuccinAccent,
         'serverStats': serverStats,
+        'checkForUpdates': checkForUpdates,
+        'updatePromptDays': updatePromptDays,
       };
 
   factory AppSettings.fromJson(Map<String, Object?> json) => AppSettings(
@@ -344,6 +358,12 @@ class AppSettings {
         catppuccinFlavor: json.str('catppuccinFlavor') ?? 'mocha',
         catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
         serverStats: json.boolean('serverStats') ?? true,
+        checkForUpdates: json.boolean('checkForUpdates') ?? true,
+        updatePromptDays: switch (json.integer('updatePromptDays')) {
+          1 => 1,
+          7 => 7,
+          _ => 3,
+        },
       );
 
   static double _finite(double? v, double fallback) =>

@@ -1,7 +1,7 @@
 name: vysh
 description: "Минималистичный и красивый SSH-менеджер подключений для Windows, Linux, macOS и Android."
 publish_to: 'none'
-version: 0.5.10+65
+version: 0.5.11+66
 
 environment:
   sdk: ^3.8.0

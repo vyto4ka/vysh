@@ -10,6 +10,10 @@ import '../domain/ports/local_shell.dart';
 import '../domain/ports/sftp.dart';
 import '../domain/ports/ssh_transport.dart';
 import '../domain/services/font_info.dart' show AddFontError;
+import '../infra/update/update_installer.dart'
+    show UpdateInstallError, UpdateInstallException;
+import '../infra/update/update_service.dart'
+    show UpdateCheckError, UpdateCheckException;
 
 part 'connection_strings.dart';
 part 'hosts_strings.dart';
@@ -418,4 +422,93 @@ class AppStrings {
   String saveFailed(String file, String error) => isRu
       ? 'Не удалось сохранить $file: $error'
       : 'Could not save $file: $error';
+
+  // Обновление приложения
+  String get updateTitle => isRu ? 'Доступно обновление' : 'Update available';
+  String get updateWhatsNew => isRu ? 'Что нового' : "What's new";
+  String get updateLater => isRu ? 'Позже' : 'Later';
+  String get updateNow => isRu ? 'Обновить' : 'Update';
+  String get updateSkip => isRu ? 'Пропустить версию' : 'Skip this version';
+  String get updateOpenDownload => isRu ? 'Открыть загрузку' : 'Open download';
+  String get updateDownloading => isRu ? 'Скачивание…' : 'Downloading…';
+  String get updateApplying => isRu ? 'Установка обновления…' : 'Applying update…';
+  String updateSize(String size) =>
+      isRu ? 'Размер: $size' : 'Size: $size';
+  String get updateCheck => isRu ? 'Проверить обновления' : 'Check for updates';
+  String get updateLatest =>
+      isRu ? 'Установлена последняя версия' : 'Latest version installed';
+  String get updateCheckFailed => isRu
+      ? 'Не удалось проверить обновления'
+      : 'Could not check for updates';
+  String get updatesSection => isRu ? 'Обновления' : 'Updates';
+  String get updateAutoCheck => isRu
+      ? 'Проверять обновления автоматически'
+      : 'Check for updates automatically';
+  String get updatePromptFrequency => isRu
+      ? 'Сообщать о новой версии'
+      : 'Notify about new versions';
+  String get updateEveryDay => isRu ? 'Раз в день' : 'Daily';
+  String get updateEvery3Days => isRu ? 'Раз в 3 дня' : 'Every 3 days';
+  String get updateEveryWeek => isRu ? 'Раз в неделю' : 'Weekly';
+
+  String updateCheckFailure(UpdateCheckException e) {
+    final detail = e.detail;
+    final tail = detail == null || detail.isEmpty ? '' : ' ($detail)';
+    return switch (e.error) {
+      UpdateCheckError.empty => isRu
+          ? 'GitHub вернул нечитаемый список релизов'
+          : 'GitHub returned an unreadable release list',
+      UpdateCheckError.network => isRu
+          ? 'Нет соединения с GitHub$tail'
+          : 'No connection to GitHub$tail',
+      UpdateCheckError.timeout => isRu
+          ? 'GitHub не ответил вовремя'
+          : 'GitHub did not respond in time',
+      UpdateCheckError.rateLimit => isRu
+          ? 'Лимит GitHub API исчерпан, попробуйте через пару минут'
+          : 'GitHub API rate limit reached, try again in a few minutes',
+      UpdateCheckError.httpStatus => isRu
+          ? 'GitHub ответил ошибкой$tail'
+          : 'GitHub responded with an error$tail',
+    };
+  }
+
+  String updateInstallFailure(UpdateInstallException e) {
+    final detail = e.detail;
+    final tail = detail == null || detail.isEmpty ? '' : ': $detail';
+    return switch (e.error) {
+      UpdateInstallError.unsupportedType => isRu
+          ? 'Неизвестный тип файла обновления$tail'
+          : 'Unknown update file type$tail',
+      UpdateInstallError.downloadFailed => isRu
+          ? 'Скачивание не удалось$tail'
+          : 'Download failed$tail',
+      UpdateInstallError.writeFailed => isRu
+          ? 'Не удалось записать файл$tail'
+          : 'Could not write the file$tail',
+      UpdateInstallError.checksumMissing => isRu
+          ? 'Для ${tail.isEmpty ? 'файла' : 'файла $detail'} не опубликован SHA-256; '
+              'отказ устанавливать непроверенную сборку'
+          : 'No SHA-256 published for ${detail ?? 'the file'}; '
+              'refusing to install an unverified build',
+      UpdateInstallError.checksumMismatch => isRu
+          ? 'Файл${tail.isEmpty ? '' : ' $detail'} не совпал с контрольной суммой; '
+              'загрузка отброшена'
+          : 'The file${detail == null ? '' : ' $detail'} failed the checksum; '
+              'the download was discarded',
+      UpdateInstallError.badArchive => isRu
+          ? 'Архив обновления повреждён или без приложения$tail'
+          : 'The update archive is corrupt or has no app$tail',
+      UpdateInstallError.wrongPlatform => isRu
+          ? 'Такой формат обновления не подходит этой платформе ($detail)'
+          : 'This update format does not fit this platform ($detail)',
+      UpdateInstallError.copyFailed => isRu
+          ? 'Не удалось скопировать файлы обновления$tail'
+          : 'Could not copy the update files$tail',
+    };
+  }
+
+  String updateInstallUnexpected(String error) => isRu
+      ? 'Не удалось установить обновление: $error'
+      : 'Could not install the update: $error';
 }

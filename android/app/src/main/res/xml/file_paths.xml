@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Папки, которые FileProvider отдаёт системному установщику APK. -->
+<paths>
+    <!-- Скачанный APK лежит в cache-path внутри приложения. -->
+    <cache-path name="updates" path="updates/"/>
+</paths>

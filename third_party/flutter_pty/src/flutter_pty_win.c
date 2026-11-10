@@ -7,118 +7,167 @@
 #include "include/dart_api_dl.h"
 #include "include/dart_native_api.h"
 
+// UTF-8 → UTF-16. Простое расширение байта в wchar ломало все символы вне
+// ASCII: пути и переменные окружения с русскими буквами приходили в процесс
+// мусором (cmd их и печатал мусором).
+static LPWSTR utf8_to_wide(const char *utf8)
+{
+    if (utf8 == NULL)
+    {
+        return NULL;
+    }
+
+    int length = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+
+    if (length <= 0)
+    {
+        return NULL;
+    }
+
+    LPWSTR wide = malloc(length * sizeof(WCHAR));
+
+    if (wide != NULL && MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, length) <= 0)
+    {
+        free(wide);
+        return NULL;
+    }
+
+    return wide;
+}
+
 static LPWSTR build_command(char *executable, char **arguments)
 {
+    // flutter_pty.dart кладёт в argv первым элементом (arguments[0]) сам
+    // executable (стандартный POSIX argv для execvp). Если не пропустить
+    // arguments[0], в CreateProcessW передавалось «cmd.exe cmd.exe /k ...» -
+    // внешний cmd запускал внутренний как дочерний процесс, блокировал ввод
+    // и ломал работу псевдотерминала.
+    int start_index = 0;
+    if (arguments != NULL && arguments[0] != NULL && executable != NULL)
+    {
+        if (_stricmp(arguments[0], executable) == 0)
+        {
+            start_index = 1;
+        }
+    }
+
     int command_length = 0;
 
     if (executable != NULL)
     {
-        command_length += (int)strlen(executable);
+        command_length += (int)strlen(executable) + 3;
     }
 
     if (arguments != NULL)
     {
-        int i = 0;
+        int i = start_index;
 
         while (arguments[i] != NULL)
         {
-            command_length += (int)strlen(arguments[i]) + 1;
+            command_length += (int)strlen(arguments[i]) + 3;
             i++;
         }
     }
 
-    LPWSTR command = malloc((command_length + 1) * sizeof(WCHAR));
+    char *command = malloc(command_length + 1);
 
-    if (command != NULL)
+    if (command == NULL)
     {
-        int i = 0;
-
-        if (executable != NULL)
-        {
-            int j = 0;
-
-            while (executable[j] != 0)
-            {
-                command[i] = (WCHAR)executable[j];
-                i++;
-                j++;
-            }
-        }
-
-        if (arguments != NULL)
-        {
-            int j = 0;
-
-            while (arguments[j] != NULL)
-            {
-                command[i++] = ' ';
-
-                int k = 0;
-
-                while (arguments[j][k] != 0)
-                {
-                    command[i] = (WCHAR)arguments[j][k];
-                    i++;
-                    k++;
-                }
-
-                j++;
-            }
-        }
-
-        command[i] = 0;
+        return NULL;
     }
 
-    return command;
+    command[0] = 0;
+
+    if (executable != NULL)
+    {
+        int has_space = strchr(executable, ' ') != NULL;
+        if (has_space && executable[0] != '"')
+        {
+            strcat(command, "\"");
+            strcat(command, executable);
+            strcat(command, "\"");
+        }
+        else
+        {
+            strcpy(command, executable);
+        }
+    }
+
+    if (arguments != NULL)
+    {
+        int i = start_index;
+
+        while (arguments[i] != NULL)
+        {
+            strcat(command, " ");
+            int has_space = strchr(arguments[i], ' ') != NULL;
+            if (has_space && arguments[i][0] != '"')
+            {
+                strcat(command, "\"");
+                strcat(command, arguments[i]);
+                strcat(command, "\"");
+            }
+            else
+            {
+                strcat(command, arguments[i]);
+            }
+            i++;
+        }
+    }
+
+    LPWSTR wide = utf8_to_wide(command);
+    free(command);
+    return wide;
 }
 
 static LPWSTR build_environment(char **environment)
 {
-    LPWSTR environment_block = NULL;
-    int environment_block_length = 0;
-
-    if (environment != NULL)
+    if (environment == NULL)
     {
-        int i = 0;
-
-        while (environment[i] != NULL)
-        {
-            environment_block_length += (int)strlen(environment[i]) + 1;
-            i++;
-        }
+        return NULL;
     }
 
-    environment_block = malloc((environment_block_length + 1) * sizeof(WCHAR));
+    int total_wchars = 0;
+    int i = 0;
 
-    if (environment_block != NULL)
+    while (environment[i] != NULL)
     {
-        int i = 0;
-
-        if (environment != NULL)
+        int len = MultiByteToWideChar(CP_UTF8, 0, environment[i], -1, NULL, 0);
+        if (len <= 0)
         {
-            int j = 0;
-
-            while (environment[j] != NULL)
-            {
-                int k = 0;
-
-                while (environment[j][k] != 0)
-                {
-                    environment_block[i] = (WCHAR)environment[j][k];
-                    i++;
-                    k++;
-                }
-
-                environment_block[i++] = 0;
-
-                j++;
-            }
+            return NULL;
         }
-
-        environment_block[i] = 0;
+        total_wchars += len;
+        i++;
     }
 
-    return environment_block;
+    // Дополнительный \0 для завершения блока двойным нулём (\0\0).
+    total_wchars += 1;
+
+    LPWSTR wide = malloc(total_wchars * sizeof(WCHAR));
+    if (wide == NULL)
+    {
+        return NULL;
+    }
+
+    int offset = 0;
+    i = 0;
+
+    while (environment[i] != NULL)
+    {
+        int len = MultiByteToWideChar(CP_UTF8, 0, environment[i], -1, wide + offset, total_wchars - offset);
+        if (len <= 0)
+        {
+            free(wide);
+            return NULL;
+        }
+        offset += len;
+        i++;
+    }
+
+    wide[offset] = 0;
+
+    return wide;
 }
 
 static LPWSTR build_working_directory(char *working_directory)
@@ -128,25 +177,7 @@ static LPWSTR build_working_directory(char *working_directory)
         return NULL;
     }
 
-    int working_directory_length = (int)strlen(working_directory);
-
-    LPWSTR working_directory_block = malloc((working_directory_length + 1) * sizeof(WCHAR));
-
-    if (working_directory_block == NULL)
-    {
-        return NULL;
-    }
-
-    int i = 0;
-
-    while (working_directory[i] != 0)
-    {
-        working_directory_block[i] = (WCHAR)working_directory[i++];
-    }
-
-    working_directory_block[i] = 0;
-
-    return working_directory_block;
+    return utf8_to_wide(working_directory);
 }
 
 typedef struct ReadLoopOptions
@@ -197,6 +228,7 @@ static DWORD WINAPI read_loop(LPVOID arg)
         Dart_PostCObject_DL(options->port, &result);
     }
 
+    free(options);
     return 0;
 }
 
@@ -216,6 +248,10 @@ static void start_read_thread(HANDLE fd, Dart_Port port, HANDLE mutex, BOOL ackR
     if (thread == NULL)
     {
         free(options);
+    }
+    else
+    {
+        CloseHandle(thread);
     }
 }
 
@@ -243,6 +279,7 @@ static DWORD WINAPI wait_exit_thread(LPVOID arg)
 
     Dart_PostInteger_DL(options->port, exit_code);
 
+    free(options);
     return 0;
 }
 
@@ -262,13 +299,17 @@ static void start_wait_exit_thread(HANDLE pid, Dart_Port port, HANDLE mutex)
     {
         free(options);
     }
+    else
+    {
+        CloseHandle(thread);
+    }
 }
 
 typedef struct PtyHandle
 {
-    PHANDLE inputWriteSide;
+    HANDLE inputWriteSide;
 
-    PHANDLE outputReadSide;
+    HANDLE outputReadSide;
 
     HPCON hPty;
 
@@ -298,6 +339,8 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!CreatePipe(&outputReadSide, &outputWriteSide, NULL, 0))
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
         error_message = "Failed to create output pipe";
         return NULL;
     }
@@ -311,23 +354,34 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     HRESULT result = CreatePseudoConsole(size, inputReadSide, outputWriteSide, 0, &hPty);
 
+    // Концы пайпов, переданные в CreatePseudoConsole (inputReadSide и
+    // outputWriteSide), нельзя закрывать до запуска процесса: ConPTY не
+    // дублирует их, а читает/пишет через эти же хэндлы. Если закрыть их
+    // сразу после CreatePseudoConsole, канал ввода псевдоконсоли умирает:
+    // cmd печатает промпт, но нажатия клавиш до него не доходят.
+    // По образцу Microsoft их закрывают ПОСЛЕ CreateProcessW.
     if (FAILED(result))
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
         error_message = "Failed to create pseudo console";
         return NULL;
     }
 
-    STARTUPINFOEX startupInfo;
+    STARTUPINFOEXW startupInfo;
 
     ZeroMemory(&startupInfo, sizeof(startupInfo));
     startupInfo.StartupInfo.cb = sizeof(startupInfo);
-
-    startupInfo.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    // ConPTY строго требует STARTF_USESTDHANDLES с NULL-дескрипторами,
+    // чтобы стандартные потоки (stdin/stdout/stderr) процесса были
+    // корректно перенаправлены в созданную псевдоконсоль.
+    startupInfo.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
     startupInfo.StartupInfo.hStdInput = NULL;
     startupInfo.StartupInfo.hStdOutput = NULL;
     startupInfo.StartupInfo.hStdError = NULL;
-
-    SIZE_T bytesRequired;
+    SIZE_T bytesRequired = 0;
     InitializeProcThreadAttributeList(NULL, 1, 0, &bytesRequired);
     startupInfo.lpAttributeList = (PPROC_THREAD_ATTRIBUTE_LIST)malloc(bytesRequired);
 
@@ -335,6 +389,11 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!ok)
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
+        ClosePseudoConsole(hPty);
         error_message = "Failed to initialize proc thread attribute list";
         return NULL;
     }
@@ -349,6 +408,13 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!ok)
     {
+        DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+        free(startupInfo.lpAttributeList);
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
+        ClosePseudoConsole(hPty);
         error_message = "Failed to update proc thread attribute list";
         return NULL;
     }
@@ -362,18 +428,25 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
     PROCESS_INFORMATION processInfo;
     ZeroMemory(&processInfo, sizeof(processInfo));
 
-    Sleep(1000);
+    DWORD creation_flags = EXTENDED_STARTUPINFO_PRESENT;
+    if (environment_block != NULL)
+    {
+        creation_flags |= CREATE_UNICODE_ENVIRONMENT;
+    }
 
     ok = CreateProcessW(NULL,
                         command,
                         NULL,
                         NULL,
                         FALSE,
-                        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                        creation_flags,
                         environment_block,
                         working_directory,
                         &startupInfo.StartupInfo,
                         &processInfo);
+
+    DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+    free(startupInfo.lpAttributeList);
 
     if (command != NULL)
     {
@@ -392,15 +465,21 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
 
     if (!ok)
     {
+        CloseHandle(inputReadSide);
+        CloseHandle(inputWriteSide);
+        CloseHandle(outputReadSide);
+        CloseHandle(outputWriteSide);
+        ClosePseudoConsole(hPty);
         error_message = "Failed to create process";
         DWORD error = GetLastError();
         printf("error no: %d\n", error);
         return NULL;
     }
 
-    // free(startupInfo.lpAttributeList);
+    CloseHandle(inputReadSide);
+    CloseHandle(outputWriteSide);
 
-    // CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hThread);
 
     HANDLE mutex = CreateSemaphore(
         NULL, // default security attributes
@@ -435,8 +514,6 @@ FFI_PLUGIN_EXPORT void pty_write(PtyHandle *handle, char *buffer, int length)
     DWORD bytesWritten;
 
     WriteFile(handle->inputWriteSide, buffer, length, &bytesWritten, NULL);
-
-    FlushFileBuffers(handle->inputWriteSide);
 
     return;
 }

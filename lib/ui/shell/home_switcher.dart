@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_strings.dart';
 import '../../app/controllers/hosts_controller.dart';
 import '../../app/controllers/settings_controller.dart';
+import '../../app/controllers/update_controller.dart';
 import 'ui_state.dart';
 
 /// Вкладки главной (M3 primary tabs): «Хосты» и «Настройки».
@@ -35,10 +36,19 @@ class _HomeTabsState extends ConsumerState<HomeTabs> with SingleTickerProviderSt
     });
     final count = ref.watch(hostsProvider.select((h) => h.length));
     final lang = ref.watch(settingsProvider.select((s) => s.language));
+    final hasUpdate = ref.watch(
+      updateInfoProvider.select((u) => u.value != null),
+    );
     final strings = AppStrings.of(context, lang);
     final scheme = Theme.of(context).colorScheme;
 
-    Widget tab(IconData icon, String label, [String? badge]) => Tab(
+    Widget tab(
+      IconData icon,
+      String label, {
+      String? badge,
+      bool dot = false,
+    }) =>
+        Tab(
           height: 48,
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -53,6 +63,12 @@ class _HomeTabsState extends ConsumerState<HomeTabs> with SingleTickerProviderSt
                   backgroundColor: scheme.secondaryContainer,
                   textColor: scheme.onSecondaryContainer,
                 ),
+              ] else if (dot) ...[
+                const SizedBox(width: 6),
+                Badge(
+                  smallSize: 8,
+                  backgroundColor: scheme.primary,
+                ),
               ],
             ],
           ),
@@ -65,8 +81,12 @@ class _HomeTabsState extends ConsumerState<HomeTabs> with SingleTickerProviderSt
       dividerColor: scheme.outlineVariant,
       onTap: ref.read(homeSectionProvider.notifier).select,
       tabs: [
-        tab(Icons.dns_outlined, strings.hosts, count > 0 ? '$count' : null),
-        tab(Icons.tune, strings.settings),
+        tab(
+          Icons.dns_outlined,
+          strings.hosts,
+          badge: count > 0 ? '$count' : null,
+        ),
+        tab(Icons.tune, strings.settings, dot: hasUpdate),
       ],
     );
   }
