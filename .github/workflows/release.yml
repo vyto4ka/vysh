@@ -86,7 +86,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Windows updater handoff and restart tests
-        run: flutter test test/windows_update_test.dart
+        run: flutter test test/windows_update_test.dart test/directory_tracking_test.dart test/terminal_shortcut_parity_test.dart test/follow_terminal_directory_test.dart
       - shell: bash
         run: flutter build windows --release --dart-define="BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)"
       - name: Упаковать zip

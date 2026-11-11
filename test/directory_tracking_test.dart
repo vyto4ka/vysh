@@ -232,4 +232,43 @@ void main() {
       }
     },
   );
+  test('Windows cmd reports the real directory through its prompt', () async {
+    if (!Platform.isWindows) return;
+    final folder = await Directory.systemTemp.createTemp('vysh-cmd-cwd-');
+    final reports = <String>[];
+    final terminal = Terminal()
+      ..onCurrentDirectoryChange = (value) {
+        final path = reportedDirectory(value);
+        if (path != null) reports.add(path);
+      };
+    final shell = await const ProcessLocalShellLauncher().start(
+      columns: 80,
+      rows: 24,
+    );
+    final subscription = shell.output
+        .cast<List<int>>()
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen(terminal.write);
+    try {
+      shell.write(
+        Uint8List.fromList(utf8.encode('cd /d "${folder.path}"\r\n')),
+      );
+      final watch = Stopwatch()..start();
+      while (!reports.any(
+            (p) => p.toLowerCase() == folder.path.toLowerCase(),
+          ) &&
+          watch.elapsed < const Duration(seconds: 8)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(
+        reports.map((p) => p.toLowerCase()),
+        contains(folder.path.toLowerCase()),
+      );
+    } finally {
+      shell.close();
+      await subscription.cancel();
+      await shell.done.timeout(const Duration(seconds: 5));
+      await folder.delete(recursive: true);
+    }
+  });
 }
