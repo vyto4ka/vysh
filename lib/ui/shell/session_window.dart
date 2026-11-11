@@ -373,39 +373,6 @@ class _SessionWindowAppState extends State<SessionWindowApp>
       ],
       home: Builder(
         builder: (context) => Scaffold(
-          appBar: AppBar(
-            title: Text(
-              widget.arguments['title'],
-              overflow: TextOverflow.ellipsis,
-            ),
-            actions: [
-              IconButton(
-                tooltip: isRu ? 'Переподключить' : 'Reconnect',
-                onPressed: () => _input('reconnect', {}),
-                icon: const Icon(Icons.refresh),
-              ),
-              IconButton(
-                tooltip: isRu ? 'Копировать' : 'Copy',
-                onPressed: _copy,
-                icon: const Icon(Icons.copy),
-              ),
-              IconButton(
-                tooltip: isRu ? 'Вставить' : 'Paste',
-                onPressed: _paste,
-                icon: const Icon(Icons.paste),
-              ),
-              IconButton(
-                tooltip: isRu ? 'Файлы в главном окне' : 'Files in main window',
-                onPressed: () => _input('files', {}),
-                icon: const Icon(Icons.folder_copy_outlined),
-              ),
-              TextButton.icon(
-                onPressed: _return,
-                icon: const Icon(Icons.tab),
-                label: Text(isRu ? 'Во вкладки' : 'Return to tabs'),
-              ),
-            ],
-          ),
           body: Column(
             children: [
               if (error != null)
@@ -480,21 +447,73 @@ class _SessionWindowAppState extends State<SessionWindowApp>
                   ),
                 ),
               ),
-              Container(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                color: Theme.of(context).colorScheme.surfaceContainer,
-                child: Text(
-                  '${widget.arguments['title']} · ${switch (status) {
-                    'ready' => isRu ? 'Подключено' : 'Connected',
-                    'connecting' => isRu ? 'Подключение…' : 'Connecting…',
-                    'lost' => isRu ? 'Соединение потеряно' : 'Connection lost',
-                    _ => isRu ? 'Сессия завершена' : 'Session ended',
-                  }}',
-                  style: Theme.of(context).textTheme.labelSmall,
+              Material(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                child: SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 12),
+                      Icon(
+                        status == 'ready'
+                            ? Icons.check_circle_outline
+                            : Icons.info_outline,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(switch (status) {
+                          'ready' => isRu ? 'Подключено' : 'Connected',
+                          'connecting' => isRu ? 'Подключение…' : 'Connecting…',
+                          'lost' =>
+                            isRu ? 'Соединение потеряно' : 'Connection lost',
+                          _ => isRu ? 'Сессия завершена' : 'Session ended',
+                        }, style: Theme.of(context).textTheme.labelMedium),
+                      ),
+                      IconButton(
+                        tooltip: isRu
+                            ? 'Файлы в главном окне'
+                            : 'Files in main window',
+                        onPressed: () => _input('files', {}),
+                        icon: const Icon(Icons.folder_outlined),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: isRu ? 'Действия сессии' : 'Session actions',
+                        onSelected: (v) {
+                          switch (v) {
+                            case 'copy':
+                              _copy();
+                            case 'paste':
+                              _paste();
+                            case 'reconnect':
+                              _input('reconnect', {});
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'copy',
+                            child: Text(isRu ? 'Копировать' : 'Copy'),
+                          ),
+                          PopupMenuItem(
+                            value: 'paste',
+                            child: Text(isRu ? 'Вставить' : 'Paste'),
+                          ),
+                          const PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: 'reconnect',
+                            child: Text(isRu ? 'Переподключить' : 'Reconnect'),
+                          ),
+                        ],
+                      ),
+                      TextButton.icon(
+                        onPressed: _return,
+                        icon: const Icon(Icons.tab),
+                        label: Text(isRu ? 'Во вкладки' : 'Return to tabs'),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                  ),
                 ),
               ),
             ],

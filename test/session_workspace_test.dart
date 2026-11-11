@@ -50,10 +50,28 @@ class _Detached extends DetachedWindows {
   }
 }
 
-Future<ProviderContainer> workspace(WidgetTester tester) async {
+class _ManyTabs extends TabsController {
+  @override
+  TabsState build() => TabsState(
+    tabs: List.generate(
+      12,
+      (i) => SessionTab(
+        id: 'tab-$i',
+        title: 'Session ${i + 1}',
+        host: Host(id: 'host-$i', label: '', address: 'host-$i'),
+      ),
+    ),
+    active: 1,
+  );
+}
+
+Future<ProviderContainer> workspace(
+  WidgetTester tester, {
+  TabsController Function()? tabs,
+}) async {
   final container = ProviderContainer(
     overrides: [
-      tabsProvider.overrideWith(_Tabs.new),
+      tabsProvider.overrideWith(tabs ?? _Tabs.new),
       documentStoreProvider.overrideWith((ref, name) => _Store()),
       detachedWindowsProvider.overrideWith(_Detached.new),
       nativeTabDragProvider.overrideWithValue(false),
@@ -141,7 +159,7 @@ void main() {
     tester,
   ) async {
     final c = await workspace(tester);
-    await tester.tap(find.text('Split'));
+    await tester.tap(find.byTooltip('Layout and session actions'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Open a tab below'));
     await tester.pumpAndSettle();
@@ -149,7 +167,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(c.read(splitTabProvider), 'two');
     expect(c.read(splitLayoutProvider).axis, Axis.vertical);
-    expect(find.text('Unsplit'), findsOneWidget);
+    await tester.tap(find.text('Second').first);
+    await tester.pump();
+    expect(c.read(tabsProvider).active, 1);
+    expect(c.read(workspaceFocusProvider), 'two');
+    expect(find.byType(SessionView), findsNWidgets(2));
+    expect(find.text('Two panes'), findsNothing);
+    expect(find.text('One pane'), findsNothing);
+    await tester.tap(find.byTooltip('Layout and session actions'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Unsplit'));
     await tester.pump();
     expect(c.read(splitTabProvider), isNull);
@@ -172,6 +198,21 @@ void main() {
     await drag.up();
     await tester.pump();
     expect(c.read(splitTabProvider), 'two');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('switching to an offscreen tab reveals it in the strip', (
+    tester,
+  ) async {
+    final c = await workspace(tester, tabs: _ManyTabs.new);
+    c.read(tabsProvider.notifier).activate(12);
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.text('Session 12'));
+    expect(rect.left, greaterThanOrEqualTo(0));
+    expect(
+      rect.right,
+      lessThan(tester.view.physicalSize.width / tester.view.devicePixelRatio),
+    );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

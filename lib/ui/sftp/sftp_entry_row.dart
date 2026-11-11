@@ -6,7 +6,12 @@ import '../../l10n/app_strings.dart';
 /// Строки списка панели файлов: запись папки и заглушка пустого состояния.
 
 class SftpPlaceholder extends StatelessWidget {
-  const SftpPlaceholder({super.key, required this.icon, required this.text, this.action});
+  const SftpPlaceholder({
+    super.key,
+    required this.icon,
+    required this.text,
+    this.action,
+  });
 
   final IconData icon;
   final String text;
@@ -23,7 +28,11 @@ class SftpPlaceholder extends StatelessWidget {
           children: [
             Icon(icon, size: 36, color: scheme.outline),
             const SizedBox(height: 12),
-            Text(text, textAlign: TextAlign.center, style: TextStyle(color: scheme.onSurfaceVariant)),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
             if (action != null) ...[const SizedBox(height: 8), action!],
           ],
         ),
@@ -41,6 +50,9 @@ class SftpEntryRow extends StatelessWidget {
     required this.onDoubleTap,
     required this.onSecondary,
     required this.strings,
+    this.onSelect,
+    this.showSelection = false,
+    this.enabled = true,
   });
 
   /// null - строка «..».
@@ -50,6 +62,9 @@ class SftpEntryRow extends StatelessWidget {
   final VoidCallback onDoubleTap;
   final void Function(Offset globalPosition) onSecondary;
   final AppStrings strings;
+  final ValueChanged<bool>? onSelect;
+  final bool showSelection;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -61,57 +76,102 @@ class SftpEntryRow extends StatelessWidget {
     final icon = e == null
         ? Icons.subdirectory_arrow_left
         : e.isDir
-            ? (e.isLink ? Icons.folder_special_outlined : Icons.folder_rounded)
-            : (e.isLink ? Icons.link : _fileIcon(e.name));
+        ? (e.isLink ? Icons.folder_special_outlined : Icons.folder_rounded)
+        : (e.isLink ? Icons.link : _fileIcon(e.name));
     final iconColor = e == null || e.isDir ? scheme.primary : dim;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Material(
-        color: selected ? scheme.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          onDoubleTap: onDoubleTap,
-          onSecondaryTapUp: (d) => onSecondary(d.globalPosition),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+    return LayoutBuilder(
+      builder: (context, box) => Semantics(
+        selected: selected,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+          child: Material(
+            color: selected ? scheme.secondaryContainer : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
             child: Row(
               children: [
-                Icon(icon, size: 20, color: iconColor),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    e?.name ?? '..',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: e != null && e.isHidden ? dim : scheme.onSurface,
-                    ),
+                if (showSelection)
+                  Checkbox(
+                    value: selected,
+                    onChanged: enabled && onSelect != null
+                        ? (v) => onSelect!(v!)
+                        : null,
                   ),
-                ),
-                if (e != null) ...[
-                  if (!e.isDir)
-                    SizedBox(
-                      width: 72,
-                      child: Text(strings.bytes(e.size),
-                          textAlign: TextAlign.end, style: TextStyle(fontSize: 12, color: dim)),
-                    ),
-                  const SizedBox(width: 10),
-                  Tooltip(
-                    message: e.permissions,
-                    child: SizedBox(
-                      width: 96,
-                      child: Text(
-                        _date(e.modified, strings),
-                        textAlign: TextAlign.end,
-                        style: TextStyle(fontSize: 12, color: dim),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: enabled ? onTap : null,
+                    onDoubleTap: enabled ? onDoubleTap : null,
+                    onSecondaryTapUp: enabled
+                        ? (d) => onSecondary(d.globalPosition)
+                        : null,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              selected && !showSelection
+                                  ? Icons.check_circle
+                                  : icon,
+                              size: 20,
+                              color: selected
+                                  ? scheme.onSecondaryContainer
+                                  : iconColor,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                e?.name ?? '..',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: selected
+                                      ? scheme.onSecondaryContainer
+                                      : e != null && e.isHidden
+                                      ? dim
+                                      : scheme.onSurface,
+                                ),
+                              ),
+                            ),
+                            if (e != null) ...[
+                              if (!e.isDir)
+                                SizedBox(
+                                  width: 72,
+                                  child: Text(
+                                    strings.bytes(e.size),
+                                    textAlign: TextAlign.end,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: dim,
+                                    ),
+                                  ),
+                                ),
+                              if (box.maxWidth > 500) ...[
+                                const SizedBox(width: 12),
+                                Tooltip(
+                                  message: e.permissions,
+                                  child: SizedBox(
+                                    width: 112,
+                                    child: Text(
+                                      _date(e.modified, strings),
+                                      textAlign: TextAlign.end,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(color: dim),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
@@ -134,15 +194,51 @@ class SftpEntryRow extends StatelessWidget {
   static IconData _fileIcon(String name) {
     final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
     return switch (ext) {
-      'sh' || 'bash' || 'zsh' || 'py' || 'js' || 'ts' || 'go' || 'rs' || 'c' || 'cpp' || 'h' ||
-      'java' || 'php' || 'rb' || 'pl' || 'lua' => Icons.code,
-      'conf' || 'cfg' || 'ini' || 'yaml' || 'yml' || 'toml' || 'json' || 'xml' || 'env' =>
-        Icons.settings_outlined,
+      'sh' ||
+      'bash' ||
+      'zsh' ||
+      'py' ||
+      'js' ||
+      'ts' ||
+      'go' ||
+      'rs' ||
+      'c' ||
+      'cpp' ||
+      'h' ||
+      'java' ||
+      'php' ||
+      'rb' ||
+      'pl' ||
+      'lua' => Icons.code,
+      'conf' ||
+      'cfg' ||
+      'ini' ||
+      'yaml' ||
+      'yml' ||
+      'toml' ||
+      'json' ||
+      'xml' ||
+      'env' => Icons.settings_outlined,
       'log' || 'txt' || 'md' => Icons.description_outlined,
-      'zip' || 'gz' || 'tgz' || 'xz' || 'bz2' || 'zst' || '7z' || 'rar' || 'tar' || 'deb' ||
-      'rpm' || 'ipk' => Icons.inventory_2_outlined,
+      'zip' ||
+      'gz' ||
+      'tgz' ||
+      'xz' ||
+      'bz2' ||
+      'zst' ||
+      '7z' ||
+      'rar' ||
+      'tar' ||
+      'deb' ||
+      'rpm' ||
+      'ipk' => Icons.inventory_2_outlined,
       'iso' || 'img' || 'qcow2' || 'vmdk' => Icons.album_outlined,
-      'png' || 'jpg' || 'jpeg' || 'gif' || 'svg' || 'webp' => Icons.image_outlined,
+      'png' ||
+      'jpg' ||
+      'jpeg' ||
+      'gif' ||
+      'svg' ||
+      'webp' => Icons.image_outlined,
       'pem' || 'crt' || 'key' || 'pub' => Icons.key_outlined,
       _ => Icons.insert_drive_file_outlined,
     };

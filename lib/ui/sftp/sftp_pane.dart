@@ -13,7 +13,6 @@ import '../../app/controllers/transfer_queue.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
-import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
 import 'sftp_dialogs.dart';
@@ -21,6 +20,7 @@ import 'file_workspace.dart';
 import '../../app/sftp/file_copy.dart';
 import 'sftp_drag.dart';
 import 'sftp_entry_row.dart';
+import 'file_path_bar.dart';
 import 'transfers_view.dart';
 
 /// Файловая панель SFTP справа от терминала.
@@ -521,55 +521,43 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Путь и кнопки.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 4, 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: _s.up,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: ready && _cwd != null && _cwd != '/'
-                        ? () => _open(remoteParent(_cwd!))
-                        : null,
-                    icon: const Icon(Icons.arrow_upward),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _pathField,
-                      enabled: ready,
-                      style: monoStyle(
-                        context,
-                        size: 12.5,
-                        color: scheme.onSurface,
-                      ),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: true,
-                        fillColor: scheme.surfaceContainerHighest,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onSubmitted: (v) =>
-                          _open(v.trim().isEmpty ? '/' : v.trim()),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: _s.refresh,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: ready ? _refresh : null,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                  MenuIconButton(enabled: ready, items: _folderItems()),
-                ],
-              ),
+            FilePathBar(
+              controller: _pathField,
+              enabled: ready,
+              onOpen: _open,
+              onUp: _cwd != null && _cwd != '/'
+                  ? () => _open(remoteParent(_cwd!))
+                  : null,
+              onRefresh: _refresh,
+              isRu: _s.isRu,
+              trailing: MenuIconButton(enabled: ready, items: _folderItems()),
             ),
+            if (_selected.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
+                        style: theme.textTheme.labelLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: _s.isRu ? 'Снять выделение' : 'Clear selection',
+                      onPressed: () => setState(_selected.clear),
+                      icon: const Icon(Icons.close),
+                    ),
+                    IconButton(
+                      tooltip: _s.isRu
+                          ? 'Скачать выделенное'
+                          : 'Download selected',
+                      onPressed: () => _download(_selection),
+                      icon: const Icon(Icons.download_outlined),
+                    ),
+                  ],
+                ),
+              ),
             if (_loading)
               const LinearProgressIndicator(minHeight: 2)
             else
