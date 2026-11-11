@@ -24,6 +24,7 @@ import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
 import 'connection_failure_view.dart';
+import 'clipboard_shortcut.dart';
 import 'stable_selection.dart';
 import 'terminal_accessory_bar.dart';
 import 'terminal_geometry.dart';
@@ -110,7 +111,11 @@ abstract class _SessionViewBase extends ConsumerState<SessionView> {
 }
 
 class _SessionViewState extends _SessionViewBase
-    with WidgetsBindingObserver, _ClipboardActions, _PointerGestures, _DesktopMenu {
+    with
+        WidgetsBindingObserver,
+        _ClipboardActions,
+        _PointerGestures,
+        _DesktopMenu {
   @override
   void initState() {
     super.initState();
@@ -217,18 +222,27 @@ class _SessionViewState extends _SessionViewBase
     // Только то, от чего зависит экран вкладки: иначе любая настройка
     // перестраивала бы все открытые терминалы. Размер шрифта читается в
     // _effectiveFontSize, поэтому он тоже здесь.
-    final settings = ref.watch(settingsProvider.select((s) => (
+    final settings = ref.watch(
+      settingsProvider.select(
+        (s) => (
           language: s.language,
+          customClipboard: s.customClipboard,
+          copyShortcut: s.copyShortcut,
+          pasteShortcut: s.pasteShortcut,
+          ctrlVPaste: s.ctrlVPaste,
           showAccessoryBar: s.showAccessoryBar,
           serverStats: s.serverStats,
           fontSize: s.terminalFontSize,
           rememberFontSize: s.rememberTerminalFontSize,
           font: s.terminalFont,
           lineHeight: s.terminalLineHeight,
-        )));
+        ),
+      ),
+    );
     final scheme = Theme.of(context).colorScheme;
     final paneOpen =
-        !widget.tab.isLocal && ref.watch(sftpPaneProvider).contains(widget.tab.id);
+        !widget.tab.isLocal &&
+        ref.watch(sftpPaneProvider).contains(widget.tab.id);
     final ext = ref.watch(externalColorsProvider);
 
     final strings = AppStrings.of(context, settings.language);
@@ -285,6 +299,25 @@ class _SessionViewState extends _SessionViewBase
             // (правка в third_party/xterm2, см. PATCHES.md).
             enableIMEPersonalizedLearning: true,
             onKeyEvent: (focusNode, event) {
+              if (event is KeyDownEvent &&
+                  ref.read(settingsProvider).customClipboard) {
+                final settings = ref.read(settingsProvider);
+                if (clipboardActivator(
+                      settings.copyShortcut,
+                    )?.accepts(event, HardwareKeyboard.instance) ??
+                    false) {
+                  _copySelection();
+                  _controller.clearSelection();
+                  return KeyEventResult.handled;
+                }
+                if (clipboardActivator(
+                      settings.pasteShortcut,
+                    )?.accepts(event, HardwareKeyboard.instance) ??
+                    false) {
+                  _paste();
+                  return KeyEventResult.handled;
+                }
+              }
               if (event is KeyDownEvent) {
                 if (session.ctrlModifier) {
                   if (event.logicalKey == LogicalKeyboardKey.escape) {
@@ -318,64 +351,64 @@ class _SessionViewState extends _SessionViewBase
         key: _menu,
         onClose: () => _focus.requestFocus(),
         child: Stack(
-        key: _terminalStackKey,
-        children: [
-          Positioned.fill(child: terminalView),
-          if (showFailure)
-            Positioned.fill(
-              child: ConnectionFailureView(
-                session: session,
-                onReconnect: _reconnect,
-                onDismiss: () {
-                  setState(() {
-                    _failureDismissed = true;
-                    _showLogManually = false;
-                  });
+          key: _terminalStackKey,
+          children: [
+            Positioned.fill(child: terminalView),
+            if (showFailure)
+              Positioned.fill(
+                child: ConnectionFailureView(
+                  session: session,
+                  onReconnect: _reconnect,
+                  onDismiss: () {
+                    setState(() {
+                      _failureDismissed = true;
+                      _showLogManually = false;
+                    });
 
-                  _focus.requestFocus();
-                },
+                    _focus.requestFocus();
+                  },
+                ),
               ),
-            ),
-          if (_selectionMenuPosition != null)
-            SelectionMenu(
-              position: _selectionMenuPosition!,
-              hasSelection: _controller.selection != null,
-              isEmptySpace: _selectionIsEmptiness,
-              selectedCharCount: _getSelectedCharCount(),
-              strings: strings,
-              onCopy: _copy,
-              onPaste: () {
-                _dismissselectionMenu();
-                _paste();
-              },
-              onCut: _cut,
-              onSelectAll: _selectAll,
-              onErase: _eraseCurrentSelectionOrLine,
-              onShare: _share,
-              onReset: _reset,
-              onClear: _clear,
-              onLog: () {
-                _dismissselectionMenu();
+            if (_selectionMenuPosition != null)
+              SelectionMenu(
+                position: _selectionMenuPosition!,
+                hasSelection: _controller.selection != null,
+                isEmptySpace: _selectionIsEmptiness,
+                selectedCharCount: _getSelectedCharCount(),
+                strings: strings,
+                onCopy: _copy,
+                onPaste: () {
+                  _dismissselectionMenu();
+                  _paste();
+                },
+                onCut: _cut,
+                onSelectAll: _selectAll,
+                onErase: _eraseCurrentSelectionOrLine,
+                onShare: _share,
+                onReset: _reset,
+                onClear: _clear,
+                onLog: () {
+                  _dismissselectionMenu();
 
-                setState(() {
-                  _showLogManually = true;
-                });
-              },
-              onReconnect: () {
-                _dismissselectionMenu();
-                _reconnect();
-              },
-              onDismiss: _dismissselectionMenu,
-            ),
-          // Ручки выделения - для пальца; мышью выделяют и без них.
-          if (DesktopEnv.isMobile &&
-              _controller.selection != null &&
-              !_controller.selection!.isCollapsed) ...[
-            _selectionHandle(start: true),
-            _selectionHandle(start: false),
+                  setState(() {
+                    _showLogManually = true;
+                  });
+                },
+                onReconnect: () {
+                  _dismissselectionMenu();
+                  _reconnect();
+                },
+                onDismiss: _dismissselectionMenu,
+              ),
+            // Ручки выделения - для пальца; мышью выделяют и без них.
+            if (DesktopEnv.isMobile &&
+                _controller.selection != null &&
+                !_controller.selection!.isCollapsed) ...[
+              _selectionHandle(start: true),
+              _selectionHandle(start: false),
+            ],
           ],
-        ],
-      ),
+        ),
       ),
     );
 

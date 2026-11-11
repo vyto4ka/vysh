@@ -76,6 +76,9 @@ class AppSettings {
     this.rememberTerminalFontSize = true,
     this.terminalFont = '',
     this.terminalLineHeight = 1.2,
+    this.customClipboard = false,
+    this.copyShortcut = 'ctrl+shift+C',
+    this.pasteShortcut = 'ctrl+shift+V',
     this.copyOnSelect = false,
     this.downloadsDir = '',
     this.pingHosts = true,
@@ -116,6 +119,9 @@ class AppSettings {
   /// Межстрочный интервал терминала, 1.0-1.6.
   final double terminalLineHeight;
 
+  final bool customClipboard;
+  final String copyShortcut;
+  final String pasteShortcut;
   final bool copyOnSelect;
 
   /// Иконка приложения (системная Monet-иконка на Android).
@@ -198,6 +204,9 @@ class AppSettings {
     bool? rememberTerminalFontSize,
     String? terminalFont,
     double? terminalLineHeight,
+    bool? customClipboard,
+    String? copyShortcut,
+    String? pasteShortcut,
     bool? copyOnSelect,
     String? downloadsDir,
     bool? pingHosts,
@@ -223,148 +232,151 @@ class AppSettings {
     bool? serverStats,
     bool? checkForUpdates,
     int? updatePromptDays,
-  }) =>
-      AppSettings(
-        themeMode: themeMode ?? this.themeMode,
-        seedColor: seedColor ?? this.seedColor,
-        compact: compact ?? this.compact,
-        terminalFontSize: terminalFontSize ?? this.terminalFontSize,
-        rememberTerminalFontSize:
-            rememberTerminalFontSize ?? this.rememberTerminalFontSize,
-        terminalFont: terminalFont ?? this.terminalFont,
-        terminalLineHeight: terminalLineHeight ?? this.terminalLineHeight,
-        copyOnSelect: copyOnSelect ?? this.copyOnSelect,
-        downloadsDir: downloadsDir ?? this.downloadsDir,
-        pingHosts: pingHosts ?? this.pingHosts,
-        rightClick: rightClick ?? this.rightClick,
-        middleClickPaste: middleClickPaste ?? this.middleClickPaste,
-        ctrlVPaste: ctrlVPaste ?? this.ctrlVPaste,
-        confirmMultilinePaste:
-            confirmMultilinePaste ?? this.confirmMultilinePaste,
-        colorSource: colorSource ?? this.colorSource,
-        dotsPath: dotsPath ?? this.dotsPath,
-        titleBarMode: titleBarMode ?? this.titleBarMode,
-        keepAliveSeconds: keepAliveSeconds ?? this.keepAliveSeconds,
-        appIcon: appIcon ?? this.appIcon,
-        showAccessoryBar: showAccessoryBar ?? this.showAccessoryBar,
-        language: language ?? this.language,
-        scrollbackLines: scrollbackLines ?? this.scrollbackLines,
-        pingIntervalSec: pingIntervalSec ?? this.pingIntervalSec,
-        pingOnlyVisible: pingOnlyVisible ?? this.pingOnlyVisible,
-        colorPollSec: colorPollSec ?? this.colorPollSec,
-        pauseHiddenTabs: pauseHiddenTabs ?? this.pauseHiddenTabs,
-        renderer: renderer ?? this.renderer,
-        catppuccinFlavor: catppuccinFlavor ?? this.catppuccinFlavor,
-        catppuccinAccent: catppuccinAccent ?? this.catppuccinAccent,
-        serverStats: serverStats ?? this.serverStats,
-        checkForUpdates: checkForUpdates ?? this.checkForUpdates,
-        updatePromptDays: updatePromptDays ?? this.updatePromptDays,
-      );
+  }) => AppSettings(
+    themeMode: themeMode ?? this.themeMode,
+    seedColor: seedColor ?? this.seedColor,
+    compact: compact ?? this.compact,
+    terminalFontSize: terminalFontSize ?? this.terminalFontSize,
+    rememberTerminalFontSize:
+        rememberTerminalFontSize ?? this.rememberTerminalFontSize,
+    terminalFont: terminalFont ?? this.terminalFont,
+    terminalLineHeight: terminalLineHeight ?? this.terminalLineHeight,
+    customClipboard: customClipboard ?? this.customClipboard,
+    copyShortcut: copyShortcut ?? this.copyShortcut,
+    pasteShortcut: pasteShortcut ?? this.pasteShortcut,
+    copyOnSelect: copyOnSelect ?? this.copyOnSelect,
+    downloadsDir: downloadsDir ?? this.downloadsDir,
+    pingHosts: pingHosts ?? this.pingHosts,
+    rightClick: rightClick ?? this.rightClick,
+    middleClickPaste: middleClickPaste ?? this.middleClickPaste,
+    ctrlVPaste: ctrlVPaste ?? this.ctrlVPaste,
+    confirmMultilinePaste: confirmMultilinePaste ?? this.confirmMultilinePaste,
+    colorSource: colorSource ?? this.colorSource,
+    dotsPath: dotsPath ?? this.dotsPath,
+    titleBarMode: titleBarMode ?? this.titleBarMode,
+    keepAliveSeconds: keepAliveSeconds ?? this.keepAliveSeconds,
+    appIcon: appIcon ?? this.appIcon,
+    showAccessoryBar: showAccessoryBar ?? this.showAccessoryBar,
+    language: language ?? this.language,
+    scrollbackLines: scrollbackLines ?? this.scrollbackLines,
+    pingIntervalSec: pingIntervalSec ?? this.pingIntervalSec,
+    pingOnlyVisible: pingOnlyVisible ?? this.pingOnlyVisible,
+    colorPollSec: colorPollSec ?? this.colorPollSec,
+    pauseHiddenTabs: pauseHiddenTabs ?? this.pauseHiddenTabs,
+    renderer: renderer ?? this.renderer,
+    catppuccinFlavor: catppuccinFlavor ?? this.catppuccinFlavor,
+    catppuccinAccent: catppuccinAccent ?? this.catppuccinAccent,
+    serverStats: serverStats ?? this.serverStats,
+    checkForUpdates: checkForUpdates ?? this.checkForUpdates,
+    updatePromptDays: updatePromptDays ?? this.updatePromptDays,
+  );
 
   Map<String, Object?> toJson() => {
-        'themeMode': themeMode.name,
-        'seedColor': seedColor,
-        'compact': compact,
-        'terminalFontSize': terminalFontSize,
-        'rememberTerminalFontSize': rememberTerminalFontSize,
-        'terminalFont': terminalFont,
-        'terminalLineHeight': terminalLineHeight,
-        'copyOnSelect': copyOnSelect,
-        'downloadsDir': downloadsDir,
-        'pingHosts': pingHosts,
-        'rightClick': rightClick.name,
-        'middleClickPaste': middleClickPaste,
-        'ctrlVPaste': ctrlVPaste,
-        'confirmMultilinePaste': confirmMultilinePaste,
-        'colorSource': colorSource.name,
-        'dotsPath': dotsPath,
-        'titleBarMode': titleBarMode.name,
-        'keepAliveSeconds': keepAliveSeconds,
-        'appIcon': appIcon,
-        'showAccessoryBar': showAccessoryBar,
-        'language': language.name,
-        'scrollbackLines': scrollbackLines,
-        'pingIntervalSec': pingIntervalSec,
-        'pingOnlyVisible': pingOnlyVisible,
-        'colorPollSec': colorPollSec,
-        'pauseHiddenTabs': pauseHiddenTabs,
-        // Читается и нативным кодом до запуска движка - ключ не переименовывать.
-        'renderer': renderer.name,
-        'catppuccinFlavor': catppuccinFlavor,
-        'catppuccinAccent': catppuccinAccent,
-        'serverStats': serverStats,
-        'checkForUpdates': checkForUpdates,
-        'updatePromptDays': updatePromptDays,
-      };
+    'themeMode': themeMode.name,
+    'seedColor': seedColor,
+    'compact': compact,
+    'terminalFontSize': terminalFontSize,
+    'rememberTerminalFontSize': rememberTerminalFontSize,
+    'terminalFont': terminalFont,
+    'terminalLineHeight': terminalLineHeight,
+    'customClipboard': customClipboard,
+    'copyShortcut': copyShortcut,
+    'pasteShortcut': pasteShortcut,
+    'copyOnSelect': copyOnSelect,
+    'downloadsDir': downloadsDir,
+    'pingHosts': pingHosts,
+    'rightClick': rightClick.name,
+    'middleClickPaste': middleClickPaste,
+    'ctrlVPaste': ctrlVPaste,
+    'confirmMultilinePaste': confirmMultilinePaste,
+    'colorSource': colorSource.name,
+    'dotsPath': dotsPath,
+    'titleBarMode': titleBarMode.name,
+    'keepAliveSeconds': keepAliveSeconds,
+    'appIcon': appIcon,
+    'showAccessoryBar': showAccessoryBar,
+    'language': language.name,
+    'scrollbackLines': scrollbackLines,
+    'pingIntervalSec': pingIntervalSec,
+    'pingOnlyVisible': pingOnlyVisible,
+    'colorPollSec': colorPollSec,
+    'pauseHiddenTabs': pauseHiddenTabs,
+    // Читается и нативным кодом до запуска движка - ключ не переименовывать.
+    'renderer': renderer.name,
+    'catppuccinFlavor': catppuccinFlavor,
+    'catppuccinAccent': catppuccinAccent,
+    'serverStats': serverStats,
+    'checkForUpdates': checkForUpdates,
+    'updatePromptDays': updatePromptDays,
+  };
 
   factory AppSettings.fromJson(Map<String, Object?> json) => AppSettings(
-        themeMode: ThemeMode.values.firstWhere(
-          (m) => m.name == json['themeMode'],
-          orElse: () => ThemeMode.system,
-        ),
-        seedColor: json.integer('seedColor') ?? 0xFF6750A4,
-        compact: json.boolean('compact') ?? false,
-        terminalFontSize: (json.boolean('rememberTerminalFontSize') ?? true)
-            ? (json.dbl('terminalFontSize') ?? 14)
-                .clamp(8, 32)
-                .toDouble()
-            : 14,
-        rememberTerminalFontSize:
-            json.boolean('rememberTerminalFontSize') ?? true,
-        terminalFont: json.str('terminalFont') ?? '',
-        terminalLineHeight: _finite(json.dbl('terminalLineHeight'), 1.2)
-            .clamp(1.0, 1.6)
-            .toDouble(),
-        copyOnSelect: json.boolean('copyOnSelect') ?? false,
-        downloadsDir: json.str('downloadsDir') ?? '',
-        pingHosts: json.boolean('pingHosts') ?? true,
-        rightClick: RightClickAction.values.firstWhere(
-          (a) => a.name == json['rightClick'],
-          orElse: () => RightClickAction.menu,
-        ),
-        middleClickPaste: json.boolean('middleClickPaste') ?? false,
-        ctrlVPaste: json.boolean('ctrlVPaste') ?? false,
-        confirmMultilinePaste: json.boolean('confirmMultilinePaste') ?? true,
-        colorSource: ColorSource.values.firstWhere(
-          (c) => c.name == json['colorSource'],
-          orElse: () => ColorSource.preset,
-        ),
-        dotsPath: json.str('dotsPath') ?? '',
-        titleBarMode: TitleBarMode.values.firstWhere(
-          (m) => m.name == json['titleBarMode'],
-          orElse: () => TitleBarMode.auto,
-        ),
-        keepAliveSeconds: json.integer('keepAliveSeconds') ?? 60,
-        appIcon: json.str('appIcon') ?? 'monet',
-        showAccessoryBar: json.boolean('showAccessoryBar') ?? true,
-        language: AppLanguage.values.firstWhere(
-          (l) => l.name == json['language'],
-          orElse: () => AppLanguage.auto,
-        ),
-        scrollbackLines: (json.integer('scrollbackLines') ?? 10000)
-            .clamp(500, maxScrollback)
-            .toInt(),
-        pingIntervalSec: (json.integer('pingIntervalSec') ?? 30)
-            .clamp(5, 3600)
-            .toInt(),
-        pingOnlyVisible: json.boolean('pingOnlyVisible') ?? true,
-        colorPollSec: (json.integer('colorPollSec') ?? 60)
-            .clamp(0, 3600)
-            .toInt(),
-        pauseHiddenTabs: json.boolean('pauseHiddenTabs') ?? true,
-        renderer: json['renderer'] == 'impeller'
-            ? Renderer.impeller
-            : Renderer.skia,
-        catppuccinFlavor: json.str('catppuccinFlavor') ?? 'mocha',
-        catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
-        serverStats: json.boolean('serverStats') ?? true,
-        checkForUpdates: json.boolean('checkForUpdates') ?? true,
-        updatePromptDays: switch (json.integer('updatePromptDays')) {
-          1 => 1,
-          7 => 7,
-          _ => 3,
-        },
-      );
+    themeMode: ThemeMode.values.firstWhere(
+      (m) => m.name == json['themeMode'],
+      orElse: () => ThemeMode.system,
+    ),
+    seedColor: json.integer('seedColor') ?? 0xFF6750A4,
+    compact: json.boolean('compact') ?? false,
+    terminalFontSize: (json.boolean('rememberTerminalFontSize') ?? true)
+        ? (json.dbl('terminalFontSize') ?? 14).clamp(8, 32).toDouble()
+        : 14,
+    rememberTerminalFontSize: json.boolean('rememberTerminalFontSize') ?? true,
+    terminalFont: json.str('terminalFont') ?? '',
+    terminalLineHeight: _finite(
+      json.dbl('terminalLineHeight'),
+      1.2,
+    ).clamp(1.0, 1.6).toDouble(),
+    customClipboard: json.boolean('customClipboard') ?? false,
+    copyShortcut: json.str('copyShortcut') ?? 'ctrl+shift+C',
+    pasteShortcut: json.str('pasteShortcut') ?? 'ctrl+shift+V',
+    copyOnSelect: json.boolean('copyOnSelect') ?? false,
+    downloadsDir: json.str('downloadsDir') ?? '',
+    pingHosts: json.boolean('pingHosts') ?? true,
+    rightClick: RightClickAction.values.firstWhere(
+      (a) => a.name == json['rightClick'],
+      orElse: () => RightClickAction.menu,
+    ),
+    middleClickPaste: json.boolean('middleClickPaste') ?? false,
+    ctrlVPaste: json.boolean('ctrlVPaste') ?? false,
+    confirmMultilinePaste: json.boolean('confirmMultilinePaste') ?? true,
+    colorSource: ColorSource.values.firstWhere(
+      (c) => c.name == json['colorSource'],
+      orElse: () => ColorSource.preset,
+    ),
+    dotsPath: json.str('dotsPath') ?? '',
+    titleBarMode: TitleBarMode.values.firstWhere(
+      (m) => m.name == json['titleBarMode'],
+      orElse: () => TitleBarMode.auto,
+    ),
+    keepAliveSeconds: json.integer('keepAliveSeconds') ?? 60,
+    appIcon: json.str('appIcon') ?? 'monet',
+    showAccessoryBar: json.boolean('showAccessoryBar') ?? true,
+    language: AppLanguage.values.firstWhere(
+      (l) => l.name == json['language'],
+      orElse: () => AppLanguage.auto,
+    ),
+    scrollbackLines: (json.integer('scrollbackLines') ?? 10000)
+        .clamp(500, maxScrollback)
+        .toInt(),
+    pingIntervalSec: (json.integer('pingIntervalSec') ?? 30)
+        .clamp(5, 3600)
+        .toInt(),
+    pingOnlyVisible: json.boolean('pingOnlyVisible') ?? true,
+    colorPollSec: (json.integer('colorPollSec') ?? 60).clamp(0, 3600).toInt(),
+    pauseHiddenTabs: json.boolean('pauseHiddenTabs') ?? true,
+    renderer: json['renderer'] == 'impeller'
+        ? Renderer.impeller
+        : Renderer.skia,
+    catppuccinFlavor: json.str('catppuccinFlavor') ?? 'mocha',
+    catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
+    serverStats: json.boolean('serverStats') ?? true,
+    checkForUpdates: json.boolean('checkForUpdates') ?? true,
+    updatePromptDays: switch (json.integer('updatePromptDays')) {
+      1 => 1,
+      7 => 7,
+      _ => 3,
+    },
+  );
 
   static double _finite(double? v, double fallback) =>
       v != null && v.isFinite ? v : fallback;

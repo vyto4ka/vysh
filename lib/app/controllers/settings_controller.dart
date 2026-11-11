@@ -15,7 +15,9 @@ class SettingsController extends Notifier<AppSettings> {
   @override
   AppSettings build() {
     final raw = _store.readSync();
-    final s = raw is Map<String, Object?> ? AppSettings.fromJson(raw) : const AppSettings();
+    final s = raw is Map<String, Object?>
+        ? AppSettings.fromJson(raw)
+        : const AppSettings();
     // На Android язык выбирается в системе (язык приложения), своей настройки нет.
     return DesktopEnv.isMobile ? s.copyWith(language: AppLanguage.auto) : s;
   }
@@ -41,41 +43,71 @@ class SettingsController extends Notifier<AppSettings> {
     }
   }
 
-  void setTerminalFont(String value) => _update(state.copyWith(terminalFont: value));
-  void setTerminalLineHeight(double v) =>
-      _update(state.copyWith(terminalLineHeight: (v.clamp(1.0, 1.6) * 20).round() / 20));
+  void setTerminalFont(String value) =>
+      _update(state.copyWith(terminalFont: value));
+  void setTerminalLineHeight(double v) => _update(
+    state.copyWith(terminalLineHeight: (v.clamp(1.0, 1.6) * 20).round() / 20),
+  );
 
   void setCopyOnSelect(bool value) =>
       _update(state.copyWith(copyOnSelect: value));
   void setPingHosts(bool v) => _update(state.copyWith(pingHosts: v));
   void setRightClick(RightClickAction v) =>
       _update(state.copyWith(rightClick: v));
-  void setDownloadsDir(String dir) => _update(state.copyWith(downloadsDir: dir));
-  void setMiddleClickPaste(bool v) => _update(state.copyWith(middleClickPaste: v));
+  void setDownloadsDir(String dir) =>
+      _update(state.copyWith(downloadsDir: dir));
+  void setMiddleClickPaste(bool v) =>
+      _update(state.copyWith(middleClickPaste: v));
   void setCtrlVPaste(bool v) => _update(state.copyWith(ctrlVPaste: v));
 
   /// Стиль буфера: «как в Linux» (выделение копирует, средняя кнопка вставляет)
   /// или только клавишами. Правый клик подстраивается: в Linux-стиле он просто
   /// вставляет, в клавишном - копирует выделенное, а без выделения вставляет.
-  void setLinuxClipboard(bool linux) => _update(state.copyWith(
-        copyOnSelect: linux,
-        middleClickPaste: linux,
-        rightClick: state.rightClick == RightClickAction.menu
-            ? RightClickAction.menu
-            : (linux ? RightClickAction.paste : RightClickAction.smart),
-      ));
+  void setLinuxClipboard(bool linux) => _update(
+    state.copyWith(
+      customClipboard: false,
+      copyOnSelect: linux,
+      middleClickPaste: linux,
+      rightClick: state.rightClick == RightClickAction.menu
+          ? RightClickAction.menu
+          : (linux ? RightClickAction.paste : RightClickAction.smart),
+    ),
+  );
 
-  void setRightClickPaste(bool on) => _update(state.copyWith(
-        rightClick: !on
-            ? RightClickAction.menu
-            : (state.copyOnSelect ? RightClickAction.paste : RightClickAction.smart),
-      ));
+  void setCustomClipboard() => _update(
+    state.copyWith(
+      customClipboard: true,
+      copyOnSelect: false,
+      middleClickPaste: false,
+      rightClick: RightClickAction.menu,
+      ctrlVPaste: false,
+    ),
+  );
+
+  void setClipboardShortcut({required bool copy, required String shortcut}) =>
+      _update(
+        copy
+            ? state.copyWith(copyShortcut: shortcut)
+            : state.copyWith(pasteShortcut: shortcut),
+      );
+
+  void setRightClickPaste(bool on) => _update(
+    state.copyWith(
+      rightClick: !on
+          ? RightClickAction.menu
+          : (state.copyOnSelect
+                ? RightClickAction.paste
+                : RightClickAction.smart),
+    ),
+  );
   void setConfirmMultilinePaste(bool v) =>
       _update(state.copyWith(confirmMultilinePaste: v));
   void setColorSource(ColorSource v) => _update(state.copyWith(colorSource: v));
   void setDotsPath(String v) => _update(state.copyWith(dotsPath: v));
-  void setCatppuccinFlavor(String v) => _update(state.copyWith(catppuccinFlavor: v));
-  void setCatppuccinAccent(String v) => _update(state.copyWith(catppuccinAccent: v));
+  void setCatppuccinFlavor(String v) =>
+      _update(state.copyWith(catppuccinFlavor: v));
+  void setCatppuccinAccent(String v) =>
+      _update(state.copyWith(catppuccinAccent: v));
   void setServerStats(bool v) => _update(state.copyWith(serverStats: v));
   void setTitleBarMode(TitleBarMode v) =>
       _update(state.copyWith(titleBarMode: v));
@@ -87,9 +119,11 @@ class SettingsController extends Notifier<AppSettings> {
   void setLanguage(AppLanguage lang) => _update(state.copyWith(language: lang));
   void setScrollbackLines(int v) => _update(state.copyWith(scrollbackLines: v));
   void setPingIntervalSec(int v) => _update(state.copyWith(pingIntervalSec: v));
-  void setPingOnlyVisible(bool v) => _update(state.copyWith(pingOnlyVisible: v));
+  void setPingOnlyVisible(bool v) =>
+      _update(state.copyWith(pingOnlyVisible: v));
   void setColorPollSec(int v) => _update(state.copyWith(colorPollSec: v));
-  void setPauseHiddenTabs(bool v) => _update(state.copyWith(pauseHiddenTabs: v));
+  void setPauseHiddenTabs(bool v) =>
+      _update(state.copyWith(pauseHiddenTabs: v));
   void setRenderer(Renderer v) => _update(state.copyWith(renderer: v));
 
   void setCheckForUpdates(bool v) =>

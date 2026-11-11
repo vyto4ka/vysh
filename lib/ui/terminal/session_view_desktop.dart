@@ -10,11 +10,16 @@ mixin _DesktopMenu on _SessionViewBase {
     ).isRussian;
     final mac = PlatformCapabilities.isMacOS;
     final hasSelection = _controller.selection != null;
+    final clipboard = ref.read(settingsProvider);
     _menu.currentState?.open(globalPosition, [
       menuItem(
         ru ? 'Копировать' : 'Copy',
         icon: Icons.content_copy,
-        shortcut: mac ? Keys.macCopy : Keys.copy,
+        shortcut: clipboard.customClipboard
+            ? clipboardActivator(clipboard.copyShortcut)
+            : mac
+            ? Keys.macCopy
+            : Keys.copy,
         onPressed: hasSelection
             ? () {
                 _copySelection();
@@ -25,7 +30,11 @@ mixin _DesktopMenu on _SessionViewBase {
       menuItem(
         ru ? 'Вставить' : 'Paste',
         icon: Icons.content_paste,
-        shortcut: mac ? Keys.macPaste : Keys.paste,
+        shortcut: clipboard.customClipboard
+            ? clipboardActivator(clipboard.pasteShortcut)
+            : mac
+            ? Keys.macPaste
+            : Keys.paste,
         onPressed: _paste,
       ),
       menuDivider(),
@@ -34,7 +43,8 @@ mixin _DesktopMenu on _SessionViewBase {
           ru ? 'Файлы (SFTP)' : 'Files (SFTP)',
           icon: Icons.folder_outlined,
           shortcut: mac ? Keys.macFiles : Keys.files,
-          onPressed: () => ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
+          onPressed: () =>
+              ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
         ),
       if (!widget.tab.isLocal)
         menuItem(
@@ -74,6 +84,14 @@ mixin _DesktopMenu on _SessionViewBase {
   }
 
   Map<ShortcutActivator, Intent> _shortcuts() {
+    if (ref.read(settingsProvider).customClipboard) {
+      return <ShortcutActivator, Intent>{
+        for (final entry in defaultTerminalShortcuts.entries)
+          if (entry.value is! PasteTextIntent &&
+              entry.value is! CopySelectionTextIntent)
+            entry.key: entry.value,
+      };
+    }
     return <ShortcutActivator, Intent>{
       for (final entry in defaultTerminalShortcuts.entries)
         if (entry.value is! PasteTextIntent) entry.key: entry.value,

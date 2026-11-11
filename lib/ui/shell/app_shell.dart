@@ -6,7 +6,6 @@ import 'package:window_manager/window_manager.dart';
 import '../../infra/platform/capabilities.dart';
 import 'dart:async' show unawaited;
 
-import '../../app/controllers/settings_controller.dart';
 import '../../app/controllers/update_controller.dart';
 import '../../infra/storage/app_paths.dart';
 import '../../infra/storage/json_store.dart';
@@ -16,7 +15,7 @@ import '../dialogs/update_dialog.dart';
 import '../hosts/host_editor.dart';
 import '../hosts/hosts_page.dart';
 import '../settings/settings_page.dart';
-import '../terminal/session_view.dart';
+import 'session_workspace.dart';
 import '../widgets/strings_context.dart';
 import 'home_switcher.dart';
 import 'tab_strip.dart';
@@ -46,7 +45,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (initError != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _showError(context.strings.profileUnavailable(initError.path, initError.error));
+        _showError(
+          context.strings.profileUnavailable(initError.path, initError.error),
+        );
       });
     }
   }
@@ -67,11 +68,13 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   void _showError(String text) {
     final scheme = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(text, style: TextStyle(color: scheme.onErrorContainer)),
-      backgroundColor: scheme.errorContainer,
-      duration: const Duration(seconds: 10),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text, style: TextStyle(color: scheme.onErrorContainer)),
+        backgroundColor: scheme.errorContainer,
+        duration: const Duration(seconds: 10),
+      ),
+    );
   }
 
   bool _onKey(KeyEvent event) {
@@ -97,27 +100,47 @@ class _AppShellState extends ConsumerState<AppShell> {
     final mac = PlatformCapabilities.isMacOS;
     return {
       // Новая вкладка → главная + фокус в поиск (быстрое подключение).
-      const SingleActivator(LogicalKeyboardKey.keyT, control: true, shift: true): () {
+      const SingleActivator(
+        LogicalKeyboardKey.keyT,
+        control: true,
+        shift: true,
+      ): () {
         _goHome(0);
         WidgetsBinding.instance.addPostFrameCallback(
           (_) => ref.read(hostSearchFocusProvider).requestFocus(),
         );
       },
-      const SingleActivator(LogicalKeyboardKey.keyW, control: true, shift: true):
-          ctrl.closeActive,
+      const SingleActivator(
+        LogicalKeyboardKey.keyW,
+        control: true,
+        shift: true,
+      ): ctrl.closeActive,
       const SingleActivator(LogicalKeyboardKey.tab, control: true): ctrl.next,
       const SingleActivator(LogicalKeyboardKey.tab, control: true, shift: true):
           ctrl.previous,
-      const SingleActivator(LogicalKeyboardKey.keyR, control: true, shift: true): () {
+      const SingleActivator(
+        LogicalKeyboardKey.keyR,
+        control: true,
+        shift: true,
+      ): () {
         final tab = ref.read(tabsProvider).activeTab;
         if (tab != null) ctrl.reconnect(tab.id);
       },
-      const SingleActivator(LogicalKeyboardKey.keyN, control: true, shift: true): () {
+      const SingleActivator(
+        LogicalKeyboardKey.keyN,
+        control: true,
+        shift: true,
+      ): () {
         _goHome(0);
         showHostEditor(context);
       },
-      const SingleActivator(LogicalKeyboardKey.comma, control: true): () => _goHome(1),
-      const SingleActivator(LogicalKeyboardKey.keyE, control: true, shift: true): () {
+      const SingleActivator(LogicalKeyboardKey.comma, control: true): () =>
+          _goHome(1),
+      const SingleActivator(
+        LogicalKeyboardKey.keyE,
+        control: true,
+        shift: true,
+      ): () {
         final tab = ref.read(tabsProvider).activeTab;
         if (tab != null) ref.read(sftpPaneProvider.notifier).toggle(tab.id);
       },
@@ -129,7 +152,8 @@ class _AppShellState extends ConsumerState<AppShell> {
             (_) => ref.read(hostSearchFocusProvider).requestFocus(),
           );
         },
-        const SingleActivator(LogicalKeyboardKey.keyW, meta: true): ctrl.closeActive,
+        const SingleActivator(LogicalKeyboardKey.keyW, meta: true):
+            ctrl.closeActive,
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () {
           final tab = ref.read(tabsProvider).activeTab;
           if (tab != null) ctrl.reconnect(tab.id);
@@ -138,24 +162,24 @@ class _AppShellState extends ConsumerState<AppShell> {
           _goHome(0);
           showHostEditor(context);
         },
-        const SingleActivator(LogicalKeyboardKey.comma, meta: true): () => _goHome(1),
+        const SingleActivator(LogicalKeyboardKey.comma, meta: true): () =>
+            _goHome(1),
         const SingleActivator(LogicalKeyboardKey.keyE, meta: true): () {
           final tab = ref.read(tabsProvider).activeTab;
           if (tab != null) ref.read(sftpPaneProvider.notifier).toggle(tab.id);
         },
         for (var i = 1; i <= 9; i++)
-          SingleActivator(_digitKeys[i - 1], meta: true): () => ctrl.activate(i - 1),
+          SingleActivator(_digitKeys[i - 1], meta: true): () =>
+              ctrl.activate(i - 1),
       },
       for (var i = 1; i <= 9; i++)
-        SingleActivator(_digitKeys[i - 1], alt: true): () => ctrl.activate(i - 1),
+        SingleActivator(_digitKeys[i - 1], alt: true): () =>
+            ctrl.activate(i - 1),
     };
   }
 
   @override
   Widget build(BuildContext context) {
-    final tabs = ref.watch(tabsProvider);
-    final pause = ref.watch(settingsProvider.select((s) => s.pauseHiddenTabs));
-
     // Нашлось обновление - всплывающее окно (с периодичностью из настроек,
     // пропущенная версия не показывается). Первый показ - не в момент
     // подключения, а когда проверка завершится.
@@ -175,38 +199,24 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
 
     final body = Column(
-        children: [
-          const TabStrip(),
-          Expanded(
-            child: IndexedStack(
-              index: tabs.active,
-              // Скрытые вкладки живут (сессии не рвутся), но их анимации
-              // и таймеры-тикеры выключены - не тратим кадры на невидимое.
-              children: [
-                TickerMode(enabled: !pause || tabs.active == 0, child: const _HomeView()),
-                for (var i = 0; i < tabs.tabs.length; i++)
-                  TickerMode(
-                    key: ValueKey(tabs.tabs[i].id),
-                    enabled: !pause || tabs.active == i + 1,
-                    child: SessionView(
-                      tab: tabs.tabs[i],
-                      active: tabs.active == i + 1,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      );
+      children: [
+        const TabStrip(),
+        Expanded(child: const SessionWorkspace(home: _HomeView())),
+      ],
+    );
 
     // Linux без системной рамки: края окна тянем сами.
-    final resizable = PlatformCapabilities.selfResizedWindow && ref.watch(customTitleBarProvider);
+    final resizable =
+        PlatformCapabilities.selfResizedWindow &&
+        ref.watch(customTitleBarProvider);
     // macOS: окно без заголовка (fullSizeContentView), полоса вкладок сама
     // отступает под светофор - SafeArea сверху не нужен.
     return Scaffold(
       body: SafeArea(
         top: !PlatformCapabilities.isMacOS,
-        child: resizable ? DragToResizeArea(resizeEdgeSize: 6, child: body) : body,
+        child: resizable
+            ? DragToResizeArea(resizeEdgeSize: 6, child: body)
+            : body,
       ),
     );
   }
@@ -243,19 +253,22 @@ class _HomeView extends ConsumerWidget {
           ),
           Expanded(
             child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        switchInCurve: Curves.easeOutCubic,
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween(begin: const Offset(0, 0.015), end: Offset.zero).animate(anim),
-            child: child,
-          ),
-        ),
-        child: section == 0
-            ? const HostsPage(key: ValueKey('hosts'))
-            : const SettingsPage(key: ValueKey('settings')),
-      ),
+              duration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeOutCubic,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween(
+                    begin: const Offset(0, 0.015),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              ),
+              child: section == 0
+                  ? const HostsPage(key: ValueKey('hosts'))
+                  : const SettingsPage(key: ValueKey('settings')),
+            ),
           ),
         ],
       ),

@@ -106,7 +106,7 @@ class _TransferRow extends StatelessWidget {
       TransferStatus.running => t.total > 0
           ? strings.progressOf(strings.bytes(t.done), strings.bytes(t.total), strings.bytes(t.bytesPerSecond))
           : strings.bytes(t.done),
-      TransferStatus.done => strings.bytes(t.total),
+      TransferStatus.done => strings.bytes(t.total > 0 ? t.total : t.done),
       TransferStatus.failed => t.error == null ? strings.failedLower : strings.errorText(t.error!),
       TransferStatus.cancelled => strings.cancelledLower,
     };

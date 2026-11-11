@@ -29,12 +29,14 @@ class Transfer {
   final String tabId;
   final TransferDirection direction;
   final String name;
+
   /// Путь к файлу на этом устройстве.
   final String localPath;
   final String remotePath;
   final int total;
   final int done;
   final TransferStatus status;
+
   /// Ошибка передачи (SftpFailure и т. п.); текст собирает UI.
   final Object? error;
   final double bytesPerSecond;
@@ -43,8 +45,10 @@ class Transfer {
   /// не путь в файловой системе, хранится отдельно от [localPath].
   final String? publishedUri;
 
-  bool get isActive => status == TransferStatus.queued || status == TransferStatus.running;
-  double? get progress => total > 0 ? (done / total).clamp(0, 1).toDouble() : null;
+  bool get isActive =>
+      status == TransferStatus.queued || status == TransferStatus.running;
+  double? get progress =>
+      total > 0 ? (done / total).clamp(0, 1).toDouble() : null;
 
   Transfer copyWith({
     int? done,
@@ -52,25 +56,25 @@ class Transfer {
     Object? error,
     double? bytesPerSecond,
     String? publishedUri,
-  }) =>
-      Transfer(
-        id: id,
-        tabId: tabId,
-        direction: direction,
-        name: name,
-        localPath: localPath,
-        remotePath: remotePath,
-        total: total,
-        done: done ?? this.done,
-        status: status ?? this.status,
-        error: error ?? this.error,
-        bytesPerSecond: bytesPerSecond ?? this.bytesPerSecond,
-        publishedUri: publishedUri ?? this.publishedUri,
-      );
+  }) => Transfer(
+    id: id,
+    tabId: tabId,
+    direction: direction,
+    name: name,
+    localPath: localPath,
+    remotePath: remotePath,
+    total: total,
+    done: done ?? this.done,
+    status: status ?? this.status,
+    error: error ?? this.error,
+    bytesPerSecond: bytesPerSecond ?? this.bytesPerSecond,
+    publishedUri: publishedUri ?? this.publishedUri,
+  );
 }
 
 /// Тело передачи: выполняет работу, сообщает прогресс, уважает отмену.
-typedef TransferRunner = Future<void> Function(CancelToken cancel, ProgressCallback onProgress);
+typedef TransferRunner =
+    Future<void> Function(CancelToken cancel, ProgressCallback onProgress);
 
 class _Job {
   _Job(this.run, this.onDone, this.onSettled);
@@ -86,8 +90,9 @@ class _Job {
   final cancel = CancelToken();
 }
 
-final transferQueueProvider =
-    NotifierProvider<TransferQueue, List<Transfer>>(TransferQueue.new);
+final transferQueueProvider = NotifierProvider<TransferQueue, List<Transfer>>(
+  TransferQueue.new,
+);
 
 /// Очередь SFTP-передач: не больше [maxParallel] одновременно.
 class TransferQueue extends Notifier<List<Transfer>> {
@@ -140,7 +145,8 @@ class TransferQueue extends Notifier<List<Transfer>> {
   }
 
   void cancelAllForTab(String tabId) {
-    for (final t in state.where((t) => t.tabId == tabId && t.isActive).toList()) {
+    for (final t
+        in state.where((t) => t.tabId == tabId && t.isActive).toList()) {
       cancel(t.id);
     }
   }
@@ -183,11 +189,13 @@ class TransferQueue extends Notifier<List<Transfer>> {
     _update(id, (t) => t.copyWith(status: TransferStatus.running));
     final sw = Stopwatch()..start();
     var lastEmit = 0;
+    var latestDone = 0;
     var lastBytes = 0;
     var lastTime = 0;
     var speed = 0.0;
 
     void onProgress(int done) {
+      latestDone = done;
       final now = sw.elapsedMilliseconds;
       if (now - lastEmit < 120) return; // не чаще ~8 раз в секунду
       final dt = now - lastTime;
@@ -201,30 +209,42 @@ class TransferQueue extends Notifier<List<Transfer>> {
       _update(id, (t) => t.copyWith(done: done, bytesPerSecond: speed));
     }
 
-    job.run(job.cancel, onProgress).then((_) async {
-      if (job.cancel.isCancelled) {
-        _update(id, (t) => t.copyWith(status: TransferStatus.cancelled));
-      } else {
-        await job.onDone?.call();
-        _update(id, (t) => t.copyWith(status: TransferStatus.done, done: t.total));
-      }
-    }).catchError((Object e) {
-      final cancelled = e is TransferCancelled || job.cancel.isCancelled;
-      _update(
-        id,
-        (t) => t.copyWith(
-          status: cancelled ? TransferStatus.cancelled : TransferStatus.failed,
-          error: cancelled ? null : e,
-        ),
-      );
-    }).whenComplete(() {
-      _jobs.remove(id);
-      try {
-        job.onSettled?.call();
-      } catch (_) {}
-      _trimHistory();
-      _pump();
-    });
+    job
+        .run(job.cancel, onProgress)
+        .then((_) async {
+          if (job.cancel.isCancelled) {
+            _update(id, (t) => t.copyWith(status: TransferStatus.cancelled));
+          } else {
+            await job.onDone?.call();
+            _update(
+              id,
+              (t) => t.copyWith(
+                status: TransferStatus.done,
+                done: t.total > 0 ? t.total : latestDone,
+              ),
+            );
+          }
+        })
+        .catchError((Object e) {
+          final cancelled = e is TransferCancelled || job.cancel.isCancelled;
+          _update(
+            id,
+            (t) => t.copyWith(
+              status: cancelled
+                  ? TransferStatus.cancelled
+                  : TransferStatus.failed,
+              error: cancelled ? null : e,
+            ),
+          );
+        })
+        .whenComplete(() {
+          _jobs.remove(id);
+          try {
+            job.onSettled?.call();
+          } catch (_) {}
+          _trimHistory();
+          _pump();
+        });
   }
 
   void _trimHistory() {

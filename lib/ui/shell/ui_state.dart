@@ -23,7 +23,9 @@ final hostSearchFocusProvider = Provider<FocusNode>((ref) {
 });
 
 /// Вкладки, у которых открыта SFTP-панель.
-final sftpPaneProvider = NotifierProvider<SftpPaneState, Set<String>>(SftpPaneState.new);
+final sftpPaneProvider = NotifierProvider<SftpPaneState, Set<String>>(
+  SftpPaneState.new,
+);
 
 class SftpPaneState extends Notifier<Set<String>> {
   @override
@@ -31,13 +33,19 @@ class SftpPaneState extends Notifier<Set<String>> {
     // Закрытые вкладки забываем, чтобы набор не рос всю жизнь приложения.
     ref.listen(tabsProvider, (_, tabs) {
       final alive = tabs.tabs.map((t) => t.id).toSet();
-      if (!alive.containsAll(state)) state = state.where(alive.contains).toSet();
+      if (!alive.containsAll(state)) {
+        state = state.where(alive.contains).toSet();
+      }
     });
     return const {};
   }
 
   void toggle(String tabId) {
-    final tab = ref.read(tabsProvider).tabs.where((t) => t.id == tabId).firstOrNull;
+    final tab = ref
+        .read(tabsProvider)
+        .tabs
+        .where((t) => t.id == tabId)
+        .firstOrNull;
     if (tab == null || tab.isLocal) return;
     state = state.contains(tabId)
         ? ({...state}..remove(tabId))
@@ -50,3 +58,20 @@ final customTitleBarProvider = Provider<bool>((ref) {
   final mode = ref.watch(settingsProvider.select((s) => s.titleBarMode));
   return useCustomTitleBar(mode);
 });
+
+/// A session can be visible beside the active tab without creating a second connection.
+final splitTabProvider = NotifierProvider<SplitTabState, String?>(
+  SplitTabState.new,
+);
+
+class SplitTabState extends Notifier<String?> {
+  @override
+  String? build() {
+    ref.listen(tabsProvider, (_, tabs) {
+      if (state != null && !tabs.tabs.any((t) => t.id == state)) state = null;
+    });
+    return null;
+  }
+
+  void select(String? id) => state = id;
+}

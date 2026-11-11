@@ -13,6 +13,7 @@ import '../../infra/platform/desktop_env.dart';
 import '../widgets/context_menu.dart';
 import 'ui_state.dart';
 import 'window_buttons.dart';
+import '../sftp/file_workspace.dart';
 
 /// Полоса вкладок: закреплённая «главная» + вкладки сессий.
 class TabStrip extends ConsumerWidget {
@@ -33,7 +34,11 @@ class TabStrip extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _HomeTab(selected: state.isHome, strings: strings, onTap: () => ctrl.activate(0)),
+          _HomeTab(
+            selected: state.isHome,
+            strings: strings,
+            onTap: () => ctrl.activate(0),
+          ),
           const SizedBox(width: 4),
           Flexible(
             child: ReorderableListView.builder(
@@ -42,7 +47,8 @@ class TabStrip extends ConsumerWidget {
               buildDefaultDragHandles: false,
               itemCount: state.tabs.length,
               onReorderItem: ctrl.move,
-              proxyDecorator: (child, _, _) => Material(color: Colors.transparent, child: child),
+              proxyDecorator: (child, _, _) =>
+                  Material(color: Colors.transparent, child: child),
               itemBuilder: (context, i) {
                 final tab = state.tabs[i];
                 return ReorderableDelayedDragStartListener(
@@ -50,15 +56,36 @@ class TabStrip extends ConsumerWidget {
                   index: i,
                   child: Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: _SessionTabChip(
-                      tab: tab,
-                      index: i + 1,
-                      selected: state.active == i + 1,
-                      strings: strings,
-                      onTap: () => ctrl.activate(i + 1),
-                      onClose: () => ctrl.close(tab.id),
-                      onDuplicate: () => ctrl.duplicate(tab.id),
-                      onReconnect: () => ctrl.reconnect(tab.id),
+                    child: Draggable<String>(
+                      data: tab.id,
+                      feedback: Material(
+                        elevation: 6,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(tab.title),
+                        ),
+                      ),
+                      child: _SessionTabChip(
+                        tab: tab,
+                        index: i + 1,
+                        selected: state.active == i + 1,
+                        strings: strings,
+                        onTap: () => ctrl.activate(i + 1),
+                        onClose: () => ctrl.close(tab.id),
+                        onDuplicate: () => ctrl.duplicate(tab.id),
+                        onReconnect: () => ctrl.reconnect(tab.id),
+                        onSplit: () {
+                          final other = state.tabs
+                              .where((t) => t.id != tab.id)
+                              .firstOrNull;
+                          if ((state.isHome || state.activeTab?.id == tab.id) &&
+                              other != null) {
+                            ctrl.activate(state.tabs.indexOf(other) + 1);
+                          }
+                          ref.read(splitTabProvider.notifier).select(tab.id);
+                        },
+                      ),
                     ),
                   ),
                 );
@@ -66,7 +93,14 @@ class TabStrip extends ConsumerWidget {
             ),
           ),
           IconButton(
-            tooltip: DesktopEnv.isDesktop ? strings.newTabDesktopTooltip : strings.newTabTooltip,
+            tooltip: strings.isRu ? 'Файлы: две панели' : 'Files: two panes',
+            icon: const Icon(Icons.folder_copy_outlined),
+            onPressed: () => showFileWorkspace(context),
+          ),
+          IconButton(
+            tooltip: DesktopEnv.isDesktop
+                ? strings.newTabDesktopTooltip
+                : strings.newTabTooltip,
             iconSize: 20,
             visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.add),
@@ -102,10 +136,15 @@ class TabStrip extends ConsumerWidget {
             child: custom
                 ? Stack(
                     children: [
-                      const Positioned.fill(child: DragToMoveArea(child: SizedBox.expand())),
+                      const Positioned.fill(
+                        child: DragToMoveArea(child: SizedBox.expand()),
+                      ),
                       Padding(
                         padding: EdgeInsets.only(left: trafficLights ? 80 : 0),
-                        child: Align(alignment: Alignment.centerLeft, child: tabs),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: tabs,
+                        ),
                       ),
                     ],
                   )
@@ -122,7 +161,11 @@ class TabStrip extends ConsumerWidget {
 }
 
 class _HomeTab extends StatelessWidget {
-  const _HomeTab({required this.selected, required this.strings, required this.onTap});
+  const _HomeTab({
+    required this.selected,
+    required this.strings,
+    required this.onTap,
+  });
 
   final bool selected;
   final AppStrings strings;
@@ -146,16 +189,21 @@ class _HomeTab extends StatelessWidget {
                 'assets/icon/vysh_256.png',
                 width: 18,
                 height: 18,
-                cacheWidth: (18 * MediaQuery.devicePixelRatioOf(context)).ceil(),
+                cacheWidth: (18 * MediaQuery.devicePixelRatioOf(context))
+                    .ceil(),
                 filterQuality: FilterQuality.medium,
               ),
               const SizedBox(width: 8),
-              Text('vysh',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                    color: selected ? scheme.onSecondaryContainer : scheme.onSurface,
-                  )),
+              Text(
+                'vysh',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: selected
+                      ? scheme.onSecondaryContainer
+                      : scheme.onSurface,
+                ),
+              ),
             ],
           ),
         ),
@@ -174,6 +222,7 @@ class _SessionTabChip extends StatefulWidget {
     required this.onClose,
     required this.onDuplicate,
     required this.onReconnect,
+    required this.onSplit,
   });
 
   final SessionTab tab;
@@ -184,6 +233,7 @@ class _SessionTabChip extends StatefulWidget {
   final VoidCallback onClose;
   final VoidCallback onDuplicate;
   final VoidCallback onReconnect;
+  final VoidCallback onSplit;
 
   @override
   State<_SessionTabChip> createState() => _SessionTabChipState();
@@ -197,19 +247,38 @@ class _SessionTabChipState extends State<_SessionTabChip> {
   void _showMenu(Offset position) {
     final s = widget.strings;
     _menu.currentState?.open(position, [
-      menuItem(s.reconnect,
-          icon: Icons.refresh, shortcut: Keys.reconnect, onPressed: widget.onReconnect),
-      menuItem(s.duplicate, icon: Icons.copy_all_outlined, onPressed: widget.onDuplicate),
+      menuItem(
+        s.reconnect,
+        icon: Icons.refresh,
+        shortcut: Keys.reconnect,
+        onPressed: widget.onReconnect,
+      ),
+      menuItem(
+        s.duplicate,
+        icon: Icons.copy_all_outlined,
+        onPressed: widget.onDuplicate,
+      ),
+      menuItem(
+        s.isRu ? 'Открыть рядом' : 'Open beside',
+        icon: Icons.vertical_split,
+        onPressed: widget.onSplit,
+      ),
       menuDivider(),
-      menuItem(s.closeTab,
-          icon: Icons.close, shortcut: Keys.closeTab, onPressed: widget.onClose),
+      menuItem(
+        s.closeTab,
+        icon: Icons.close,
+        shortcut: Keys.closeTab,
+        onPressed: widget.onClose,
+      ),
     ]);
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final fg = widget.selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant;
+    final fg = widget.selected
+        ? scheme.onSecondaryContainer
+        : scheme.onSurfaceVariant;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -222,54 +291,63 @@ class _SessionTabChipState extends State<_SessionTabChip> {
         child: ContextMenuArea(
           key: _menu,
           child: GestureDetector(
-          onSecondaryTapUp: (d) => _showMenu(d.globalPosition),
-          child: _TabSurface(
-            selected: widget.selected,
-            onTap: widget.onTap,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 120, maxWidth: 220),
-              child: Padding(
-                padding: const EdgeInsets.only(left: 12, right: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _StatusDot(status: widget.tab.status),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        widget.tab.title,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: fg, fontSize: 13),
+            onSecondaryTapUp: (d) => _showMenu(d.globalPosition),
+            child: _TabSurface(
+              selected: widget.selected,
+              onTap: widget.onTap,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 120, maxWidth: 220),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _StatusDot(status: widget.tab.status),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          widget.tab.title,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: fg, fontSize: 13),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 2),
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 120),
-                      opacity: _hover || widget.selected ? 1 : 0,
-                      child: IconButton(
-                        tooltip: DesktopEnv.isDesktop ? context.strings.closeWithShortcut : context.strings.close,
-                        iconSize: 16,
-                        visualDensity: VisualDensity.compact,
-                        constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                        padding: EdgeInsets.zero,
-                        icon: Icon(Icons.close_rounded, color: fg),
-                        onPressed: widget.onClose,
+                      const SizedBox(width: 2),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 120),
+                        opacity: _hover || widget.selected ? 1 : 0,
+                        child: IconButton(
+                          tooltip: DesktopEnv.isDesktop
+                              ? context.strings.closeWithShortcut
+                              : context.strings.close,
+                          iconSize: 16,
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 28,
+                            height: 28,
+                          ),
+                          padding: EdgeInsets.zero,
+                          icon: Icon(Icons.close_rounded, color: fg),
+                          onPressed: widget.onClose,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-      ),
     );
   }
 }
 
 class _TabSurface extends StatelessWidget {
-  const _TabSurface({required this.selected, required this.onTap, required this.child});
+  const _TabSurface({
+    required this.selected,
+    required this.onTap,
+    required this.child,
+  });
 
   final bool selected;
   final VoidCallback onTap;
@@ -307,10 +385,19 @@ class _StatusDot extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final (color, tip) = switch (status) {
-      SessionStatus.connecting => (scheme.tertiary, context.strings.statusConnecting),
-      SessionStatus.ready => (Colors.green.shade500, context.strings.statusConnected),
+      SessionStatus.connecting => (
+        scheme.tertiary,
+        context.strings.statusConnecting,
+      ),
+      SessionStatus.ready => (
+        Colors.green.shade500,
+        context.strings.statusConnected,
+      ),
       SessionStatus.lost => (scheme.error, context.strings.statusLost),
-      SessionStatus.closed => (scheme.outline, context.strings.statusClosedShort),
+      SessionStatus.closed => (
+        scheme.outline,
+        context.strings.statusClosedShort,
+      ),
     };
     return Tooltip(
       message: tip,
