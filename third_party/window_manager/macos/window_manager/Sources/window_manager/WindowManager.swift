@@ -95,7 +95,10 @@ public class WindowManager: NSObject, NSWindowDelegate {
     }
     
     public func destroy() {
-        NSApp.terminate(nil)
+        // Destroy this window only. Terminating NSApp also kills the owner and
+        // every other session when a detached terminal returns to its tab.
+        _isPreventClose = false
+        mainWindow.close()
     }
     
     public func close() {
