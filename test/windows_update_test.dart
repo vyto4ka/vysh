@@ -133,7 +133,7 @@ Thread.Sleep(30000);
         int? newPid;
         addTearDown(() async {
           Process.killPid(old.pid);
-          if (newPid != null) Process.killPid(newPid!);
+          if (newPid != null) Process.killPid(newPid);
           await Future<void>.delayed(const Duration(milliseconds: 500));
         });
         await waitForFile(File('${target.path}/started.txt'));

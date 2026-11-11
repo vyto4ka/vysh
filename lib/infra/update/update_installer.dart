@@ -42,18 +42,21 @@ class UpdateInstaller {
     final file = File('${dir.path}${Platform.pathSeparator}vysh_update$ext');
 
     try {
-      if (Platform.isWindows)
+      if (Platform.isWindows) {
         await WindowsUpdateLog.write('Downloading to ${file.path}');
+      }
       await _download(info, file, onProgress);
-      if (Platform.isWindows)
+      if (Platform.isWindows) {
         await WindowsUpdateLog.write(
           'Download complete: ${await file.length()} bytes',
         );
+      }
 
       // Непроверенный файл не применяем.
       await _verifyDownloadedFile(file, info);
-      if (Platform.isWindows)
+      if (Platform.isWindows) {
         await WindowsUpdateLog.write('Download verification complete');
+      }
 
       if (Platform.isWindows && ext == '.zip') {
         return await WindowsZipUpdate.applyPortableZipUpdate(
@@ -86,10 +89,11 @@ class UpdateInstaller {
       await LocalFiles.openUrl(file.uri.toString());
       return false;
     } catch (error, stack) {
-      if (Platform.isWindows)
+      if (Platform.isWindows) {
         await WindowsUpdateLog.write(
           'Update failed before handoff: $error\n$stack',
         );
+      }
       // Ловим и пробрасываем; временную папку подчищаем, но на Android и
       // macOS копия файла уже у установщика/в монтированном образе.
       if (!Platform.isWindows && !Platform.isAndroid && !Platform.isMacOS) {
@@ -364,8 +368,9 @@ class WindowsZipUpdate {
       if (nested.existsSync()) return subdirs.single.path;
     }
     for (final dir in subdirs) {
-      if (File('${dir.path}${Platform.pathSeparator}$exeName').existsSync())
+      if (File('${dir.path}${Platform.pathSeparator}$exeName').existsSync()) {
         return dir.path;
+      }
     }
     return null;
   }
