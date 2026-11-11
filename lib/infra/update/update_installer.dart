@@ -641,6 +641,7 @@ class WindowsUpdateHandoff {
   final File statusFile;
   final File proceedFile;
   final File cancelFile;
+  int? _exitCode;
 
   static String get powershellExecutable {
     final root = Platform.environment['SystemRoot'] ?? r'C:\Windows';
@@ -728,7 +729,16 @@ class WindowsUpdateHandoff {
       'Bypass',
       '-EncodedCommand',
       encoded,
-    ], mode: ProcessStartMode.detachedWithStdio);
+    ], mode: ProcessStartMode.normal);
+    // On Windows normal mode uses CREATE_NO_WINDOW and does not terminate
+    // children when the parent exits. DETACHED_PROCESS prevents Windows
+    // PowerShell from starting reliably; keep the startup streams instead.
+    unawaited(
+      process.exitCode.then((code) async {
+        handoff._exitCode = code;
+        await WindowsUpdateLog.write('PowerShell helper exited: code=$code');
+      }),
+    );
     await process.stdin.close();
     for (final output in [process.stdout, process.stderr]) {
       output
@@ -766,6 +776,12 @@ class WindowsUpdateHandoff {
         throw UpdateInstallException(
           UpdateInstallError.copyFailed,
           '${status['detail']}',
+        );
+      }
+      if (_exitCode != null) {
+        throw UpdateInstallException(
+          UpdateInstallError.copyFailed,
+          'PowerShell exited before readiness (code $_exitCode). See %TEMP%\\vysh_update.log',
         );
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));

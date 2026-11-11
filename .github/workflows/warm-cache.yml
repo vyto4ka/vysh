@@ -10,6 +10,11 @@ name: Windows и Android
 # Расписание раз в неделю: GitHub удаляет кэш, который 7 дней не читали.
 on:
   workflow_dispatch:
+    inputs:
+      only_windows:
+        description: Run only Windows build and updater tests
+        type: boolean
+        default: false
   schedule:
     - cron: '0 3 * * 1'
   push:
@@ -50,6 +55,7 @@ jobs:
       - run: flutter build windows --release
 
   android:
+    if: github.event_name != 'workflow_dispatch' || !inputs.only_windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
