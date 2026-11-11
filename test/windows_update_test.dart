@@ -194,6 +194,63 @@ Thread.Sleep(30000);
     );
 
     test(
+      'PowerShell helper survives the Dart application exiting',
+      () async {
+        final sdk = Platform.environment['FLUTTER_ROOT']!;
+        final dart = '$sdk/bin/cache/dart-sdk/bin/dart.exe'.replaceAll(
+          '/',
+          r'\',
+        );
+        final script = File('${temp.path}/launcher.dart'.replaceAll('/', r'\'));
+        final launcher = File(
+          '${temp.path}/launcher.exe'.replaceAll('/', r'\'),
+        );
+        final marker = File('${temp.path}/survived.txt');
+        await script.writeAsString(r"""import 'dart:io';
+Future<void> main(List<String> args) async {
+  final process = await Process.start(args[0], [
+    '-NoProfile', '-NonInteractive', '-Command',
+    r'[IO.File]::WriteAllText($env:VYSH_UPDATE_PROBE + ".ready", "ready"); Start-Sleep -Seconds 1; [IO.File]::WriteAllText($env:VYSH_UPDATE_PROBE, "survived")'
+  ], environment: {'VYSH_UPDATE_PROBE': args[1]}, mode: ProcessStartMode.normal);
+  await process.stdin.close();
+  process.stdout.drain<void>(); process.stderr.drain<void>();
+  final ready = File(args[1] + '.ready');
+  for (var i = 0; i < 200; i++) {
+    if (await ready.exists()) exit(0);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  exit(1);
+}
+""");
+        final compilation = await Process.run(dart, [
+          'compile',
+          'exe',
+          script.path,
+          '-o',
+          launcher.path,
+        ]);
+        expect(
+          compilation.exitCode,
+          0,
+          reason: '${compilation.stdout}\n${compilation.stderr}',
+        );
+        final result = await Process.run(launcher.path, [
+          WindowsUpdateHandoff.powershellExecutable,
+          marker.path,
+        ]);
+        expect(
+          result.exitCode,
+          0,
+          reason: '${result.stdout}\n${result.stderr}',
+        );
+        await waitForFile(marker);
+        expect(await marker.readAsString(), 'survived');
+      },
+      skip: !Platform.isWindows || Platform.environment['FLUTTER_ROOT'] == null,
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
+    test(
       'invalid payload reports failure before application handoff',
       () async {
         final staging = Directory('${temp.path}/staging');
