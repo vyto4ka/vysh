@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'ui/shell/session_window.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,20 +22,59 @@ import 'l10n/app_strings.dart';
 import 'ui/dialogs/session_prompt_dialogs.dart';
 import 'ui/widgets/modifiers.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   Modifiers.init();
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    final controller = await WindowController.fromCurrentEngine();
+    if (controller.arguments.isNotEmpty) {
+      final arguments =
+          jsonDecode(controller.arguments) as Map<String, dynamic>;
+      if (arguments['type'] == 'session') {
+        // A child engine must never take the profile lock or initialize another
+        // set of SSH sessions. Only display the main engine's existing session.
+        await AppPaths.init();
+        await _loadTerminalFont();
+        await windowManager.ensureInitialized();
+        windowManager.waitUntilReadyToShow(
+          WindowOptions(
+            size: Size(
+              (arguments['width'] as num).toDouble(),
+              (arguments['height'] as num).toDouble(),
+            ),
+            minimumSize: Size(540, 340),
+            titleBarStyle: TitleBarStyle.normal,
+          ),
+          () async {
+            await windowManager.setTitle('${arguments['title']} — vysh');
+            await windowManager.setPosition(
+              Offset(
+                (arguments['x'] as num).toDouble(),
+                (arguments['y'] as num).toDouble(),
+              ),
+            );
+            await windowManager.show();
+            await windowManager.focus();
+          },
+        );
+        runApp(SessionWindowApp(window: controller, arguments: arguments));
+        return;
+      }
+    }
+  }
   // Палитра Catppuccin - данные, а не пакет: её лицензию Flutter сам не найдёт.
-  LicenseRegistry.addLicense(() => Stream.value(const LicenseEntryWithLineBreaks(
-        ['Catppuccin (palette)'],
-        _catppuccinLicense,
-      )));
+  LicenseRegistry.addLicense(
+    () => Stream.value(
+      const LicenseEntryWithLineBreaks([
+        'Catppuccin (palette)',
+      ], _catppuccinLicense),
+    ),
+  );
   // Шрифт в сборке (assets/fonts) - тоже не пакет.
   LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(
-      const ['JetBrains Mono (font)'],
-      await rootBundle.loadString('assets/fonts/OFL.txt'),
-    );
+    yield LicenseEntryWithLineBreaks(const [
+      'JetBrains Mono (font)',
+    ], await rootBundle.loadString('assets/fonts/OFL.txt'));
   });
   await AppPaths.init();
   final profileFree = await AppPaths.lockProfile();
@@ -42,7 +84,9 @@ Future<void> main() async {
 
     // Настройки нужны до показа окна: от них зависит, чей будет заголовок.
     final raw = JsonStore('settings.json').readSync();
-    final settings = raw is Map<String, Object?> ? AppSettings.fromJson(raw) : const AppSettings();
+    final settings = raw is Map<String, Object?>
+        ? AppSettings.fromJson(raw)
+        : const AppSettings();
     final custom = useCustomTitleBar(settings.titleBarMode);
 
     // Движок уже выбран нативным кодом и передан в VYSH_RENDERER - запоминаем
@@ -83,12 +127,16 @@ Future<void> main() async {
 
   await _loadTerminalFont();
 
-  runApp(ProviderScope(
-    overrides: [
-      sessionPromptsProvider.overrideWithValue(DialogSessionPrompts(rootNavigatorKey)),
-    ],
-    child: const VyshApp(),
-  ));
+  runApp(
+    ProviderScope(
+      overrides: [
+        sessionPromptsProvider.overrideWithValue(
+          DialogSessionPrompts(rootNavigatorKey),
+        ),
+      ],
+      child: const VyshApp(),
+    ),
+  );
 }
 
 /// Свой шрифт терминала (файл из профиля) нужен до первого кадра: иначе
@@ -113,11 +161,14 @@ class _AlreadyRunning extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(s.alreadyRunning, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: () => exit(0), child: Text(s.close)),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(s.alreadyRunning, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: () => exit(0), child: Text(s.close)),
+            ],
+          ),
         ),
       ),
     );

@@ -75,3 +75,41 @@ class SplitTabState extends Notifier<String?> {
 
   void select(String? id) => state = id;
 }
+
+final splitLayoutProvider =
+    NotifierProvider<SplitLayout, ({Axis axis, bool reverse})>(SplitLayout.new);
+
+class SplitLayout extends Notifier<({Axis axis, bool reverse})> {
+  @override
+  ({Axis axis, bool reverse}) build() =>
+      (axis: Axis.horizontal, reverse: false);
+  void select(Axis axis, {bool reverse = false}) =>
+      state = (axis: axis, reverse: reverse);
+}
+
+final draggedTabProvider = NotifierProvider<DraggedTab, String?>(
+  DraggedTab.new,
+);
+
+class DraggedTab extends Notifier<String?> {
+  @override
+  String? build() => null;
+  void select(String? id) => state = id;
+}
+
+final workspaceFocusProvider = NotifierProvider<WorkspaceFocus, String?>(
+  WorkspaceFocus.new,
+);
+
+class WorkspaceFocus extends Notifier<String?> {
+  @override
+  String? build() {
+    ref.listen(
+      tabsProvider.select((tabs) => tabs.activeTab?.id),
+      (_, id) => state = id,
+    );
+    return null;
+  }
+
+  void select(String? id) => state = id;
+}

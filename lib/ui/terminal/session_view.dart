@@ -39,10 +39,16 @@ part 'session_view_status_bar.dart';
 
 /// Вкладка сессии: терминал и контекстное меню keyboard.
 class SessionView extends ConsumerStatefulWidget {
-  const SessionView({super.key, required this.tab, required this.active});
+  const SessionView({
+    super.key,
+    required this.tab,
+    required this.active,
+    this.resizeEnabled = true,
+  });
 
   final SessionTab tab;
   final bool active;
+  final bool resizeEnabled;
 
   @override
   ConsumerState<SessionView> createState() => _SessionViewState();
@@ -280,6 +286,7 @@ class _SessionViewState extends _SessionViewBase
           },
           child: TerminalView(
             session.terminal,
+            autoResize: widget.resizeEnabled,
             key: _terminalViewKey,
             scrollController: _scrollController,
             controller: _controller,

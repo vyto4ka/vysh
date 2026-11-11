@@ -16,6 +16,8 @@ import '../hosts/host_editor.dart';
 import '../hosts/hosts_page.dart';
 import '../settings/settings_page.dart';
 import 'session_workspace.dart';
+import '../../app/windows/detached_windows.dart';
+import '../sftp/file_workspace.dart';
 import '../widgets/strings_context.dart';
 import 'home_switcher.dart';
 import 'tab_strip.dart';
@@ -90,6 +92,15 @@ class _AppShellState extends ConsumerState<AppShell> {
     return false;
   }
 
+  String? get _focusedSessionId {
+    final focus = ref.read(workspaceFocusProvider);
+    final tabs = ref.read(tabsProvider);
+    return focus != null &&
+            (focus == tabs.activeTab?.id || focus == ref.read(splitTabProvider))
+        ? focus
+        : tabs.activeTab?.id;
+  }
+
   void _goHome(int section) {
     ref.read(tabsProvider.notifier).activate(0);
     ref.read(homeSectionProvider.notifier).select(section);
@@ -114,7 +125,10 @@ class _AppShellState extends ConsumerState<AppShell> {
         LogicalKeyboardKey.keyW,
         control: true,
         shift: true,
-      ): ctrl.closeActive,
+      ): () {
+        final id = _focusedSessionId;
+        if (id != null) ctrl.close(id);
+      },
       const SingleActivator(LogicalKeyboardKey.tab, control: true): ctrl.next,
       const SingleActivator(LogicalKeyboardKey.tab, control: true, shift: true):
           ctrl.previous,
@@ -123,8 +137,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         control: true,
         shift: true,
       ): () {
-        final tab = ref.read(tabsProvider).activeTab;
-        if (tab != null) ctrl.reconnect(tab.id);
+        final id = _focusedSessionId;
+        if (id != null) ctrl.reconnect(id);
       },
       const SingleActivator(
         LogicalKeyboardKey.keyN,
@@ -141,8 +155,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         control: true,
         shift: true,
       ): () {
-        final tab = ref.read(tabsProvider).activeTab;
-        if (tab != null) ref.read(sftpPaneProvider.notifier).toggle(tab.id);
+        final id = _focusedSessionId;
+        if (id != null) ref.read(sftpPaneProvider.notifier).toggle(id);
       },
       // macOS: те же действия привычными ⌘-шорткатами.
       if (mac) ...{
@@ -152,11 +166,13 @@ class _AppShellState extends ConsumerState<AppShell> {
             (_) => ref.read(hostSearchFocusProvider).requestFocus(),
           );
         },
-        const SingleActivator(LogicalKeyboardKey.keyW, meta: true):
-            ctrl.closeActive,
+        const SingleActivator(LogicalKeyboardKey.keyW, meta: true): () {
+          final id = _focusedSessionId;
+          if (id != null) ctrl.close(id);
+        },
         const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () {
-          final tab = ref.read(tabsProvider).activeTab;
-          if (tab != null) ctrl.reconnect(tab.id);
+          final id = _focusedSessionId;
+          if (id != null) ctrl.reconnect(id);
         },
         const SingleActivator(LogicalKeyboardKey.keyN, meta: true): () {
           _goHome(0);
@@ -165,8 +181,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         const SingleActivator(LogicalKeyboardKey.comma, meta: true): () =>
             _goHome(1),
         const SingleActivator(LogicalKeyboardKey.keyE, meta: true): () {
-          final tab = ref.read(tabsProvider).activeTab;
-          if (tab != null) ref.read(sftpPaneProvider.notifier).toggle(tab.id);
+          final id = _focusedSessionId;
+          if (id != null) ref.read(sftpPaneProvider.notifier).toggle(id);
         },
         for (var i = 1; i <= 9; i++)
           SingleActivator(_digitKeys[i - 1], meta: true): () =>
@@ -180,6 +196,9 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(windowFilesRequestProvider, (_, _) {
+      unawaited(showFileWorkspace(context));
+    });
     // Нашлось обновление - всплывающее окно (с периодичностью из настроек,
     // пропущенная версия не показывается). Первый показ - не в момент
     // подключения, а когда проверка завершится.
