@@ -591,12 +591,18 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 }
 if (-not $copied) { throw 'Update copy failed after retries' }
 
+# Get-FileHash is an optional module command on some Windows PowerShell hosts.
+function Hash([string]$path) {
+  $stream = [IO.File]::OpenRead($path)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+  finally { $stream.Dispose(); $sha.Dispose() }
+}
 # Check every payload file before launching, not just robocopy's exit code.
 foreach ($file in Get-ChildItem -LiteralPath $SourceDir -File -Recurse) {
   $relative = $file.FullName.Substring($SourceDir.TrimEnd('\').Length).TrimStart('\')
   $installed = Join-Path $TargetDir $relative
-  if ((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -ne
-      (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash) {
+  if ((Hash $file.FullName) -ne (Hash $installed)) {
     throw "Installed file does not match update: $relative"
   }
 }

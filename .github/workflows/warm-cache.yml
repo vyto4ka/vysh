@@ -51,7 +51,7 @@ jobs:
         shell: powershell
         run: |
           $log = Join-Path $env:TEMP 'vysh_update.log'
-          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log }
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding UTF8 }
       - run: flutter build windows --release
 
   android:
