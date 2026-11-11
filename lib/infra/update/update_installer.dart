@@ -667,37 +667,67 @@ class WindowsUpdateHandoff {
       '\u{FEFF}${WindowsZipUpdate.updaterScript()}',
       flush: true,
     );
+    final validation = await Process.run(
+      powershellExecutable,
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        r'$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:VYSH_UPDATE_SCRIPT, [ref]$tokens, [ref]$errors); if ($errors.Count -gt 0) { $errors | Out-String | Write-Error; exit 1 }',
+      ],
+      environment: {'VYSH_UPDATE_SCRIPT': script.path},
+    );
+    if (validation.exitCode != 0) {
+      await WindowsUpdateLog.write(
+        'PowerShell validation failed: ${validation.stdout} ${validation.stderr}',
+      );
+      throw UpdateInstallException(
+        UpdateInstallError.copyFailed,
+        '${validation.stderr}',
+      );
+    }
+    await WindowsUpdateLog.write('PowerShell script syntax verified');
     await WindowsUpdateLog.write(
       'Starting PowerShell helper: $powershellExecutable; script=${script.path}; source=$sourceDir; target=$targetDir',
     );
+    String quote(String value) => "'${value.replaceAll("'", "''")}'";
+    final invocation = [
+      '&',
+      quote(script.path.replaceAll('/', r'\')),
+      '-SourceDir',
+      quote(sourceDir.replaceAll('/', r'\')),
+      '-TargetDir',
+      quote(targetDir.replaceAll('/', r'\')),
+      '-ExePath',
+      quote(exePath.replaceAll('/', r'\')),
+      '-AppPid',
+      '$appPid',
+      '-CleanupDir',
+      quote(cleanupDir.replaceAll('/', r'\')),
+      '-StatusFile',
+      quote(handoff.statusFile.path.replaceAll('/', r'\')),
+      '-ProceedFile',
+      quote(handoff.proceedFile.path.replaceAll('/', r'\')),
+      '-CancelFile',
+      quote(handoff.cancelFile.path.replaceAll('/', r'\')),
+      '-LogFile',
+      quote(WindowsUpdateLog.file.path),
+      if (noErrorDialog) '-NoErrorDialog',
+    ].join(' ');
+    // One UTF-16LE argument avoids the additional Windows/PowerShell -File
+    // command-line parsing layer, including spaces, apostrophes and Cyrillic.
+    final encoded = base64Encode([
+      for (final unit in invocation.codeUnits) ...[unit & 255, unit >> 8],
+    ]);
     final process = await Process.start(powershellExecutable, [
       '-NoProfile',
       '-NonInteractive',
       '-ExecutionPolicy',
       'Bypass',
-      '-WindowStyle',
-      'Hidden',
-      '-File',
-      script.path,
-      '-SourceDir',
-      sourceDir,
-      '-TargetDir',
-      targetDir,
-      '-ExePath',
-      exePath,
-      '-AppPid',
-      '$appPid',
-      '-CleanupDir',
-      cleanupDir,
-      '-StatusFile',
-      handoff.statusFile.path,
-      '-ProceedFile',
-      handoff.proceedFile.path,
-      '-CancelFile',
-      handoff.cancelFile.path,
-      '-LogFile',
-      WindowsUpdateLog.file.path,
-      if (noErrorDialog) '-NoErrorDialog',
+      '-EncodedCommand',
+      encoded,
     ], mode: ProcessStartMode.detachedWithStdio);
     await process.stdin.close();
     for (final output in [process.stdout, process.stderr]) {
