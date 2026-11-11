@@ -1,7 +1,7 @@
 name: vysh
 description: "Минималистичный и красивый SSH-менеджер подключений для Windows, Linux, macOS и Android."
 publish_to: 'none'
-version: 0.6.1+68
+version: 0.6.2+69
 
 environment:
   sdk: ^3.8.0
@@ -12,6 +12,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_riverpod: ^3.0.0
+  desktop_multi_window: ^0.3.1
   window_manager: ^0.5.0
   screen_retriever: ^0.2.0
   dartssh2: ^4.1.0
@@ -27,6 +28,10 @@ dependencies:
 
 # xterm2 с правкой: клавиатура Android не в анонимном режиме (third_party/xterm2/PATCHES.md).
 dependency_overrides:
+  window_manager:
+    path: third_party/window_manager
+  desktop_multi_window:
+    path: third_party/desktop_multi_window
   xterm2:
     path: third_party/xterm2
   # super_drag_and_drop 0.9 просит device_info_plus <12 (win32 5), а

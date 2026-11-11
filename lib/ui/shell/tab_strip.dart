@@ -14,6 +14,9 @@ import '../widgets/context_menu.dart';
 import 'ui_state.dart';
 import 'window_buttons.dart';
 import '../sftp/file_workspace.dart';
+import '../../app/windows/detached_windows.dart';
+import 'workspace_actions.dart';
+import 'tab_drag.dart';
 
 /// Полоса вкладок: закреплённая «главная» + вкладки сессий.
 class TabStrip extends ConsumerWidget {
@@ -23,6 +26,7 @@ class TabStrip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(tabsProvider);
     final ctrl = ref.read(tabsProvider.notifier);
+    final external = ref.watch(detachedWindowsProvider);
     final lang = ref.watch(settingsProvider.select((s) => s.language));
     final strings = AppStrings.of(context, lang);
     final scheme = Theme.of(context).colorScheme;
@@ -41,50 +45,58 @@ class TabStrip extends ConsumerWidget {
           ),
           const SizedBox(width: 4),
           Flexible(
-            child: ReorderableListView.builder(
+            child: ListView.builder(
               shrinkWrap: true,
               scrollDirection: Axis.horizontal,
-              buildDefaultDragHandles: false,
               itemCount: state.tabs.length,
-              onReorderItem: ctrl.move,
-              proxyDecorator: (child, _, _) =>
-                  Material(color: Colors.transparent, child: child),
               itemBuilder: (context, i) {
                 final tab = state.tabs[i];
-                return ReorderableDelayedDragStartListener(
+                return TabDropTarget(
                   key: ValueKey(tab.id),
-                  index: i,
-                  child: Padding(
+                  canAccept: (id) => id != tab.id,
+                  onAccept: (id) {
+                    final from = state.tabs.indexWhere((t) => t.id == id);
+                    if (from >= 0) ctrl.move(from, i);
+                  },
+                  builder: (context, hover) => Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: Draggable<String>(
-                      data: tab.id,
-                      feedback: Material(
-                        elevation: 6,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Text(tab.title),
-                        ),
-                      ),
+                    child: SessionTabDrag(
+                      tab: tab,
+                      enabled: !external.containsKey(tab.id),
                       child: _SessionTabChip(
                         tab: tab,
                         index: i + 1,
-                        selected: state.active == i + 1,
+                        selected:
+                            state.active == i + 1 &&
+                            !external.containsKey(tab.id),
+                        external: external.containsKey(tab.id),
                         strings: strings,
-                        onTap: () => ctrl.activate(i + 1),
+                        onTap: () {
+                          if (external.containsKey(tab.id)) {
+                            ref
+                                .read(detachedWindowsProvider.notifier)
+                                .show(tab.id);
+                          } else {
+                            ctrl.activate(i + 1);
+                            ref
+                                .read(workspaceFocusProvider.notifier)
+                                .select(tab.id);
+                          }
+                        },
                         onClose: () => ctrl.close(tab.id),
                         onDuplicate: () => ctrl.duplicate(tab.id),
                         onReconnect: () => ctrl.reconnect(tab.id),
-                        onSplit: () {
-                          final other = state.tabs
-                              .where((t) => t.id != tab.id)
-                              .firstOrNull;
-                          if ((state.isHome || state.activeTab?.id == tab.id) &&
-                              other != null) {
-                            ctrl.activate(state.tabs.indexOf(other) + 1);
-                          }
-                          ref.read(splitTabProvider.notifier).select(tab.id);
-                        },
+                        onSplit: () => splitSession(ref, tab.id),
+                        onSplitDown: () =>
+                            splitSession(ref, tab.id, axis: Axis.vertical),
+                        onDetach: PlatformCapabilities.desktopWindow
+                            ? () => detachSession(context, ref, tab.id)
+                            : null,
+                        onAttach: external.containsKey(tab.id)
+                            ? () => ref
+                                  .read(detachedWindowsProvider.notifier)
+                                  .returnToTabs(tab.id)
+                            : null,
                       ),
                     ),
                   ),
@@ -223,6 +235,10 @@ class _SessionTabChip extends StatefulWidget {
     required this.onDuplicate,
     required this.onReconnect,
     required this.onSplit,
+    required this.onSplitDown,
+    required this.onDetach,
+    required this.onAttach,
+    required this.external,
   });
 
   final SessionTab tab;
@@ -234,6 +250,10 @@ class _SessionTabChip extends StatefulWidget {
   final VoidCallback onDuplicate;
   final VoidCallback onReconnect;
   final VoidCallback onSplit;
+  final VoidCallback onSplitDown;
+  final VoidCallback? onDetach;
+  final VoidCallback? onAttach;
+  final bool external;
 
   @override
   State<_SessionTabChip> createState() => _SessionTabChipState();
@@ -258,11 +278,30 @@ class _SessionTabChipState extends State<_SessionTabChip> {
         icon: Icons.copy_all_outlined,
         onPressed: widget.onDuplicate,
       ),
-      menuItem(
-        s.isRu ? 'Открыть рядом' : 'Open beside',
-        icon: Icons.vertical_split,
-        onPressed: widget.onSplit,
-      ),
+      if (!widget.external) ...[
+        menuItem(
+          s.isRu ? 'Открыть справа' : 'Open on the right',
+          icon: Icons.vertical_split,
+          onPressed: widget.onSplit,
+        ),
+        menuItem(
+          s.isRu ? 'Открыть снизу' : 'Open below',
+          icon: Icons.horizontal_split,
+          onPressed: widget.onSplitDown,
+        ),
+        if (widget.onDetach != null)
+          menuItem(
+            s.isRu ? 'В отдельное окно' : 'Move to separate window',
+            icon: Icons.open_in_new,
+            onPressed: widget.onDetach,
+          ),
+      ],
+      if (widget.onAttach != null)
+        menuItem(
+          s.isRu ? 'Вернуть во вкладки' : 'Return to tabs',
+          icon: Icons.tab,
+          onPressed: widget.onAttach,
+        ),
       menuDivider(),
       menuItem(
         s.closeTab,
@@ -302,7 +341,10 @@ class _SessionTabChipState extends State<_SessionTabChip> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _StatusDot(status: widget.tab.status),
+                      if (widget.external)
+                        const Icon(Icons.open_in_new, size: 16)
+                      else
+                        _StatusDot(status: widget.tab.status),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
