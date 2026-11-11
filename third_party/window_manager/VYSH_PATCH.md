@@ -7,4 +7,5 @@ closing a child Flutter engine leaves a callback pointing at a disposed plugin;
 subsequent mouse input can crash the entire multi-window process.
 macOS: destroy closes only this plugin's window instead of calling NSApp.terminate,
 which would kill all sessions when returning a detached tab.
-Windows and the Dart API are unchanged.
+Windows: destroy posts WM_CLOSE to its own HWND instead of WM_QUIT to the shared
+message loop. The Dart API is unchanged.

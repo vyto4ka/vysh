@@ -230,7 +230,10 @@ void WindowManager::WaitUntilReadyToShow() {
 }
 
 void WindowManager::Destroy() {
-  PostQuitMessage(0);
+  // Close this HWND asynchronously; WM_QUIT would stop the shared message loop
+  // and terminate every Flutter engine, including the session owner.
+  is_prevent_close_ = false;
+  PostMessage(GetMainWindow(), WM_CLOSE, 0, 0);
 }
 
 void WindowManager::Close() {
