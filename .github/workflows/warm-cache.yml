@@ -10,6 +10,11 @@ name: Windows и Android
 # Расписание раз в неделю: GitHub удаляет кэш, который 7 дней не читали.
 on:
   workflow_dispatch:
+    inputs:
+      only_windows:
+        description: Run only Windows build and updater tests
+        type: boolean
+        default: false
   schedule:
     - cron: '0 3 * * 1'
   push:
@@ -39,9 +44,18 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - run: flutter pub get
+      - name: Windows updater handoff and restart tests
+        run: flutter test test/windows_update_test.dart
+      - name: Updater diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          $log = Join-Path $env:TEMP 'vysh_update.log'
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding UTF8 }
       - run: flutter build windows --release
 
   android:
+    if: github.event_name != 'workflow_dispatch' || !inputs.only_windows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
