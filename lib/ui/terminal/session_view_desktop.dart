@@ -38,14 +38,15 @@ mixin _DesktopMenu on _SessionViewBase {
         onPressed: _paste,
       ),
       menuDivider(),
-      if (!widget.tab.isLocal)
-        menuItem(
-          ru ? 'Файлы (SFTP)' : 'Files (SFTP)',
-          icon: Icons.folder_outlined,
-          shortcut: mac ? Keys.macFiles : Keys.files,
-          onPressed: () =>
-              ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
-        ),
+      menuItem(
+        widget.tab.isLocal
+            ? (ru ? 'Файлы' : 'Files')
+            : (ru ? 'Файлы (SFTP)' : 'Files (SFTP)'),
+        icon: Icons.folder_outlined,
+        shortcut: mac ? Keys.macFiles : Keys.files,
+        onPressed: () =>
+            ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
+      ),
       if (!widget.tab.isLocal)
         menuItem(
           ru ? 'Журнал и диагностика' : 'Log and diagnostics',
@@ -84,31 +85,9 @@ mixin _DesktopMenu on _SessionViewBase {
   }
 
   Map<ShortcutActivator, Intent> _shortcuts() {
-    if (ref.read(settingsProvider).customClipboard) {
-      return <ShortcutActivator, Intent>{
-        for (final entry in defaultTerminalShortcuts.entries)
-          if (entry.value is! PasteTextIntent &&
-              entry.value is! CopySelectionTextIntent)
-            entry.key: entry.value,
-      };
-    }
-    return <ShortcutActivator, Intent>{
-      for (final entry in defaultTerminalShortcuts.entries)
-        if (entry.value is! PasteTextIntent) entry.key: entry.value,
-      const SingleActivator(
-        LogicalKeyboardKey.keyV,
-        control: true,
-        shift: true,
-      ): const _PasteIntent(),
-      const SingleActivator(LogicalKeyboardKey.insert, shift: true):
-          const _PasteIntent(),
-      if (ref.read(settingsProvider).ctrlVPaste)
-        const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-            const _PasteIntent(),
-      // macOS: привычная вставка через ⌘V.
-      if (PlatformCapabilities.isMacOS)
-        const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-            const _PasteIntent(),
-    };
+    return terminalShortcuts(
+      ref.read(settingsProvider),
+      pasteIntent: const _PasteIntent(),
+    );
   }
 }

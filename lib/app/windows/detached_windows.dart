@@ -30,7 +30,11 @@ final windowFilesRequestProvider = NotifierProvider<WindowFilesRequest, int>(
 class WindowFilesRequest extends Notifier<int> {
   @override
   int build() => 0;
-  void request() => state++;
+  String? tabId;
+  void request(String id) {
+    tabId = id;
+    state++;
+  }
 }
 
 class DetachedWindows extends Notifier<Map<String, String>>
@@ -301,7 +305,7 @@ class DetachedWindows extends Notifier<Map<String, String>>
       case 'files':
         await windowManager.show();
         await windowManager.focus();
-        ref.read(windowFilesRequestProvider.notifier).request();
+        ref.read(windowFilesRequestProvider.notifier).request(id);
       default:
         throw PlatformException(code: 'unknown_window_method');
     }

@@ -25,6 +25,7 @@ import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
 import 'connection_failure_view.dart';
 import 'clipboard_shortcut.dart';
+import 'terminal_shortcuts.dart';
 import 'stable_selection.dart';
 import 'terminal_accessory_bar.dart';
 import 'terminal_geometry.dart';
@@ -246,9 +247,7 @@ class _SessionViewState extends _SessionViewBase
       ),
     );
     final scheme = Theme.of(context).colorScheme;
-    final paneOpen =
-        !widget.tab.isLocal &&
-        ref.watch(sftpPaneProvider).contains(widget.tab.id);
+    final paneOpen = ref.watch(sftpPaneProvider).contains(widget.tab.id);
     final ext = ref.watch(externalColorsProvider);
 
     final strings = AppStrings.of(context, settings.language);
@@ -491,9 +490,8 @@ class _SessionViewState extends _SessionViewBase
               .setServerStats(!settings.serverStats),
           serverVersion: session.serverVersion,
           filesOpen: paneOpen,
-          onToggleFiles: widget.tab.isLocal
-              ? null
-              : () => ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
+          onToggleFiles: () =>
+              ref.read(sftpPaneProvider.notifier).toggle(widget.tab.id),
           onReconnect: _reconnect,
           strings: strings,
         ),

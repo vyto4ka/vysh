@@ -7,6 +7,7 @@ import 'package:flutter_pty/flutter_pty.dart';
 
 import '../../domain/ports/local_shell.dart';
 import '../../domain/ports/terminal_shell.dart';
+import '../platform/local_directories.dart';
 
 class ProcessLocalShellLauncher implements LocalShellLauncher {
   const ProcessLocalShellLauncher();
@@ -35,12 +36,14 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     }
 
     final shell = _shellPath();
-    final workingDirectory = _initialDirectory();
+    final workingDirectory = await LocalDirectories.home();
     final environment = <String, String>{
       'TERM': 'xterm-256color',
       'COLORTERM': 'truecolor',
       'COLUMNS': '$columns',
       'LINES': '$rows',
+      if (Platform.isWindows)
+        'PROMPT': windowsDirectoryPrompt(Platform.environment['PROMPT']),
     };
 
     // Windows и Android: настоящий псевдотерминал (ConPTY / forkpty).
@@ -80,7 +83,11 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
         environment: environment,
         workingDirectory: workingDirectory,
       );
-      return _ProcessShell(process, pty: false);
+      return _ProcessShell(
+        process,
+        pty: false,
+        initialDirectory: workingDirectory,
+      );
     } catch (e) {
       throw LocalShellFailure(LocalShellError.launchFailed, '$e');
     }
@@ -103,6 +110,7 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
           environment: environment,
           workingDirectory: workingDirectory,
         ),
+        initialDirectory: workingDirectory,
       );
     } catch (e, st) {
       if (kDebugMode) {
@@ -189,6 +197,7 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
       process,
       pty: true,
       childPid: pid,
+      initialDirectory: workingDirectory,
       ttyPath: tty,
       controlDirectory: directory,
     );
@@ -209,29 +218,6 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     // и остаться в интерактивном режиме.
     if (Platform.isWindows) return const ['/k', 'chcp', '65001'];
     return const ['-i'];
-  }
-
-  String? _initialDirectory() {
-    if (Platform.isWindows) {
-      final userProfile = Platform.environment['USERPROFILE'];
-      if (userProfile != null &&
-          userProfile.isNotEmpty &&
-          Directory(userProfile).existsSync()) {
-        return userProfile;
-      }
-      final homeDrive = Platform.environment['HOMEDRIVE'];
-      final homePath = Platform.environment['HOMEPATH'];
-      if (homeDrive != null && homePath != null) {
-        final combined = '$homeDrive$homePath';
-        if (Directory(combined).existsSync()) return combined;
-      }
-    } else {
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty && Directory(home).existsSync()) {
-        return home;
-      }
-    }
-    return null;
   }
 
   String _shellPath() {
@@ -271,17 +257,18 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
   String _quote(String value) => "'${value.replaceAll("'", r"'\''")}'";
 }
 
-class _ProcessShell implements TerminalShell {
+class _ProcessShell implements TerminalShell, DirectoryAwareShell {
   _ProcessShell(
     this._process, {
     required bool pty,
+    this.initialDirectory,
     int? childPid,
     String? ttyPath,
     Directory? controlDirectory,
-  })  : _pty = pty,
-        _childPid = childPid,
-        _ttyPath = ttyPath,
-        _controlDirectory = controlDirectory {
+  }) : _pty = pty,
+       _childPid = childPid,
+       _ttyPath = ttyPath,
+       _controlDirectory = controlDirectory {
     _stdoutDone = _pump(_process.stdout);
     _stderrDone = _pump(_process.stderr);
     _process.exitCode.then((_) async {
@@ -293,6 +280,11 @@ class _ProcessShell implements TerminalShell {
     });
   }
 
+  @override
+  final String? initialDirectory;
+  @override
+  Future<String?> workingDirectory() =>
+      _readDirectory(_childPid ?? _process.pid, _closed || _exited);
   final Process _process;
   final bool _pty;
   final int? _childPid;
@@ -413,8 +405,8 @@ class _ProcessShell implements TerminalShell {
 
 /// Оболочка в настоящем псевдотерминале (flutter_pty): эхо ввода, Ctrl+C
 /// и полноэкранные программы работают так же, как по SSH.
-class _PtyShell implements TerminalShell {
-  _PtyShell(this._pty) {
+class _PtyShell implements TerminalShell, DirectoryAwareShell {
+  _PtyShell(this._pty, {this.initialDirectory}) {
     _outputDone = _pump(_pty.output);
     _pty.exitCode.then((_) async {
       _exited = true;
@@ -424,6 +416,11 @@ class _PtyShell implements TerminalShell {
     });
   }
 
+  @override
+  final String? initialDirectory;
+  @override
+  Future<String?> workingDirectory() =>
+      _readDirectory(_pty.pid, _closed || _exited);
   final Pty _pty;
 
   final _output = StreamController<Uint8List>();
@@ -505,4 +502,35 @@ String? _findExecutable(String name) {
     if (File(candidate).existsSync()) return candidate;
   }
   return null;
+}
+
+String windowsDirectoryPrompt(String? original) =>
+    '\x1b]9;9;"\$P"\x1b\\${original ?? r'$P$G'}';
+
+Future<String?> _readDirectory(int pid, bool stopped) async {
+  if (stopped) return null;
+  try {
+    if (Platform.isLinux || Platform.isAndroid) {
+      return await Link('/proc/$pid/cwd').target();
+    }
+    if (Platform.isMacOS) {
+      final result = await Process.run('/usr/sbin/lsof', [
+        '-a',
+        '-p',
+        '$pid',
+        '-d',
+        'cwd',
+        '-Fn',
+      ]).timeout(const Duration(seconds: 2));
+      if (result.exitCode == 0) {
+        return result.stdout
+            .toString()
+            .split('\n')
+            .where((line) => line.startsWith('n/'))
+            .firstOrNull
+            ?.substring(1);
+      }
+    }
+  } catch (_) {}
+  return null; // Windows reports OSC 9;9 in its prompt instead.
 }

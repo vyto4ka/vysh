@@ -7,7 +7,8 @@ import '../../app/sftp/file_copy.dart';
 import '../../app/sftp/sftp_directory.dart';
 import '../../domain/models/session_tab.dart';
 import '../../domain/ports/sftp.dart';
-import '../../infra/platform/local_file_session.dart';
+import '../../app/dependencies.dart';
+import '../../infra/platform/capabilities.dart';
 import '../../l10n/app_strings.dart';
 import 'transfers_view.dart';
 import 'file_path_bar.dart';
@@ -16,9 +17,7 @@ import '../widgets/modifiers.dart';
 import 'package:flutter/services.dart';
 import '../../infra/platform/desktop_env.dart';
 
-final fileWorkspaceLocalProvider = Provider<SftpSession>(
-  (_) => const LocalFileSession(),
-);
+final fileWorkspaceLocalProvider = localFileSessionProvider;
 
 Future<void> showFileWorkspace(BuildContext context) => Navigator.of(
   context,
@@ -285,7 +284,9 @@ class _BrowserState extends ConsumerState<_Browser> {
   List<RemoteEntry> _previous = const [];
   String? _anchor;
   String get _sourceTitle => _source.isEmpty
-      ? (widget.isRu ? 'Этот компьютер' : 'This computer')
+      ? (PlatformCapabilities.sharedDownloads
+            ? (widget.isRu ? 'Файлы приложения' : 'App files')
+            : (widget.isRu ? 'Этот компьютер' : 'This computer'))
       : widget.tabs.where((t) => t.id == _source).firstOrNull?.title ??
             (widget.isRu ? 'Подключение закрыто' : 'Connection closed');
   void _select(
@@ -449,7 +450,13 @@ class _BrowserState extends ConsumerState<_Browser> {
                         child: ListTile(
                           leading: const Icon(Icons.computer),
                           title: Text(
-                            widget.isRu ? 'Этот компьютер' : 'This computer',
+                            PlatformCapabilities.sharedDownloads
+                                ? (widget.isRu
+                                      ? 'Файлы приложения'
+                                      : 'App files')
+                                : (widget.isRu
+                                      ? 'Этот компьютер'
+                                      : 'This computer'),
                           ),
                           trailing: _source.isEmpty
                               ? const Icon(Icons.check)
@@ -530,9 +537,21 @@ class _BrowserState extends ConsumerState<_Browser> {
                 ? SftpPlaceholder(
                     icon: Icons.error_outline,
                     text: strings.errorText(directory.error!),
-                    action: TextButton(
-                      onPressed: () => directory.refresh(),
-                      child: Text(strings.tryAgain),
+                    action: Wrap(
+                      alignment: WrapAlignment.center,
+                      children: [
+                        TextButton(
+                          onPressed: () => directory.refresh(),
+                          child: Text(strings.tryAgain),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            _clear();
+                            directory.home();
+                          },
+                          child: Text(strings.homeFolder),
+                        ),
+                      ],
                     ),
                   )
                 : !directory.loading && entries.isEmpty

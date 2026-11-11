@@ -20,7 +20,9 @@ final sessionsProvider = Provider<Map<String, TerminalSession>>((ref) {
   return map;
 });
 
-final tabsProvider = NotifierProvider<TabsController, TabsState>(TabsController.new);
+final tabsProvider = NotifierProvider<TabsController, TabsState>(
+  TabsController.new,
+);
 
 class TabsController extends Notifier<TabsState> {
   Map<String, TerminalSession> get _sessions => ref.read(sessionsProvider);
@@ -63,15 +65,20 @@ class TabsController extends Notifier<TabsState> {
       knownHosts: ref.read(knownHostsProvider),
       localShells: local ? ref.read(localShellLauncherProvider) : null,
       local: local,
+      localFiles: local ? ref.read(localFileSessionProvider) : null,
       onStatus: (s) => _setStatus(tab.id, s),
-      strings: () => AppStrings.forLanguage(ref.read(settingsProvider).language),
+      strings: () =>
+          AppStrings.forLanguage(ref.read(settingsProvider).language),
       defaultKeepAliveSeconds: ref.read(settingsProvider).keepAliveSeconds,
       initialPassword: password,
       scrollbackLines: ref.read(settingsProvider).scrollbackLines,
     );
     session.onReconnect = () => reconnect(tab.id);
     _sessions[tab.id] = session;
-    state = TabsState(tabs: [...state.tabs, tab], active: state.tabs.length + 1);
+    state = TabsState(
+      tabs: [...state.tabs, tab],
+      active: state.tabs.length + 1,
+    );
     // Даём вкладке отрисоваться (терминал узнает свой размер), потом подключаемся.
     Future<void>.delayed(const Duration(milliseconds: 50), session.connect);
   }
@@ -88,7 +95,10 @@ class TabsController extends Notifier<TabsState> {
         if (!ref.mounted) return;
         openHost(host);
         if (i == hosts.length - 1) {
-          state = TabsState(tabs: state.tabs, active: first.clamp(1, state.tabs.length));
+          state = TabsState(
+            tabs: state.tabs,
+            active: first.clamp(1, state.tabs.length),
+          );
         }
       });
     }
@@ -99,7 +109,10 @@ class TabsController extends Notifier<TabsState> {
     if (session == null) return;
     if (!session.isLocal) {
       // Хост могли изменить в редакторе - берём свежую версию.
-      final fresh = ref.read(hostsProvider).where((h) => h.id == session.host.id).firstOrNull;
+      final fresh = ref
+          .read(hostsProvider)
+          .where((h) => h.id == session.host.id)
+          .firstOrNull;
       if (fresh != null) session.host = fresh;
     }
     session.connect();
@@ -114,21 +127,26 @@ class TabsController extends Notifier<TabsState> {
 
   void _setStatus(String id, SessionStatus status) {
     if (!state.tabs.any((t) => t.id == id)) return;
-    final nextTabs = [for (final t in state.tabs) t.id == id ? t.copyWith(status: status) : t];
-    state = TabsState(
-      tabs: nextTabs,
-      active: state.active,
-    );
+    final nextTabs = [
+      for (final t in state.tabs) t.id == id ? t.copyWith(status: status) : t,
+    ];
+    state = TabsState(tabs: nextTabs, active: state.active);
     final activeTab = nextTabs.firstWhere(
-      (t) => t.status == SessionStatus.ready || t.status == SessionStatus.connecting,
+      (t) =>
+          t.status == SessionStatus.ready ||
+          t.status == SessionStatus.connecting,
       orElse: () => nextTabs.first,
     );
     final hasActive = nextTabs.any(
-      (t) => t.status == SessionStatus.ready || t.status == SessionStatus.connecting,
+      (t) =>
+          t.status == SessionStatus.ready ||
+          t.status == SessionStatus.connecting,
     );
     if (hasActive) {
       final title = activeTab.isLocal
-          ? AppStrings.forLanguage(ref.read(settingsProvider).language).localTerminal
+          ? AppStrings.forLanguage(
+              ref.read(settingsProvider).language,
+            ).localTerminal
           : activeTab.host.displayAddress;
       ref.read(backgroundSessionsProvider).active(title);
     } else {
@@ -161,7 +179,9 @@ class TabsController extends Notifier<TabsState> {
     }
     state = TabsState(tabs: tabs, active: active);
     final hasActive = tabs.any(
-      (t) => t.status == SessionStatus.ready || t.status == SessionStatus.connecting,
+      (t) =>
+          t.status == SessionStatus.ready ||
+          t.status == SessionStatus.connecting,
     );
     if (!hasActive) {
       ref.read(backgroundSessionsProvider).idle();
@@ -191,7 +211,9 @@ class TabsController extends Notifier<TabsState> {
     final activeId = state.activeTab?.id;
     final tab = tabs.removeAt(from);
     tabs.insert(to, tab);
-    final active = activeId == null ? 0 : tabs.indexWhere((t) => t.id == activeId) + 1;
+    final active = activeId == null
+        ? 0
+        : tabs.indexWhere((t) => t.id == activeId) + 1;
     state = TabsState(tabs: tabs, active: active);
   }
 }
