@@ -40,13 +40,15 @@ class SftpPaneState extends Notifier<Set<String>> {
     return const {};
   }
 
+  void open(String tabId) => state = {...state, tabId};
+
   void toggle(String tabId) {
     final tab = ref
         .read(tabsProvider)
         .tabs
         .where((t) => t.id == tabId)
         .firstOrNull;
-    if (tab == null || tab.isLocal) return;
+    if (tab == null) return;
     state = state.contains(tabId)
         ? ({...state}..remove(tabId))
         : {...state, tabId};

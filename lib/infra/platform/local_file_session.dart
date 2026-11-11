@@ -1,14 +1,12 @@
 import 'dart:io';
+import 'local_directories.dart';
 import '../../domain/ports/sftp.dart';
 
 /// Local filesystem implementation of the file-browser operations.
 class LocalFileSession implements SftpSession {
   const LocalFileSession();
   @override
-  Future<String> home() async =>
-      Platform.environment['HOME'] ??
-      Platform.environment['USERPROFILE'] ??
-      Directory.current.path;
+  Future<String> home() => LocalDirectories.home();
   @override
   Future<RemoteEntry> stat(String path) async {
     final s = await FileStat.stat(path);
@@ -30,15 +28,19 @@ class LocalFileSession implements SftpSession {
 
   @override
   Future<List<RemoteEntry>> list(String path) async {
-    final result = <RemoteEntry>[];
-    await for (final e in Directory(path).list(followLinks: false)) {
-      try {
-        result.add(await stat(e.path));
-      } on SftpFailure catch (e) {
-        if (e.code != SftpFailureCode.noSuchFile) rethrow;
+    try {
+      final result = <RemoteEntry>[];
+      await for (final e in Directory(path).list(followLinks: false)) {
+        try {
+          result.add(await stat(e.path));
+        } on SftpFailure catch (e) {
+          if (e.code != SftpFailureCode.noSuchFile) rethrow;
+        }
       }
+      return result;
+    } on FileSystemException catch (e) {
+      throw localFilesystemFailure(e);
     }
-    return result;
   }
 
   @override
@@ -115,3 +117,14 @@ class LocalFileSession implements SftpSession {
     }
   }
 }
+
+/// Keep platform error strings out of the UI; SftpDirectory already localizes these codes.
+SftpFailure localFilesystemFailure(FileSystemException e) => SftpFailure(
+  switch (e.osError?.errorCode) {
+    1 || 5 || 13 => SftpFailureCode.permissionDenied,
+    2 || 3 => SftpFailureCode.noSuchFile,
+    20 || 267 => SftpFailureCode.notADirectory,
+    _ => SftpFailureCode.failed,
+  },
+  {'detail': e.message, 'path': e.path ?? ''},
+);

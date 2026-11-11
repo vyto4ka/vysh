@@ -17,7 +17,7 @@ import '../hosts/hosts_page.dart';
 import '../settings/settings_page.dart';
 import 'session_workspace.dart';
 import '../../app/windows/detached_windows.dart';
-import '../sftp/file_workspace.dart';
+import '../sftp/sftp_pane.dart';
 import '../widgets/strings_context.dart';
 import 'home_switcher.dart';
 import 'tab_strip.dart';
@@ -197,7 +197,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   Widget build(BuildContext context) {
     ref.listen(windowFilesRequestProvider, (_, _) {
-      unawaited(showFileWorkspace(context));
+      final id = ref.read(windowFilesRequestProvider.notifier).tabId;
+      if (id != null) unawaited(showSessionFiles(context, id));
     });
     // Нашлось обновление - всплывающее окно (с периодичностью из настроек,
     // пропущенная версия не показывается). Первый показ - не в момент

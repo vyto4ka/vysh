@@ -17,6 +17,7 @@ import '../../infra/platform/desktop_env.dart';
 import '../../domain/services/known_hosts.dart';
 import 'session_auth.dart';
 import 'terminal_input.dart';
+import 'current_directory.dart';
 import '../../l10n/app_strings.dart';
 import '../settings/app_settings.dart';
 
@@ -46,15 +47,18 @@ class TerminalSession extends ChangeNotifier {
     required this.knownHosts,
     required this.onStatus,
     this.localShells,
+    this.localFiles,
     this.local = false,
     AppStrings Function()? strings,
     this.defaultKeepAliveSeconds = 60,
     String? initialPassword,
     int scrollbackLines = 10000,
-  })  : _host = host,
-        _strings = strings ?? (() => AppStrings.forLanguage(AppLanguage.auto)),
-        _memPassword = initialPassword,
-        terminal = Terminal(maxLines: scrollbackLines);
+  }) : _host = host,
+       _strings = strings ?? (() => AppStrings.forLanguage(AppLanguage.auto)),
+       _memPassword = initialPassword,
+       terminal = Terminal(maxLines: scrollbackLines) {
+    terminal.onCurrentDirectoryChange = _directoryReport;
+  }
 
   /// Строки на текущем языке интерфейса (для сообщений в терминале).
   final AppStrings Function() _strings;
@@ -97,6 +101,23 @@ class TerminalSession extends ChangeNotifier {
   final KnownHosts knownHosts;
   final LocalShellLauncher? localShells;
   final bool local;
+  final SftpSession? localFiles;
+  final currentDirectory = ValueNotifier<String?>(null);
+  void _directoryReport(String value) {
+    if (_disposed) return;
+    final path = reportedDirectory(value);
+    if (path != null) currentDirectory.value = path;
+  }
+
+  Future<void> refreshWorkingDirectory() async {
+    final shell = _shell;
+    if (!local || shell is! DirectoryAwareShell) return;
+    final path = await (shell as DirectoryAwareShell).workingDirectory();
+    if (!_disposed && identical(shell, _shell) && path != null) {
+      _directoryReport(path);
+    }
+  }
+
   final void Function(SessionStatus status) onStatus;
 
   bool get isLocal => local;
@@ -166,7 +187,11 @@ class TerminalSession extends ChangeNotifier {
 
   void _updateClientTypedCommand(String text) => _typed.feed(text);
 
-  void _log(String Function(AppStrings s) text, {bool debug = false, bool error = false}) {
+  void _log(
+    String Function(AppStrings s) text, {
+    bool debug = false,
+    bool error = false,
+  }) {
     connLog.add(ConnLogEntry(text, debug: debug, error: error));
     if (connLog.length > 2000) connLog.removeRange(0, connLog.length - 2000);
   }
@@ -329,6 +354,10 @@ class TerminalSession extends ChangeNotifier {
   }
 
   void _attachShell(TerminalShell shell) {
+    if (shell is DirectoryAwareShell) {
+      final path = (shell as DirectoryAwareShell).initialDirectory;
+      if (path != null) _directoryReport(path);
+    }
     terminal.onOutput = (data) {
       if (ctrlModifier && data.isNotEmpty) {
         if (data == '\x1b') {
@@ -371,11 +400,15 @@ class TerminalSession extends ChangeNotifier {
     if (cancel != null && !cancel.isCompleted) cancel.complete();
     _closeLocalEdits();
     _teardown();
+    currentDirectory.dispose();
     super.dispose();
   }
 
   /// Выполнить команду на сервере отдельным каналом (для статистики).
-  Future<String> exec(String command, {Duration timeout = const Duration(seconds: 10)}) {
+  Future<String> exec(
+    String command, {
+    Duration timeout = const Duration(seconds: 10),
+  }) {
     final transport = _transport;
     if (transport == null || _status != SessionStatus.ready) {
       return Future.error(StateError('no connection'));
@@ -392,6 +425,10 @@ class TerminalSession extends ChangeNotifier {
 
   /// SFTP поверх текущего соединения (открывается один раз и переиспользуется).
   Future<SftpSession> sftp() {
+    if (local && localFiles != null && _status == SessionStatus.ready) {
+      return Future.value(localFiles);
+    }
+
     final transport = _transport;
     if (transport == null || _status != SessionStatus.ready) {
       return Future.error(const SftpFailure(SftpFailureCode.noConnection));
@@ -469,7 +506,9 @@ class TerminalSession extends ChangeNotifier {
 
   void _offerReconnect() {
     final s = _strings();
-    _info(DesktopEnv.isDesktop ? s.terminalPressEnter : s.terminalPressReconnect);
+    _info(
+      DesktopEnv.isDesktop ? s.terminalPressEnter : s.terminalPressReconnect,
+    );
     terminal.onOutput = (data) {
       if (!data.contains('\r') && !data.contains('\n')) return;
       final reconnect = onReconnect;
@@ -478,6 +517,7 @@ class TerminalSession extends ChangeNotifier {
   }
 
   void _teardown() {
+    if (!_disposed) currentDirectory.value = null;
     final sftp = _sftp;
     _sftp = null;
     sftp?.then((s) => s.close()).catchError((_) {});

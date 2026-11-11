@@ -4,7 +4,6 @@ import '../../app/controllers/tabs_controller.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../app/windows/detached_windows.dart';
 import '../../domain/models/session_tab.dart';
-import '../../infra/platform/capabilities.dart';
 import '../../l10n/app_strings.dart';
 import '../terminal/session_view.dart';
 import 'ui_state.dart';
@@ -61,47 +60,22 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
         ),
       ),
     );
-    Widget pane(SessionTab tab) => DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(
-          width: 2,
-          color: activeId == tab.id
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.outlineVariant,
+    Widget pane(SessionTab tab) => Semantics(
+      label: '${isRu ? 'Терминал' : 'Terminal'}: ${tab.title}',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: hasSplit
+              ? Border.all(
+                  color: activeId == tab.id
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.transparent,
+                )
+              : null,
         ),
-      ),
-      child: Column(
-        children: [
-          Material(
-            color: activeId == tab.id
-                ? Theme.of(context).colorScheme.secondaryContainer
-                : Theme.of(context).colorScheme.surfaceContainer,
-            child: SizedBox(
-              height: 34,
-              child: Row(
-                children: [
-                  const SizedBox(width: 10),
-                  const Icon(Icons.terminal, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(tab.title, overflow: TextOverflow.ellipsis),
-                  ),
-                  if (PlatformCapabilities.desktopWindow)
-                    IconButton(
-                      iconSize: 18,
-                      padding: EdgeInsets.zero,
-                      tooltip: isRu
-                          ? 'В отдельное окно'
-                          : 'Move to separate window',
-                      onPressed: () => detachSession(context, ref, tab.id),
-                      icon: const Icon(Icons.open_in_new),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(child: session(tab, true)),
-        ],
+        child: Padding(
+          padding: EdgeInsets.all(hasSplit ? 1 : 0),
+          child: session(tab, true),
+        ),
       ),
     );
     final home = TickerMode(
@@ -152,7 +126,7 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
         terminals = LayoutBuilder(
           builder: (context, box) {
             final horizontal = layout.axis == Axis.horizontal;
-            final length = (horizontal ? box.maxWidth : box.maxHeight) - 10;
+            final length = (horizontal ? box.maxWidth : box.maxHeight) - 8;
             final first = layout.reverse ? secondary : primary;
             final second = layout.reverse ? primary : secondary;
             void resize(double delta) => setState(
@@ -179,11 +153,9 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
                         : (e) => resize(e.delta.dy),
                     onDoubleTap: () => setState(() => _ratio = .5),
                     child: Container(
-                      width: horizontal ? 10 : null,
-                      height: horizontal ? null : 10,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
+                      width: horizontal ? 8 : null,
+                      height: horizontal ? null : 8,
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
                       child: Center(
                         child: Icon(
                           horizontal ? Icons.drag_indicator : Icons.drag_handle,
@@ -199,71 +171,7 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
           },
         );
       }
-      content = Column(
-        children: [
-          Material(
-            color: Theme.of(context).colorScheme.surfaceContainer,
-            child: SizedBox(
-              height: 42,
-              child: Row(
-                children: [
-                  const SizedBox(width: 10),
-                  Icon(hasSplit ? Icons.splitscreen : Icons.tab, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    hasSplit
-                        ? (isRu ? 'Две панели' : 'Two panes')
-                        : (isRu ? 'Одна панель' : 'One pane'),
-                  ),
-                  const Spacer(),
-                  PopupMenuButton<Axis>(
-                    tooltip: isRu
-                        ? 'Разделить рабочую область'
-                        : 'Split workspace',
-                    onSelected: (axis) => chooseSplit(context, ref, axis),
-                    itemBuilder: (_) => [
-                      PopupMenuItem(
-                        value: Axis.horizontal,
-                        child: Text(
-                          isRu
-                              ? 'Открыть вкладку справа'
-                              : 'Open a tab on the right',
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: Axis.vertical,
-                        child: Text(
-                          isRu ? 'Открыть вкладку снизу' : 'Open a tab below',
-                        ),
-                      ),
-                    ],
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.vertical_split, size: 18),
-                          const SizedBox(width: 6),
-                          Text(isRu ? 'Разделить' : 'Split'),
-                          const Icon(Icons.arrow_drop_down),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (hasSplit)
-                    TextButton.icon(
-                      onPressed: () =>
-                          ref.read(splitTabProvider.notifier).select(null),
-                      icon: const Icon(Icons.tab, size: 18),
-                      label: Text(isRu ? 'Объединить' : 'Unsplit'),
-                    ),
-                  const SizedBox(width: 6),
-                ],
-              ),
-            ),
-          ),
-          Expanded(child: terminals),
-        ],
-      );
+      content = terminals;
     }
     Widget dropZone(String label, IconData icon, Axis axis, bool reverse) =>
         Expanded(

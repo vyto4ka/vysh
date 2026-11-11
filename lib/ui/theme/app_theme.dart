@@ -60,6 +60,13 @@ ThemeData buildTheme({
       indicatorColor: scheme.secondaryContainer,
       groupAlignment: -1,
     ),
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(
+        minimumSize: WidgetStatePropertyAll(Size.square(compact ? 40 : 48)),
+        iconSize: const WidgetStatePropertyAll(20),
+        tapTargetSize: MaterialTapTargetSize.padded,
+      ),
+    ),
     dividerTheme: DividerThemeData(color: scheme.outlineVariant, space: 1),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 500),
@@ -72,8 +79,10 @@ ThemeData buildTheme({
     // Уведомление компактное и по центру, а не полоса на всю ширину окна.
     // На телефоне ширина экрана меньше 420 - там обычная плашка.
     snackBarTheme: SnackBarThemeData(
-        behavior: SnackBarBehavior.floating, width: DesktopEnv.isMobile ? null : 420),
-    // Меню M3 (Expressive): скруглённый контейнер с внутренним отступом,
+      behavior: SnackBarBehavior.floating,
+      width: DesktopEnv.isMobile ? null : 420,
+    ),
+    // Меню: скруглённый контейнер с внутренним отступом,
     // пункты - «пилюли» с тональной подсветкой при наведении.
     menuTheme: MenuThemeData(
       style: MenuStyle(
@@ -88,34 +97,47 @@ ThemeData buildTheme({
     ),
     menuButtonTheme: MenuButtonThemeData(
       style: ButtonStyle(
-        minimumSize: const WidgetStatePropertyAll(Size(220, 44)),
-        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 14)),
+        minimumSize: const WidgetStatePropertyAll(Size(220, 48)),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 14),
+        ),
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 14, fontWeight: FontWeight.w500, letterSpacing: 0.1),
+          TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
+          ),
         ),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) return Colors.transparent;
           if (states.contains(WidgetState.pressed)) {
             return scheme.secondaryContainer.withValues(alpha: 0.85);
           }
-          if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
             return scheme.secondaryContainer;
           }
           return Colors.transparent;
         }),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.disabled)) return scheme.onSurface.withValues(alpha: 0.38);
-          if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+          if (states.contains(WidgetState.disabled)) {
+            return scheme.onSurface.withValues(alpha: 0.38);
+          }
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
             return scheme.onSecondaryContainer;
           }
           return scheme.onSurface;
         }),
         iconColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.disabled)) return scheme.onSurface.withValues(alpha: 0.38);
-          if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+          if (states.contains(WidgetState.disabled)) {
+            return scheme.onSurface.withValues(alpha: 0.38);
+          }
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
             return scheme.onSecondaryContainer;
           }
           return scheme.onSurfaceVariant;

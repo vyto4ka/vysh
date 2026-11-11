@@ -11,3 +11,9 @@ abstract interface class TerminalShell {
 
   void close();
 }
+
+/// Optional OS-backed directory information. No commands are written to stdin.
+abstract interface class DirectoryAwareShell {
+  String? get initialDirectory;
+  Future<String?> workingDirectory();
+}

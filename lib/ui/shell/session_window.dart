@@ -20,7 +20,7 @@ import '../../app/settings/terminal_font.dart';
 import '../../app/windows/detached_windows.dart';
 import '../../app/windows/terminal_mirror.dart';
 import '../../infra/platform/capabilities.dart';
-import '../terminal/clipboard_shortcut.dart';
+import '../terminal/terminal_shortcuts.dart';
 import '../terminal/terminal_theme.dart';
 
 /// A native window displays a shared session. It never owns credentials, an SSH
@@ -259,56 +259,40 @@ class _SessionWindowAppState extends State<SessionWindowApp>
         return KeyEventResult.handled;
       }
       if (const SingleActivator(
-        LogicalKeyboardKey.keyR,
-        control: true,
-        shift: true,
-      ).accepts(event, kb)) {
+            LogicalKeyboardKey.keyR,
+            control: true,
+            shift: true,
+          ).accepts(event, kb) ||
+          PlatformCapabilities.isMacOS &&
+              const SingleActivator(
+                LogicalKeyboardKey.keyR,
+                meta: true,
+              ).accepts(event, kb)) {
         _input('reconnect', {});
         return KeyEventResult.handled;
       }
       if (const SingleActivator(
-        LogicalKeyboardKey.keyE,
-        control: true,
-        shift: true,
-      ).accepts(event, kb)) {
+            LogicalKeyboardKey.keyE,
+            control: true,
+            shift: true,
+          ).accepts(event, kb) ||
+          PlatformCapabilities.isMacOS &&
+              const SingleActivator(
+                LogicalKeyboardKey.keyE,
+                meta: true,
+              ).accepts(event, kb)) {
         _input('files', {});
         return KeyEventResult.handled;
       }
-      final copy = settings.customClipboard
-          ? clipboardActivator(settings.copyShortcut)
-          : SingleActivator(
-              LogicalKeyboardKey.keyC,
-              control: !PlatformCapabilities.isMacOS,
-              shift: !PlatformCapabilities.isMacOS,
-              meta: PlatformCapabilities.isMacOS,
-            );
-      final paste = settings.customClipboard
-          ? clipboardActivator(settings.pasteShortcut)
-          : SingleActivator(
-              LogicalKeyboardKey.keyV,
-              control: !PlatformCapabilities.isMacOS,
-              shift: !PlatformCapabilities.isMacOS,
-              meta: PlatformCapabilities.isMacOS,
-            );
-      if (copy?.accepts(event, kb) ?? false) {
-        _copy();
-        return KeyEventResult.handled;
-      }
-      if ((paste?.accepts(event, kb) ?? false) ||
-          !settings.customClipboard &&
-              (const SingleActivator(
-                    LogicalKeyboardKey.insert,
-                    shift: true,
-                  ).accepts(event, kb) ||
-                  settings.ctrlVPaste &&
-                      const SingleActivator(
-                        LogicalKeyboardKey.keyV,
-                        control: true,
-                      ).accepts(event, kb))) {
-        unawaited(_paste());
-        return KeyEventResult.handled;
+      if (terminalShortcuts(
+        settings,
+        pasteIntent: const _WindowPasteIntent(),
+      ).keys.any((a) => a.accepts(event, kb))) {
+        return KeyEventResult
+            .ignored; // TerminalView runs the same actions as the owner.
       }
     }
+
     final key = keyToTerminalKey(event.logicalKey);
     if (key == null) return KeyEventResult.ignored;
     _input('key', {
@@ -373,39 +357,6 @@ class _SessionWindowAppState extends State<SessionWindowApp>
       ],
       home: Builder(
         builder: (context) => Scaffold(
-          appBar: AppBar(
-            title: Text(
-              widget.arguments['title'],
-              overflow: TextOverflow.ellipsis,
-            ),
-            actions: [
-              IconButton(
-                tooltip: isRu ? 'Переподключить' : 'Reconnect',
-                onPressed: () => _input('reconnect', {}),
-                icon: const Icon(Icons.refresh),
-              ),
-              IconButton(
-                tooltip: isRu ? 'Копировать' : 'Copy',
-                onPressed: _copy,
-                icon: const Icon(Icons.copy),
-              ),
-              IconButton(
-                tooltip: isRu ? 'Вставить' : 'Paste',
-                onPressed: _paste,
-                icon: const Icon(Icons.paste),
-              ),
-              IconButton(
-                tooltip: isRu ? 'Файлы в главном окне' : 'Files in main window',
-                onPressed: () => _input('files', {}),
-                icon: const Icon(Icons.folder_copy_outlined),
-              ),
-              TextButton.icon(
-                onPressed: _return,
-                icon: const Icon(Icons.tab),
-                label: Text(isRu ? 'Во вкладки' : 'Return to tabs'),
-              ),
-            ],
-          ),
           body: Column(
             children: [
               if (error != null)
@@ -426,31 +377,121 @@ class _SessionWindowAppState extends State<SessionWindowApp>
                       unawaited(_paste());
                     }
                   },
-                  child: TerminalView(
-                    terminal,
-                    controller: selection,
-                    focusNode: focus,
-                    autofocus: true,
-                    shortcuts: const {},
-                    onKeyEvent: _key,
-                    onSecondaryTapUp: (d, _) async {
-                      if (settings.rightClick == RightClickAction.paste) {
-                        await _paste();
-                        return;
-                      }
-                      if (settings.rightClick == RightClickAction.smart) {
-                        selection.selection == null ? await _paste() : _copy();
-                        return;
-                      }
-                      final action = await showMenu<String>(
-                        context: context,
-                        position: RelativeRect.fromLTRB(
-                          d.globalPosition.dx,
-                          d.globalPosition.dy,
-                          0,
-                          0,
+                  child: Actions(
+                    actions: {
+                      _WindowPasteIntent: CallbackAction<_WindowPasteIntent>(
+                        onInvoke: (_) {
+                          _paste();
+                          return null;
+                        },
+                      ),
+                    },
+                    child: TerminalView(
+                      terminal,
+                      controller: selection,
+                      focusNode: focus,
+                      autofocus: true,
+                      shortcuts: terminalShortcuts(
+                        settings,
+                        pasteIntent: const _WindowPasteIntent(),
+                      ),
+                      onKeyEvent: _key,
+                      onSecondaryTapUp: (d, _) async {
+                        if (settings.rightClick == RightClickAction.paste) {
+                          await _paste();
+                          return;
+                        }
+                        if (settings.rightClick == RightClickAction.smart) {
+                          selection.selection == null
+                              ? await _paste()
+                              : _copy();
+                          return;
+                        }
+                        final action = await showMenu<String>(
+                          context: context,
+                          position: RelativeRect.fromLTRB(
+                            d.globalPosition.dx,
+                            d.globalPosition.dy,
+                            0,
+                            0,
+                          ),
+                          items: [
+                            PopupMenuItem(
+                              value: 'copy',
+                              child: Text(isRu ? 'Копировать' : 'Copy'),
+                            ),
+                            PopupMenuItem(
+                              value: 'paste',
+                              child: Text(isRu ? 'Вставить' : 'Paste'),
+                            ),
+                          ],
+                        );
+                        if (action == 'copy') _copy();
+                        if (action == 'paste') await _paste();
+                      },
+                      theme: terminalThemeFor(
+                        Theme.of(context).colorScheme,
+                        colors,
+                      ),
+                      textStyle: TerminalStyle(
+                        fontFamily: TerminalFont.familyOf(
+                          settings.terminalFont,
                         ),
-                        items: [
+                        fontFamilyFallback: TerminalFont.fallbackOf(
+                          settings.terminalFont,
+                        ),
+                        fontSize: settings.terminalFontSize,
+                        height: settings.terminalLineHeight,
+                      ),
+                      padding: const EdgeInsets.all(10),
+                    ),
+                  ),
+                ),
+              ),
+              Material(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                child: SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 12),
+                      Icon(
+                        status == 'ready'
+                            ? Icons.check_circle_outline
+                            : Icons.info_outline,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(switch (status) {
+                          'ready' => isRu ? 'Подключено' : 'Connected',
+                          'connecting' => isRu ? 'Подключение…' : 'Connecting…',
+                          'lost' =>
+                            isRu ? 'Соединение потеряно' : 'Connection lost',
+                          _ => isRu ? 'Сессия завершена' : 'Session ended',
+                        }, style: Theme.of(context).textTheme.labelMedium),
+                      ),
+                      IconButton(
+                        tooltip: isRu
+                            ? 'Файлы в главном окне'
+                            : 'Files in main window',
+                        onPressed: () => _input('files', {}),
+                        icon: const Icon(Icons.folder_outlined),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: isRu ? 'Действия сессии' : 'Session actions',
+                        onSelected: (v) {
+                          switch (v) {
+                            case 'copy':
+                              _copy();
+                            case 'paste':
+                              _paste();
+                            case 'reconnect':
+                              _input('reconnect', {});
+                          }
+                        },
+                        itemBuilder: (_) => [
                           PopupMenuItem(
                             value: 'copy',
                             child: Text(isRu ? 'Копировать' : 'Copy'),
@@ -459,42 +500,21 @@ class _SessionWindowAppState extends State<SessionWindowApp>
                             value: 'paste',
                             child: Text(isRu ? 'Вставить' : 'Paste'),
                           ),
+                          const PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: 'reconnect',
+                            child: Text(isRu ? 'Переподключить' : 'Reconnect'),
+                          ),
                         ],
-                      );
-                      if (action == 'copy') _copy();
-                      if (action == 'paste') await _paste();
-                    },
-                    theme: terminalThemeFor(
-                      Theme.of(context).colorScheme,
-                      colors,
-                    ),
-                    textStyle: TerminalStyle(
-                      fontFamily: TerminalFont.familyOf(settings.terminalFont),
-                      fontFamilyFallback: TerminalFont.fallbackOf(
-                        settings.terminalFont,
                       ),
-                      fontSize: settings.terminalFontSize,
-                      height: settings.terminalLineHeight,
-                    ),
-                    padding: const EdgeInsets.all(10),
+                      TextButton.icon(
+                        onPressed: _return,
+                        icon: const Icon(Icons.tab),
+                        label: Text(isRu ? 'Во вкладки' : 'Return to tabs'),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                   ),
-                ),
-              ),
-              Container(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                color: Theme.of(context).colorScheme.surfaceContainer,
-                child: Text(
-                  '${widget.arguments['title']} · ${switch (status) {
-                    'ready' => isRu ? 'Подключено' : 'Connected',
-                    'connecting' => isRu ? 'Подключение…' : 'Connecting…',
-                    'lost' => isRu ? 'Соединение потеряно' : 'Connection lost',
-                    _ => isRu ? 'Сессия завершена' : 'Session ended',
-                  }}',
-                  style: Theme.of(context).textTheme.labelSmall,
                 ),
               ),
             ],
@@ -503,4 +523,8 @@ class _SessionWindowAppState extends State<SessionWindowApp>
       ),
     );
   }
+}
+
+class _WindowPasteIntent extends Intent {
+  const _WindowPasteIntent();
 }

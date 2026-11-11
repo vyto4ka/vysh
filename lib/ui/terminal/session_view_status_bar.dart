@@ -30,13 +30,9 @@ class _StatusBar extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
-    final isCompact =
-        MediaQuery.sizeOf(context).width < 650 || DesktopEnv.isMobile;
-
-    final style = theme.textTheme.bodySmall?.copyWith(
+    final style = theme.textTheme.labelMedium?.copyWith(
       color: scheme.onSurfaceVariant,
     );
-
     final (status, color) = switch (tab.status) {
       SessionStatus.connecting => (
         tab.isLocal
@@ -61,115 +57,93 @@ class _StatusBar extends StatelessWidget {
         scheme.outline,
       ),
     };
-    final location = tab.isLocal ? strings.localTerminal : tab.host.displayAddress;
+    final location = tab.isLocal
+        ? strings.localTerminal
+        : tab.host.displayAddress;
 
-    return Container(
-      height: 32,
-      color: scheme.surfaceContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(status, style: style),
-          const SizedBox(width: 10),
-          if (isCompact) ...[
-            Expanded(
-              child: Text(
-                location,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: style,
-              ),
-            ),
-          ] else ...[
-            if (serverVersion == null || tab.isLocal)
-              Text(location, style: style)
-            else
-              Tooltip(
-                message: serverVersion!,
-                child: Text(location, style: style),
-              ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: !tab.isLocal &&
-                      showStats &&
-                      tab.status == SessionStatus.ready
-                  ? ServerStatsView(
-                      session: session,
-                      active: active,
-                      ru: strings.isRussian,
-                      fallback: serverVersion,
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            if (!tab.isLocal)
-              IconButton(
-                tooltip: showStats
-                    ? (strings.isRussian ? 'Скрыть нагрузку сервера' : 'Hide server stats')
-                    : (strings.isRussian ? 'Показать нагрузку сервера' : 'Show server stats'),
-                visualDensity: VisualDensity.compact,
-                iconSize: 15,
-                color: showStats ? scheme.primary : scheme.onSurfaceVariant,
-                onPressed: onToggleStats,
-                icon: Icon(
-                  showStats ? Icons.monitor_heart_rounded : Icons.monitor_heart_outlined,
+    return LayoutBuilder(
+      builder: (context, box) {
+        final showMetrics = box.maxWidth > 620 && !DesktopEnv.isMobile;
+        return Material(
+          color: scheme.surfaceContainerLow,
+          child: SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                Tooltip(
+                  message: [
+                    location,
+                    ?serverVersion,
+                  ].join('\n'),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        tab.status == SessionStatus.ready
+                            ? Icons.check_circle_outline
+                            : Icons.info_outline,
+                        size: 14,
+                        color: color,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(status, style: style),
+                    ],
+                  ),
                 ),
-              ),
-          ],
-          const SizedBox(width: 6),
-          if (onToggleFiles != null)
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                textStyle: theme.textTheme.bodySmall,
-                foregroundColor: filesOpen
-                    ? scheme.primary
-                    : scheme.onSurfaceVariant,
-              ),
-              onPressed: onToggleFiles,
-              icon: Icon(
-                filesOpen
-                    ? (isCompact ? Icons.terminal_rounded : Icons.folder_open)
-                    : Icons.folder_outlined,
-                size: 14,
-              ),
-              label: Text(
-                isCompact
-                    ? (filesOpen
-                          ? (strings.isRussian ? 'Консоль' : 'Console')
-                          : (strings.isRussian ? 'Файлы' : 'Files'))
-                    : (DesktopEnv.isDesktop
-                          ? (PlatformCapabilities.isMacOS
-                                ? (strings.isRussian ? 'Файлы  ⌘E' : 'Files  ⌘E')
-                                : (strings.isRussian
-                                      ? 'Файлы  Ctrl+Shift+E'
-                                      : 'Files  Ctrl+Shift+E'))
-                          : (strings.isRussian ? 'Файлы' : 'Files')),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child:
+                      showMetrics &&
+                          !tab.isLocal &&
+                          showStats &&
+                          tab.status == SessionStatus.ready
+                      ? ServerStatsView(
+                          session: session,
+                          active: active,
+                          ru: strings.isRussian,
+                          fallback: serverVersion,
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                if (!tab.isLocal && showMetrics)
+                  IconButton(
+                    tooltip: showStats
+                        ? (strings.isRu
+                              ? 'Скрыть нагрузку сервера'
+                              : 'Hide server stats')
+                        : (strings.isRu
+                              ? 'Показать нагрузку сервера'
+                              : 'Show server stats'),
+                    isSelected: showStats,
+                    selectedIcon: const Icon(Icons.monitor_heart),
+                    icon: const Icon(Icons.monitor_heart_outlined),
+                    onPressed: onToggleStats,
+                  ),
+                if (onToggleFiles != null)
+                  IconButton(
+                    tooltip: filesOpen
+                        ? (strings.isRu
+                              ? 'Вернуться в терминал'
+                              : 'Return to terminal')
+                        : (strings.isRu ? 'Открыть файлы' : 'Open files'),
+                    isSelected: filesOpen,
+                    selectedIcon: const Icon(Icons.folder_open),
+                    icon: const Icon(Icons.folder_outlined),
+                    onPressed: onToggleFiles,
+                  ),
+                if (tab.status == SessionStatus.lost ||
+                    tab.status == SessionStatus.closed)
+                  IconButton(
+                    tooltip: strings.reconnect,
+                    onPressed: onReconnect,
+                    icon: const Icon(Icons.refresh),
+                  ),
+              ],
             ),
-          if (tab.status != SessionStatus.connecting) ...[
-            const SizedBox(width: 4),
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                textStyle: theme.textTheme.bodySmall,
-              ),
-              onPressed: onReconnect,
-              icon: const Icon(Icons.refresh, size: 14),
-              label: Text(
-                isCompact
-                    ? (strings.isRussian ? 'Переподкл.' : 'Reconnect')
-                    : (strings.isRussian ? 'Переподключить' : 'Reconnect'),
-              ),
-            ),
-          ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 }

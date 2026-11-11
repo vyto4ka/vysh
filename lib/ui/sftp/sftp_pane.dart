@@ -1,3 +1,7 @@
+import 'dart:async';
+import '../../app/terminal/terminal_session.dart';
+import '../../app/terminal/current_directory.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,7 +17,6 @@ import '../../app/controllers/transfer_queue.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
-import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
 import 'sftp_dialogs.dart';
@@ -21,9 +24,31 @@ import 'file_workspace.dart';
 import '../../app/sftp/file_copy.dart';
 import 'sftp_drag.dart';
 import 'sftp_entry_row.dart';
+import 'file_path_bar.dart';
 import 'transfers_view.dart';
 
-/// Файловая панель SFTP справа от терминала.
+Future<void> showSessionFiles(BuildContext context, String id) =>
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => Consumer(
+          builder: (context, ref, _) {
+            final tab = ref
+                .watch(tabsProvider)
+                .tabs
+                .where((t) => t.id == id)
+                .firstOrNull;
+            return Scaffold(
+              appBar: AppBar(title: Text(tab?.title ?? 'Files')),
+              body: tab == null
+                  ? const SizedBox.shrink()
+                  : SftpPane(tab: tab, active: true),
+            );
+          },
+        ),
+      ),
+    );
+
+/// Single file pane attached to a session; the two-pane workspace is independent.
 class SftpPane extends ConsumerStatefulWidget {
   const SftpPane({super.key, required this.tab, required this.active});
 
@@ -43,25 +68,112 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   bool _dragOver = false;
   final _selected = <String>{};
   String? _anchor;
+  bool _followTerminal = true;
+  String? _lastReported;
+  Timer? _directoryTimer;
+  bool _pollingDirectory = false;
+  TerminalSession? _directorySession;
+  int _followGeneration = 0;
+
+  void _onTerminalDirectory() {
+    if (!mounted || !_followTerminal || !widget.active) return;
+    final path = _directorySession?.currentDirectory.value;
+    if (path == null || path == _lastReported) return;
+    _lastReported = path;
+    if (path != _cwd) unawaited(_dir.open(path));
+  }
+
+  Future<void> _pollDirectory() async {
+    if (_pollingDirectory ||
+        !_followTerminal ||
+        !widget.active ||
+        widget.tab.status != SessionStatus.ready) {
+      return;
+    }
+    _pollingDirectory = true;
+    final generation = _followGeneration;
+    try {
+      await _directorySession?.refreshWorkingDirectory();
+      if (mounted && generation == _followGeneration) _onTerminalDirectory();
+    } finally {
+      _pollingDirectory = false;
+    }
+  }
+
+  Future<void> _enableDirectoryReporting() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          _s.isRu ? 'Связать папку с терминалом?' : 'Link folder to terminal?',
+        ),
+        content: Text(
+          _s.isRu
+              ? 'Для Bash, sh и ash: команда добавит передачу текущей папки к приглашению оболочки до конца этой сессии. Файлы настроек на сервере не изменятся. Выполняйте только в приглашении оболочки, когда другая программа не запущена.'
+              : 'For Bash, sh and ash: a command will add directory reporting to the prompt for this session. Server configuration files stay unchanged. Run only at a shell prompt, with no other program running.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(_s.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(_s.isRu ? 'Выполнить в оболочке' : 'Run in shell'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted ||
+        accepted != true ||
+        widget.tab.status != SessionStatus.ready) {
+      return;
+    }
+    _setFollow(true);
+    _directorySession?.terminal.textInput('$posixDirectoryReporting\r');
+  }
+
+  void _setFollow(bool value) {
+    setState(() {
+      _followTerminal = value;
+      _followGeneration++;
+      _lastReported = null;
+    });
+    if (value) {
+      _onTerminalDirectory();
+      unawaited(_pollDirectory());
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _directorySession = ref
+        .read(tabsProvider.notifier)
+        .sessionOf(widget.tab.id);
+    _directorySession?.currentDirectory.addListener(_onTerminalDirectory);
+    _directoryTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _pollDirectory(),
+    );
     if (widget.tab.status == SessionStatus.ready) _init();
   }
 
   @override
   void didUpdateWidget(SftpPane old) {
     super.didUpdateWidget(old);
+    if (widget.active && !old.active) unawaited(_pollDirectory());
     // После переподключения SFTP-канал новый - перечитываем папку.
     if (widget.tab.status == SessionStatus.ready &&
         old.tab.status != SessionStatus.ready) {
-      _cwd == null ? _init() : _open(_cwd!);
+      _followTerminal || _cwd == null ? _init() : _dir.open(_cwd!);
     }
   }
 
   @override
   void dispose() {
+    _directoryTimer?.cancel();
+    _directorySession?.currentDirectory.removeListener(_onTerminalDirectory);
     _dir.dispose();
     _listFocus.dispose();
     _pathField.dispose();
@@ -101,21 +213,34 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   bool get _loading => _dir.loading;
   String? get _error => _dir.error == null ? null : _s.errorText(_dir.error!);
 
-  Future<void> _init() => _dir.home();
-  Future<void> _open(String path) => _dir.open(path);
+  Future<void> _init() async {
+    await _dir.home();
+    if (!mounted) return;
+    _lastReported = null;
+    _onTerminalDirectory();
+    unawaited(_pollDirectory());
+  }
+
+  Future<void> _open(String path) {
+    _setFollow(
+      false,
+    ); // Explicit navigation takes precedence until follow is re-enabled.
+    return _dir.open(path);
+  }
+
   Future<void> _refresh() => _dir.refresh();
 
   void _onDirChanged() {
     if (!mounted) return;
     setState(() {
       // Открыли другую папку (или перечитали) - прежнее выделение не действует.
-      if (!identical(_shownEntries, _dir.entries)) {
+      if (_dir.loading || !identical(_shownEntries, _dir.entries)) {
         _shownEntries = _dir.entries;
         _selected.clear();
         _anchor = null;
       }
       final shown = _dir.error != null
-          ? (_dir.cwd ?? _dir.requestedPath)
+          ? (_dir.requestedPath ?? _dir.cwd)
           : _dir.cwd;
       if (shown != null && !_dir.loading) _pathField.text = shown;
     });
@@ -397,6 +522,21 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
   /// Пункты, относящиеся к текущей папке (меню «⋮» и пустое место списка).
   List<Widget> _folderItems() => [
+    CheckboxMenuButton(
+      value: _followTerminal,
+      onChanged: (v) => _setFollow(v!),
+      child: Text(
+        _s.isRu ? 'Следовать папке терминала' : 'Follow terminal directory',
+      ),
+    ),
+    if (!widget.tab.isLocal &&
+        _directorySession?.currentDirectory.value == null)
+      menuItem(
+        _s.isRu ? 'Включить интеграцию оболочки…' : 'Enable shell integration…',
+        icon: Icons.link,
+        onPressed: _enableDirectoryReporting,
+      ),
+    menuDivider(),
     menuItem(_s.uploadFiles, icon: Icons.upload_file, onPressed: _uploadFiles),
     menuItem(
       _s.uploadFolder,
@@ -409,7 +549,14 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
       onPressed: _mkdir,
     ),
     menuDivider(),
-    menuItem(_s.homeFolder, icon: Icons.home_outlined, onPressed: _init),
+    menuItem(
+      _s.homeFolder,
+      icon: Icons.home_outlined,
+      onPressed: () {
+        _setFollow(false);
+        _dir.home();
+      },
+    ),
     menuItem(
       _s.refresh,
       icon: Icons.refresh,
@@ -461,11 +608,28 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         icon: Icons.cloud_off,
         text: _s.noServerConnection,
       );
-    } else if (_error != null && _entries.isEmpty) {
+    } else if (_error != null) {
       body = SftpPlaceholder(
         icon: Icons.error_outline,
         text: _error!,
-        action: TextButton(onPressed: _init, child: Text(_s.tryAgain)),
+        action: Wrap(
+          alignment: WrapAlignment.center,
+          children: [
+            TextButton(
+              onPressed: () => _dir.requestedPath == null
+                  ? _init()
+                  : _dir.open(_dir.requestedPath!),
+              child: Text(_s.tryAgain),
+            ),
+            TextButton(
+              onPressed: () {
+                _setFollow(false);
+                _dir.home();
+              },
+              child: Text(_s.homeFolder),
+            ),
+          ],
+        ),
       );
     } else {
       final list = _visible;
@@ -521,55 +685,46 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Путь и кнопки.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 4, 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: _s.up,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: ready && _cwd != null && _cwd != '/'
-                        ? () => _open(remoteParent(_cwd!))
-                        : null,
-                    icon: const Icon(Icons.arrow_upward),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _pathField,
-                      enabled: ready,
-                      style: monoStyle(
-                        context,
-                        size: 12.5,
-                        color: scheme.onSurface,
-                      ),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: true,
-                        fillColor: scheme.surfaceContainerHighest,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onSubmitted: (v) =>
-                          _open(v.trim().isEmpty ? '/' : v.trim()),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: _s.refresh,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: ready ? _refresh : null,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                  MenuIconButton(enabled: ready, items: _folderItems()),
-                ],
+            FilePathBar(
+              controller: _pathField,
+              enabled: ready,
+              onOpen: _open,
+              onUp: _cwd != null && _cwd != '/'
+                  ? () => _open(remoteParent(_cwd!))
+                  : null,
+              onRefresh: _refresh,
+              isRu: _s.isRu,
+              trailing: MenuIconButton(
+                enabled: ready && !_loading && _error == null,
+                items: _folderItems(),
               ),
             ),
+            if (_selected.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
+                        style: theme.textTheme.labelLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: _s.isRu ? 'Снять выделение' : 'Clear selection',
+                      onPressed: () => setState(_selected.clear),
+                      icon: const Icon(Icons.close),
+                    ),
+                    IconButton(
+                      tooltip: _s.isRu
+                          ? 'Скачать выделенное'
+                          : 'Download selected',
+                      onPressed: () => _download(_selection),
+                      icon: const Icon(Icons.download_outlined),
+                    ),
+                  ],
+                ),
+              ),
             if (_loading)
               const LinearProgressIndicator(minHeight: 2)
             else

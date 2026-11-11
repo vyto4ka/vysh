@@ -19,14 +19,53 @@ import 'workspace_actions.dart';
 import 'tab_drag.dart';
 
 /// Полоса вкладок: закреплённая «главная» + вкладки сессий.
-class TabStrip extends ConsumerWidget {
+class TabStrip extends ConsumerStatefulWidget {
   const TabStrip({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TabStrip> createState() => _TabStripState();
+}
+
+class _TabStripState extends ConsumerState<TabStrip> {
+  final _scroll = ScrollController();
+  final _tabKeys = <String, GlobalKey>{};
+  String? _lastFocus;
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(tabsProvider);
     final ctrl = ref.read(tabsProvider.notifier);
     final external = ref.watch(detachedWindowsProvider);
+    final split = ref.watch(splitTabProvider);
+    final focused = ref.watch(workspaceFocusProvider);
+    final splitVisible =
+        !state.isHome &&
+        split != null &&
+        split != state.activeTab?.id &&
+        !external.containsKey(split) &&
+        !external.containsKey(state.activeTab?.id);
+    final focusId = splitVisible && focused == split
+        ? split
+        : state.activeTab?.id;
+    _tabKeys.removeWhere((id, _) => !state.tabs.any((t) => t.id == id));
+    if (_lastFocus != focusId) {
+      _lastFocus = focusId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _tabKeys[focusId]?.currentContext;
+        if (mounted && target != null) {
+          Scrollable.ensureVisible(
+            target,
+            duration: const Duration(milliseconds: 160),
+            alignment: .5,
+          );
+        }
+      });
+    }
     final lang = ref.watch(settingsProvider.select((s) => s.language));
     final strings = AppStrings.of(context, lang);
     final scheme = Theme.of(context).colorScheme;
@@ -34,7 +73,7 @@ class TabStrip extends ConsumerWidget {
     final custom = ref.watch(customTitleBarProvider);
 
     final tabs = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.zero,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -45,65 +84,193 @@ class TabStrip extends ConsumerWidget {
           ),
           const SizedBox(width: 4),
           Flexible(
-            child: ListView.builder(
-              shrinkWrap: true,
-              scrollDirection: Axis.horizontal,
-              itemCount: state.tabs.length,
-              itemBuilder: (context, i) {
-                final tab = state.tabs[i];
-                return TabDropTarget(
-                  key: ValueKey(tab.id),
-                  canAccept: (id) => id != tab.id,
-                  onAccept: (id) {
-                    final from = state.tabs.indexWhere((t) => t.id == id);
-                    if (from >= 0) ctrl.move(from, i);
-                  },
-                  builder: (context, hover) => Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: SessionTabDrag(
-                      tab: tab,
-                      enabled: !external.containsKey(tab.id),
-                      child: _SessionTabChip(
-                        tab: tab,
-                        index: i + 1,
-                        selected:
-                            state.active == i + 1 &&
-                            !external.containsKey(tab.id),
-                        external: external.containsKey(tab.id),
-                        strings: strings,
-                        onTap: () {
-                          if (external.containsKey(tab.id)) {
-                            ref
-                                .read(detachedWindowsProvider.notifier)
-                                .show(tab.id);
-                          } else {
-                            ctrl.activate(i + 1);
-                            ref
-                                .read(workspaceFocusProvider.notifier)
-                                .select(tab.id);
-                          }
-                        },
-                        onClose: () => ctrl.close(tab.id),
-                        onDuplicate: () => ctrl.duplicate(tab.id),
-                        onReconnect: () => ctrl.reconnect(tab.id),
-                        onSplit: () => splitSession(ref, tab.id),
-                        onSplitDown: () =>
-                            splitSession(ref, tab.id, axis: Axis.vertical),
-                        onDetach: PlatformCapabilities.desktopWindow
-                            ? () => detachSession(context, ref, tab.id)
-                            : null,
-                        onAttach: external.containsKey(tab.id)
-                            ? () => ref
-                                  .read(detachedWindowsProvider.notifier)
-                                  .returnToTabs(tab.id)
-                            : null,
+            child: Listener(
+              onPointerSignal: (event) {
+                if (event is PointerScrollEvent &&
+                    event.scrollDelta.dy != 0 &&
+                    _scroll.hasClients &&
+                    _scroll.position.maxScrollExtent > 0) {
+                  GestureBinding.instance.pointerSignalResolver.register(
+                    event,
+                    (_) {
+                      _scroll.jumpTo(
+                        (_scroll.offset + event.scrollDelta.dy).clamp(
+                          0,
+                          _scroll.position.maxScrollExtent,
+                        ),
+                      );
+                    },
+                  );
+                }
+              },
+              child: SingleChildScrollView(
+                controller: _scroll,
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: List.generate(state.tabs.length, (i) {
+                    final tab = state.tabs[i];
+                    return TabDropTarget(
+                      key: _tabKeys.putIfAbsent(tab.id, () => GlobalKey()),
+                      canAccept: (id) => id != tab.id,
+                      onAccept: (id) {
+                        final from = state.tabs.indexWhere((t) => t.id == id);
+                        if (from >= 0) ctrl.move(from, i);
+                      },
+                      builder: (context, hover) => Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: SessionTabDrag(
+                          tab: tab,
+                          enabled: !external.containsKey(tab.id),
+                          child: _SessionTabChip(
+                            tab: tab,
+                            index: i + 1,
+                            selected:
+                                !state.isHome &&
+                                focusId == tab.id &&
+                                !external.containsKey(tab.id),
+                            beside:
+                                splitVisible &&
+                                (tab.id == split ||
+                                    tab.id == state.activeTab?.id),
+                            placement:
+                                ref.watch(splitLayoutProvider).axis ==
+                                    Axis.vertical
+                                ? (tab.id == split
+                                      ? Icons.align_vertical_bottom
+                                      : Icons.align_vertical_top)
+                                : ((tab.id == split) !=
+                                          ref.watch(splitLayoutProvider).reverse
+                                      ? Icons.align_horizontal_right
+                                      : Icons.align_horizontal_left),
+                            external: external.containsKey(tab.id),
+                            strings: strings,
+                            onTap: () {
+                              if (external.containsKey(tab.id)) {
+                                ref
+                                    .read(detachedWindowsProvider.notifier)
+                                    .show(tab.id);
+                              } else {
+                                if (!(splitVisible &&
+                                    (tab.id == split ||
+                                        tab.id == state.activeTab?.id))) {
+                                  ctrl.activate(i + 1);
+                                }
+                                ref
+                                    .read(workspaceFocusProvider.notifier)
+                                    .select(tab.id);
+                              }
+                            },
+                            onClose: () => ctrl.close(tab.id),
+                            onDuplicate: () => ctrl.duplicate(tab.id),
+                            onReconnect: () => ctrl.reconnect(tab.id),
+                            onSplit: () => splitSession(ref, tab.id),
+                            onSplitDown: () =>
+                                splitSession(ref, tab.id, axis: Axis.vertical),
+                            onDetach: PlatformCapabilities.desktopWindow
+                                ? () => detachSession(context, ref, tab.id)
+                                : null,
+                            onAttach: external.containsKey(tab.id)
+                                ? () => ref
+                                      .read(detachedWindowsProvider.notifier)
+                                      .returnToTabs(tab.id)
+                                : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+          ),
+          if (!state.isHome)
+            PopupMenuButton<String>(
+              tooltip: strings.isRu
+                  ? 'Компоновка и действия сессии'
+                  : 'Layout and session actions',
+              icon: Icon(
+                splitVisible
+                    ? Icons.view_column
+                    : Icons.space_dashboard_outlined,
+              ),
+              onSelected: (value) {
+                switch (value) {
+                  case 'right':
+                    chooseSplit(context, ref, Axis.horizontal);
+                  case 'below':
+                    chooseSplit(context, ref, Axis.vertical);
+                  case 'unsplit':
+                    ref.read(splitTabProvider.notifier).select(null);
+                  case 'detach':
+                    if (focusId != null) detachSession(context, ref, focusId);
+                  case 'reconnect':
+                    if (focusId != null) ctrl.reconnect(focusId);
+                  case 'duplicate':
+                    if (focusId != null) ctrl.duplicate(focusId);
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'right',
+                  child: ListTile(
+                    leading: const Icon(Icons.vertical_split_outlined),
+                    title: Text(
+                      strings.isRu
+                          ? 'Открыть вкладку справа'
+                          : 'Open a tab on the right',
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'below',
+                  child: ListTile(
+                    leading: const Icon(Icons.horizontal_split_outlined),
+                    title: Text(
+                      strings.isRu
+                          ? 'Открыть вкладку снизу'
+                          : 'Open a tab below',
+                    ),
+                  ),
+                ),
+                if (splitVisible)
+                  PopupMenuItem(
+                    value: 'unsplit',
+                    child: ListTile(
+                      leading: const Icon(Icons.crop_landscape),
+                      title: Text(
+                        strings.isRu ? 'Убрать разделение' : 'Unsplit',
                       ),
                     ),
                   ),
-                );
-              },
+                if (PlatformCapabilities.desktopWindow)
+                  PopupMenuItem(
+                    value: 'detach',
+                    child: ListTile(
+                      leading: const Icon(Icons.open_in_new),
+                      title: Text(
+                        strings.isRu
+                            ? 'В отдельное окно'
+                            : 'Move to separate window',
+                      ),
+                    ),
+                  ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'reconnect',
+                  child: ListTile(
+                    leading: const Icon(Icons.refresh),
+                    title: Text(strings.reconnect),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'duplicate',
+                  child: ListTile(
+                    leading: const Icon(Icons.copy_all_outlined),
+                    title: Text(strings.duplicate),
+                  ),
+                ),
+              ],
             ),
-          ),
           IconButton(
             tooltip: strings.isRu ? 'Файлы: две панели' : 'Files: two panes',
             icon: const Icon(Icons.folder_copy_outlined),
@@ -134,8 +301,8 @@ class TabStrip extends ConsumerWidget {
     final trafficLights = custom && PlatformCapabilities.isMacOS;
 
     return Container(
-      height: 46,
-      color: scheme.surfaceContainer,
+      height: 48,
+      color: scheme.surfaceContainerLow,
       padding: EdgeInsets.only(
         left: trafficLights ? 0 : 6,
         right: custom && !trafficLights ? 0 : 6,
@@ -229,6 +396,8 @@ class _SessionTabChip extends StatefulWidget {
     required this.tab,
     required this.index,
     required this.selected,
+    required this.beside,
+    required this.placement,
     required this.strings,
     required this.onTap,
     required this.onClose,
@@ -254,6 +423,8 @@ class _SessionTabChip extends StatefulWidget {
   final VoidCallback? onDetach;
   final VoidCallback? onAttach;
   final bool external;
+  final bool beside;
+  final IconData placement;
 
   @override
   State<_SessionTabChip> createState() => _SessionTabChipState();
@@ -315,9 +486,7 @@ class _SessionTabChipState extends State<_SessionTabChip> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final fg = widget.selected
-        ? scheme.onSecondaryContainer
-        : scheme.onSurfaceVariant;
+    final fg = widget.selected ? scheme.primary : scheme.onSurfaceVariant;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -353,10 +522,22 @@ class _SessionTabChipState extends State<_SessionTabChip> {
                           style: TextStyle(color: fg, fontSize: 13),
                         ),
                       ),
+                      if (widget.beside) ...[
+                        const SizedBox(width: 6),
+                        Tooltip(
+                          message: widget.strings.isRu
+                              ? 'В рабочей области'
+                              : 'Visible in workspace',
+                          child: Icon(widget.placement, size: 14, color: fg),
+                        ),
+                      ],
                       const SizedBox(width: 2),
                       AnimatedOpacity(
                         duration: const Duration(milliseconds: 120),
-                        opacity: _hover || widget.selected ? 1 : 0,
+                        opacity:
+                            _hover || widget.selected || DesktopEnv.isMobile
+                            ? 1
+                            : 0,
                         child: IconButton(
                           tooltip: DesktopEnv.isDesktop
                               ? context.strings.closeWithShortcut
@@ -364,8 +545,8 @@ class _SessionTabChipState extends State<_SessionTabChip> {
                           iconSize: 16,
                           visualDensity: VisualDensity.compact,
                           constraints: const BoxConstraints.tightFor(
-                            width: 28,
-                            height: 28,
+                            width: 48,
+                            height: 48,
                           ),
                           padding: EdgeInsets.zero,
                           icon: Icon(Icons.close_rounded, color: fg),
@@ -401,17 +582,29 @@ class _TabSurface extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOut,
-      height: 34,
-      decoration: BoxDecoration(
-        color: selected ? scheme.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: Center(widthFactor: 1, child: child),
+      height: 48,
+      color: selected ? scheme.surface : Colors.transparent,
+      child: Semantics(
+        selected: selected,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onTap,
+            child: Stack(
+              children: [
+                Center(widthFactor: 1, child: child),
+                if (selected)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      child: Container(height: 3, color: scheme.primary),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
