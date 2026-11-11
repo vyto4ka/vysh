@@ -598,14 +598,20 @@ function Hash([string]$path) {
   try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
   finally { $stream.Dispose(); $sha.Dispose() }
 }
-# Check every payload file before launching, not just robocopy's exit code.
-foreach ($file in Get-ChildItem -LiteralPath $SourceDir -File -Recurse) {
-  $relative = $file.FullName.Substring($SourceDir.TrimEnd('\').Length).TrimStart('\')
-  $installed = Join-Path $TargetDir $relative
-  if ((Hash $file.FullName) -ne (Hash $installed)) {
-    throw "Installed file does not match update: $relative"
+# Match by child names instead of substring offsets: PowerShell/.NET may
+# expand a DOS 8.3 path (RUNNER~1) into a longer path during enumeration.
+function VerifyDirectory([string]$source, [string]$destination) {
+  foreach ($file in [IO.Directory]::EnumerateFiles($source)) {
+    $installed = [IO.Path]::Combine($destination, [IO.Path]::GetFileName($file))
+    if ((Hash $file) -ne (Hash $installed)) {
+      throw "Installed file does not match update: $installed"
+    }
+  }
+  foreach ($dir in [IO.Directory]::EnumerateDirectories($source)) {
+    VerifyDirectory $dir ([IO.Path]::Combine($destination, [IO.Path]::GetFileName($dir)))
   }
 }
+VerifyDirectory $SourceDir $TargetDir
 Log 'all installed files verified'
 $child = Start-Process -FilePath $ExePath -WorkingDirectory $TargetDir -PassThru
 Start-Sleep -Milliseconds 500
