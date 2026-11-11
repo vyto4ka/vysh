@@ -41,6 +41,12 @@ jobs:
       - run: flutter pub get
       - name: Windows updater handoff and restart tests
         run: flutter test test/windows_update_test.dart
+      - name: Updater diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          $log = Join-Path $env:TEMP 'vysh_update.log'
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log }
       - run: flutter build windows --release
 
   android:

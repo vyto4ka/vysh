@@ -73,7 +73,10 @@ void main() {
       final nested = Directory('${root.path}/vysh');
       await nested.create();
       await File('${nested.path}/vysh.exe').writeAsString('exe');
-      expect(WindowsZipUpdate.findPayloadRoot(root), nested.path);
+      expect(
+        Directory(WindowsZipUpdate.findPayloadRoot(root)!).absolute.uri,
+        nested.absolute.uri,
+      );
       await File('${root.path}/vysh.exe').writeAsString('exe');
       expect(WindowsZipUpdate.findPayloadRoot(root), root.path);
     },
@@ -82,7 +85,7 @@ void main() {
   group('Windows PowerShell 5.1 updater integration', () {
     Future<File> compileApp(Directory dir, String marker) async {
       await dir.create(recursive: true);
-      final code = File('${dir.path}/fixture.cs');
+      final code = File('${dir.path}/fixture.cs'.replaceAll('/', '\\'));
       // The fixture remains alive long enough to hold the executable open.
       await code.writeAsString(
         '''using System; using System.IO; using System.Threading;
@@ -91,7 +94,7 @@ File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "started.t
 Thread.Sleep(30000);
 } }''',
       );
-      final exe = File('${dir.path}/vysh.exe');
+      final exe = File('${dir.path}/vysh.exe'.replaceAll('/', '\\'));
       final csc =
           '${Platform.environment['SystemRoot']}\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
       final result = await Process.run(csc, [
@@ -100,7 +103,12 @@ Thread.Sleep(30000);
         '/out:${exe.path}',
         code.path,
       ]);
-      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      expect(
+        result.exitCode,
+        0,
+        reason:
+            'csc=$csc; source=${code.path}; exists=${await code.exists()}; exe=${exe.path}\n${result.stdout}\n${result.stderr}',
+      );
       await code.delete();
       return exe;
     }
