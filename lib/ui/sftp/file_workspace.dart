@@ -48,8 +48,13 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace> {
         source != null &&
         source.selection.isNotEmpty &&
         source.endpoint != null &&
-        target?.endpoint != null &&
-        target?.directory.cwd != null;
+        !source.directory.loading &&
+        source.directory.error == null &&
+        target != null &&
+        target.endpoint != null &&
+        !target.directory.loading &&
+        target.directory.error == null &&
+        target.directory.cwd != null;
   }
 
   bool get isRu =>

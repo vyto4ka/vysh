@@ -234,13 +234,13 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     if (!mounted) return;
     setState(() {
       // Открыли другую папку (или перечитали) - прежнее выделение не действует.
-      if (!identical(_shownEntries, _dir.entries)) {
+      if (_dir.loading || !identical(_shownEntries, _dir.entries)) {
         _shownEntries = _dir.entries;
         _selected.clear();
         _anchor = null;
       }
       final shown = _dir.error != null
-          ? (_dir.cwd ?? _dir.requestedPath)
+          ? (_dir.requestedPath ?? _dir.cwd)
           : _dir.cwd;
       if (shown != null && !_dir.loading) _pathField.text = shown;
     });
@@ -549,7 +549,14 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
       onPressed: _mkdir,
     ),
     menuDivider(),
-    menuItem(_s.homeFolder, icon: Icons.home_outlined, onPressed: _init),
+    menuItem(
+      _s.homeFolder,
+      icon: Icons.home_outlined,
+      onPressed: () {
+        _setFollow(false);
+        _dir.home();
+      },
+    ),
     menuItem(
       _s.refresh,
       icon: Icons.refresh,
@@ -601,7 +608,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         icon: Icons.cloud_off,
         text: _s.noServerConnection,
       );
-    } else if (_error != null && _entries.isEmpty) {
+    } else if (_error != null) {
       body = SftpPlaceholder(
         icon: Icons.error_outline,
         text: _error!,
@@ -609,7 +616,9 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
           alignment: WrapAlignment.center,
           children: [
             TextButton(
-              onPressed: () => _dir.refresh(),
+              onPressed: () => _dir.requestedPath == null
+                  ? _init()
+                  : _dir.open(_dir.requestedPath!),
               child: Text(_s.tryAgain),
             ),
             TextButton(
@@ -685,7 +694,10 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                   : null,
               onRefresh: _refresh,
               isRu: _s.isRu,
-              trailing: MenuIconButton(enabled: ready, items: _folderItems()),
+              trailing: MenuIconButton(
+                enabled: ready && !_loading && _error == null,
+                items: _folderItems(),
+              ),
             ),
             if (_selected.isNotEmpty)
               Padding(
