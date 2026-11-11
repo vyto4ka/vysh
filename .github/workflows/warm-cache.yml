@@ -39,6 +39,8 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - run: flutter pub get
+      - name: Windows updater handoff and restart tests
+        run: flutter test test/windows_update_test.dart
       - run: flutter build windows --release
 
   android:
