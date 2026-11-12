@@ -41,10 +41,10 @@ class ConnLogEntry {
 class TerminalSession extends ChangeNotifier {
   TerminalSession({
     required Host host,
-    required this.connector,
-    required this.prompts,
-    required this.secrets,
-    required this.knownHosts,
+    required SshConnector connector,
+    required SessionPrompts prompts,
+    required SecretStore secrets,
+    required KnownHosts knownHosts,
     required this.onStatus,
     this.localShells,
     this.localFiles,
@@ -54,11 +54,34 @@ class TerminalSession extends ChangeNotifier {
     String? initialPassword,
     int scrollbackLines = 10000,
   }) : _host = host,
+       _connector = connector,
+       _prompts = prompts,
+       _secrets = secrets,
+       _knownHosts = knownHosts,
        _strings = strings ?? (() => AppStrings.forLanguage(AppLanguage.auto)),
        _memPassword = initialPassword,
        terminal = Terminal(maxLines: scrollbackLines) {
     terminal.onCurrentDirectoryChange = _directoryReport;
   }
+
+  /// A display in another engine has no credentials or connection of its own.
+  /// Its subclass forwards operations to the owning session.
+  TerminalSession.view({
+    required Host host,
+    required this.terminal,
+    this.local = false,
+  }) : _host = host,
+       _connector = null,
+       _prompts = null,
+       _secrets = null,
+       _knownHosts = null,
+       localShells = null,
+       localFiles = null,
+       defaultKeepAliveSeconds = 60,
+       onStatus = _ignoreStatus,
+       _strings = (() => AppStrings.forLanguage(AppLanguage.auto));
+
+  static void _ignoreStatus(SessionStatus _) {}
 
   /// Строки на текущем языке интерфейса (для сообщений в терминале).
   final AppStrings Function() _strings;
@@ -95,10 +118,15 @@ class TerminalSession extends ChangeNotifier {
   /// Забыть пароль, введённый в этой сессии («Забыть пароль», смена пароля).
   void forgetPassword() => _memPassword = null;
 
-  final SshConnector connector;
-  final SessionPrompts prompts;
-  final SecretStore secrets;
-  final KnownHosts knownHosts;
+  final SshConnector? _connector;
+  SessionPrompts? _prompts;
+  final SecretStore? _secrets;
+  final KnownHosts? _knownHosts;
+  SshConnector get connector => _connector!;
+  SessionPrompts get prompts => _prompts!;
+  set prompts(SessionPrompts value) => _prompts = value;
+  SecretStore get secrets => _secrets!;
+  KnownHosts get knownHosts => _knownHosts!;
   final LocalShellLauncher? localShells;
   final bool local;
   final SftpSession? localFiles;

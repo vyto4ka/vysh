@@ -87,7 +87,7 @@ class SftpEntryRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
           child: Material(
             color: selected ? scheme.secondaryContainer : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(14),
             child: Row(
               children: [
                 if (showSelection)
@@ -99,14 +99,20 @@ class SftpEntryRow extends StatelessWidget {
                   ),
                 Expanded(
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(14),
                     onTap: enabled ? onTap : null,
                     onDoubleTap: enabled ? onDoubleTap : null,
                     onSecondaryTapUp: enabled
                         ? (d) => onSecondary(d.globalPosition)
                         : null,
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 48),
+                      constraints: BoxConstraints(
+                        minHeight:
+                            Theme.of(context).visualDensity ==
+                                VisualDensity.compact
+                            ? 48
+                            : 56,
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -114,14 +120,28 @@ class SftpEntryRow extends StatelessWidget {
                         ),
                         child: Row(
                           children: [
-                            Icon(
-                              selected && !showSelection
-                                  ? Icons.check_circle
-                                  : icon,
-                              size: 20,
-                              color: selected
-                                  ? scheme.onSecondaryContainer
-                                  : iconColor,
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? scheme.secondaryContainer
+                                    : e?.isDir == true
+                                    ? scheme.secondaryContainer
+                                    : scheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                selected && !showSelection
+                                    ? Icons.check_circle
+                                    : icon,
+                                size: 20,
+                                color: selected
+                                    ? scheme.onSecondaryContainer
+                                    : e?.isDir == true
+                                    ? scheme.onSecondaryContainer
+                                    : iconColor,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(

@@ -43,7 +43,21 @@ Future<void> main(List<String> args) async {
               (arguments['height'] as num).toDouble(),
             ),
             minimumSize: Size(540, 340),
-            titleBarStyle: TitleBarStyle.normal,
+            titleBarStyle:
+                useCustomTitleBar(
+                  AppSettings.fromJson(
+                    Map<String, Object?>.from(arguments['initial']['settings']),
+                  ).titleBarMode,
+                )
+                ? TitleBarStyle.hidden
+                : TitleBarStyle.normal,
+            windowButtonVisibility:
+                Platform.isMacOS ||
+                !useCustomTitleBar(
+                  AppSettings.fromJson(
+                    Map<String, Object?>.from(arguments['initial']['settings']),
+                  ).titleBarMode,
+                ),
           ),
           () async {
             await windowManager.setTitle('${arguments['title']} — vysh');

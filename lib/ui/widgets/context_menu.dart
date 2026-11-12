@@ -16,16 +16,18 @@ Widget menuItem(
     // Подписи клавиш - приглушённые, как в спецификации M3.
     shortcut: shortcut,
     onPressed: onPressed,
-    style: color == null ? null : ButtonStyle(foregroundColor: WidgetStatePropertyAll(color)),
+    style: color == null
+        ? null
+        : ButtonStyle(foregroundColor: WidgetStatePropertyAll(color)),
     child: Text(label),
   );
 }
 
 /// Разделитель между группами пунктов.
 Widget menuDivider() => const Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
-      child: Divider(height: 1, indent: 8, endIndent: 8),
-    );
+  padding: EdgeInsets.symmetric(vertical: 4),
+  child: Divider(height: 1, indent: 8, endIndent: 8),
+);
 
 /// Область, в которой можно открыть контекстное меню M3 в точке клика.
 ///
@@ -86,19 +88,32 @@ class MenuIconButton extends StatelessWidget {
     this.icon = Icons.more_vert,
     this.tooltip,
     this.enabled = true,
+    this.tonal = false,
   });
 
   final List<Widget> items;
   final IconData icon;
+
   /// null - «Ещё» на языке интерфейса.
   final String? tooltip;
   final bool enabled;
+  final bool tonal;
 
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
       menuChildren: items,
       builder: (context, controller, _) => IconButton(
+        style: tonal
+            ? IconButton.styleFrom(
+                backgroundColor: Theme.of(
+                  context,
+                ).colorScheme.secondaryContainer,
+                foregroundColor: Theme.of(
+                  context,
+                ).colorScheme.onSecondaryContainer,
+              )
+            : null,
         tooltip: tooltip ?? context.strings.more,
         icon: Icon(icon),
         onPressed: !enabled
@@ -112,12 +127,36 @@ class MenuIconButton extends StatelessWidget {
 /// Сочетания клавиш для подписей в меню.
 class Keys {
   Keys._();
-  static const copy = SingleActivator(LogicalKeyboardKey.keyC, control: true, shift: true);
-  static const paste = SingleActivator(LogicalKeyboardKey.keyV, control: true, shift: true);
-  static const files = SingleActivator(LogicalKeyboardKey.keyE, control: true, shift: true);
-  static const reconnect = SingleActivator(LogicalKeyboardKey.keyR, control: true, shift: true);
-  static const closeTab = SingleActivator(LogicalKeyboardKey.keyW, control: true, shift: true);
-  static const newHost = SingleActivator(LogicalKeyboardKey.keyN, control: true, shift: true);
+  static const copy = SingleActivator(
+    LogicalKeyboardKey.keyC,
+    control: true,
+    shift: true,
+  );
+  static const paste = SingleActivator(
+    LogicalKeyboardKey.keyV,
+    control: true,
+    shift: true,
+  );
+  static const files = SingleActivator(
+    LogicalKeyboardKey.keyE,
+    control: true,
+    shift: true,
+  );
+  static const reconnect = SingleActivator(
+    LogicalKeyboardKey.keyR,
+    control: true,
+    shift: true,
+  );
+  static const closeTab = SingleActivator(
+    LogicalKeyboardKey.keyW,
+    control: true,
+    shift: true,
+  );
+  static const newHost = SingleActivator(
+    LogicalKeyboardKey.keyN,
+    control: true,
+    shift: true,
+  );
   static const delete = SingleActivator(LogicalKeyboardKey.delete);
   static const rename = SingleActivator(LogicalKeyboardKey.f2);
   static const refresh = SingleActivator(LogicalKeyboardKey.f5);
@@ -126,5 +165,8 @@ class Keys {
   static const macCopy = SingleActivator(LogicalKeyboardKey.keyC, meta: true);
   static const macPaste = SingleActivator(LogicalKeyboardKey.keyV, meta: true);
   static const macFiles = SingleActivator(LogicalKeyboardKey.keyE, meta: true);
-  static const macReconnect = SingleActivator(LogicalKeyboardKey.keyR, meta: true);
+  static const macReconnect = SingleActivator(
+    LogicalKeyboardKey.keyR,
+    meta: true,
+  );
 }

@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../infra/platform/capabilities.dart';
+import '../infra/platform/font_files.dart';
 import '../app/settings/app_settings.dart';
+import '../app/settings/terminal_font.dart';
 import '../app/controllers/external_colors_controller.dart';
 import '../app/controllers/monet_colors_provider.dart';
 import '../app/controllers/settings_controller.dart';
@@ -23,14 +25,24 @@ class VyshApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Корень приложения перестраивается только от настроек темы и языка.
-    final s = ref.watch(settingsProvider.select((s) => (
+    final s = ref.watch(
+      settingsProvider.select(
+        (s) => (
           colorSource: s.colorSource,
           seedColor: s.seedColor,
           themeMode: s.themeMode,
           compact: s.compact,
           language: s.language,
-        )));
+        ),
+      ),
+    );
     final ext = ref.watch(externalColorsProvider);
+    ref.listen(settingsProvider.select((s) => s.terminalFont), (_, font) {
+      final file = TerminalFont.fileName(font);
+      if (file != null && file.isNotEmpty) {
+        FontFiles.loadByFileName(file).ignore();
+      }
+    });
     final monet = ref.watch(monetColorsProvider).value;
 
     // Переключили режим заголовка - применяем сразу, без перезапуска.
@@ -60,10 +72,13 @@ class VyshApp extends ConsumerWidget {
     // Catppuccin: у каждого варианта свой режим (Latte светлый, прочие тёмные).
     if (dotsBrightness != null &&
         (mode == ThemeMode.system || s.colorSource == ColorSource.catppuccin)) {
-      mode = dotsBrightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light;
+      mode = dotsBrightness == Brightness.dark
+          ? ThemeMode.dark
+          : ThemeMode.light;
     }
 
-    ThemeData theme(Brightness b) => _cachedTheme(seed, b, s.compact, e?.roles[b]);
+    ThemeData theme(Brightness b) =>
+        _cachedTheme(seed, b, s.compact, e?.roles[b]);
 
     return MaterialApp(
       title: 'vysh',
@@ -104,11 +119,20 @@ class VyshApp extends ConsumerWidget {
 /// (ColorScheme.fromSeed и ThemeData дорогие, а VyshApp следит за всеми настройками).
 final _themeCache = <(int, Brightness, bool, Map<String, Color>?), ThemeData>{};
 
-ThemeData _cachedTheme(Color seed, Brightness b, bool compact, Map<String, Color>? roles) {
+ThemeData _cachedTheme(
+  Color seed,
+  Brightness b,
+  bool compact,
+  Map<String, Color>? roles,
+) {
   final key = (seed.toARGB32(), b, compact, roles);
   final hit = _themeCache[key];
   if (hit != null) return hit;
   if (_themeCache.length > 8) _themeCache.clear();
-  return _themeCache[key] =
-      buildTheme(seed: seed, brightness: b, compact: compact, roles: roles);
+  return _themeCache[key] = buildTheme(
+    seed: seed,
+    brightness: b,
+    compact: compact,
+    roles: roles,
+  );
 }

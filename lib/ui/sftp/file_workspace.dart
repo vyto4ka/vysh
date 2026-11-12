@@ -14,6 +14,7 @@ import 'transfers_view.dart';
 import 'file_path_bar.dart';
 import 'sftp_entry_row.dart';
 import '../widgets/modifiers.dart';
+import '../widgets/context_menu.dart';
 import 'package:flutter/services.dart';
 import '../../infra/platform/desktop_env.dart';
 
@@ -440,71 +441,71 @@ class _BrowserState extends ConsumerState<_Browser> {
             child: Row(
               children: [
                 Expanded(
-                  child: PopupMenuButton<String>(
-                    tooltip: widget.isRu
-                        ? 'Выбрать подключение'
-                        : 'Choose connection',
-                    enabled: widget.enabled,
-                    onSelected: (value) {
-                      setState(() => _source = value);
-                      _connect();
-                    },
-                    itemBuilder: (_) => [
-                      PopupMenuItem(
-                        value: '',
-                        child: ListTile(
-                          leading: const Icon(Icons.computer),
-                          title: Text(
-                            PlatformCapabilities.sharedDownloads
-                                ? (widget.isRu
-                                      ? 'Файлы приложения'
-                                      : 'App files')
-                                : (widget.isRu
-                                      ? 'Этот компьютер'
-                                      : 'This computer'),
-                          ),
-                          trailing: _source.isEmpty
-                              ? const Icon(Icons.check)
-                              : null,
+                  child: MenuAnchor(
+                    menuChildren: [
+                      MenuItemButton(
+                        leadingIcon: const Icon(Icons.computer_outlined),
+                        trailingIcon: _source.isEmpty
+                            ? const Icon(Icons.check)
+                            : null,
+                        onPressed: widget.enabled
+                            ? () {
+                                setState(() => _source = '');
+                                _connect();
+                              }
+                            : null,
+                        child: Text(
+                          PlatformCapabilities.sharedDownloads
+                              ? (widget.isRu ? 'Файлы приложения' : 'App files')
+                              : (widget.isRu
+                                    ? 'Этот компьютер'
+                                    : 'This computer'),
                         ),
                       ),
-                      if (widget.tabs.isNotEmpty) const PopupMenuDivider(),
+                      if (widget.tabs.isNotEmpty) menuDivider(),
                       for (final t in widget.tabs)
-                        PopupMenuItem(
-                          value: t.id,
-                          child: ListTile(
-                            leading: const Icon(Icons.dns_outlined),
-                            title: Text(t.title),
-                            trailing: t.id == _source
-                                ? const Icon(Icons.check)
-                                : null,
-                          ),
+                        MenuItemButton(
+                          leadingIcon: const Icon(Icons.dns_outlined),
+                          trailingIcon: t.id == _source
+                              ? const Icon(Icons.check)
+                              : null,
+                          onPressed: widget.enabled
+                              ? () {
+                                  setState(() => _source = t.id);
+                                  _connect();
+                                }
+                              : null,
+                          child: Text(t.title),
                         ),
                     ],
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: SizedBox(
-                        height: 48,
-                        child: Row(
-                          children: [
-                            Icon(
-                              _source.isEmpty
-                                  ? Icons.computer
-                                  : Icons.dns_outlined,
-                              color: scheme.primary,
+                    builder: (context, menu, _) => TextButton(
+                      onPressed: !widget.enabled
+                          ? null
+                          : () => menu.isOpen ? menu.close() : menu.open(),
+                      style: TextButton.styleFrom(
+                        foregroundColor: scheme.onSurface,
+                        minimumSize: const Size(48, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _source.isEmpty
+                                ? Icons.computer_outlined
+                                : Icons.dns_outlined,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _sourceTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall,
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _sourceTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
-                              ),
-                            ),
-                            const Icon(Icons.expand_more),
-                          ],
-                        ),
+                          ),
+                          const Icon(Icons.expand_more),
+                        ],
                       ),
                     ),
                   ),
@@ -538,135 +539,148 @@ class _BrowserState extends ConsumerState<_Browser> {
             child: directory.loading ? const LinearProgressIndicator() : null,
           ),
           Expanded(
-            child: directory.error != null
-                ? SftpPlaceholder(
-                    icon: Icons.error_outline,
-                    text: strings.errorText(directory.error!),
-                    action: Wrap(
-                      alignment: WrapAlignment.center,
-                      children: [
-                        TextButton(
-                          onPressed: () => directory.refresh(),
-                          child: Text(strings.tryAgain),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Material(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
+                child: directory.error != null
+                    ? SftpPlaceholder(
+                        icon: Icons.error_outline,
+                        text: strings.errorText(directory.error!),
+                        action: Wrap(
+                          alignment: WrapAlignment.center,
+                          children: [
+                            TextButton(
+                              onPressed: () => directory.refresh(),
+                              child: Text(strings.tryAgain),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                _clear();
+                                directory.home();
+                              },
+                              child: Text(strings.homeFolder),
+                            ),
+                          ],
                         ),
-                        TextButton(
-                          onPressed: () {
-                            _clear();
-                            directory.home();
+                      )
+                    : !directory.loading && entries.isEmpty
+                    ? SftpPlaceholder(
+                        icon: Icons.folder_open_outlined,
+                        text: widget.isRu
+                            ? 'Папка пуста'
+                            : 'This folder is empty',
+                      )
+                    : CallbackShortcuts(
+                        bindings: {
+                          const SingleActivator(
+                            LogicalKeyboardKey.keyA,
+                            control: true,
+                          ): () {
+                            setState(
+                              () =>
+                                  _selected.addAll(entries.map((e) => e.path)),
+                            );
+                            widget.onChanged();
                           },
-                          child: Text(strings.homeFolder),
-                        ),
-                      ],
-                    ),
-                  )
-                : !directory.loading && entries.isEmpty
-                ? SftpPlaceholder(
-                    icon: Icons.folder_open_outlined,
-                    text: widget.isRu ? 'Папка пуста' : 'This folder is empty',
-                  )
-                : CallbackShortcuts(
-                    bindings: {
-                      const SingleActivator(
-                        LogicalKeyboardKey.keyA,
-                        control: true,
-                      ): () {
-                        setState(
-                          () => _selected.addAll(entries.map((e) => e.path)),
-                        );
-                        widget.onChanged();
-                      },
-                      const SingleActivator(LogicalKeyboardKey.escape): _clear,
-                      const SingleActivator(LogicalKeyboardKey.enter): () {
-                        final selected = selection;
-                        if (widget.enabled &&
-                            selected.length == 1 &&
-                            selected.single.isDir) {
-                          _open(selected.single.path);
-                        }
-                      },
-                    },
-                    child: Focus(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: entries.length,
-                        itemBuilder: (context, i) {
-                          final entry = entries[i];
-                          void open() {
-                            if (widget.enabled && entry.isDir) {
-                              _open(entry.path);
+                          const SingleActivator(LogicalKeyboardKey.escape):
+                              _clear,
+                          const SingleActivator(LogicalKeyboardKey.enter): () {
+                            final selected = selection;
+                            if (widget.enabled &&
+                                selected.length == 1 &&
+                                selected.single.isDir) {
+                              _open(selected.single.path);
                             }
-                          }
-
-                          return SftpEntryRow(
-                            entry: entry,
-                            enabled: widget.enabled,
-                            showSelection: true,
-                            selected: _selected.contains(entry.path),
-                            strings: strings,
-                            onSelect: widget.enabled
-                                ? (_) => _select(entry, entries, toggle: true)
-                                : null,
-                            onTap: () {
-                              if (!widget.enabled) return;
-                              if (DesktopEnv.isMobile && entry.isDir) {
-                                open();
-                              } else {
-                                _select(entry, entries);
-                              }
-                            },
-                            onDoubleTap: open,
-                            onSecondary: (position) async {
-                              final action = await showMenu<String>(
-                                context: context,
-                                position: RelativeRect.fromLTRB(
-                                  position.dx,
-                                  position.dy,
-                                  0,
-                                  0,
-                                ),
-                                items: [
-                                  if (entry.isDir)
-                                    PopupMenuItem(
-                                      value: 'open',
-                                      child: Text(
-                                        widget.isRu
-                                            ? 'Открыть папку'
-                                            : 'Open folder',
-                                      ),
-                                    ),
-                                  PopupMenuItem(
-                                    value: 'select',
-                                    enabled: widget.enabled,
-                                    child: Text(
-                                      widget.isRu ? 'Выбрать' : 'Select',
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'path',
-                                    child: Text(
-                                      widget.isRu
-                                          ? 'Копировать путь'
-                                          : 'Copy path',
-                                    ),
-                                  ),
-                                ],
-                              );
-                              if (!mounted) return;
-                              if (action == 'open') open();
-                              if (action == 'select') {
-                                _select(entry, entries, toggle: true);
-                              }
-                              if (action == 'path') {
-                                Clipboard.setData(
-                                  ClipboardData(text: entry.path),
-                                );
-                              }
-                            },
-                          );
+                          },
                         },
+                        child: Focus(
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            itemCount: entries.length,
+                            itemBuilder: (context, i) {
+                              final entry = entries[i];
+                              void open() {
+                                if (widget.enabled && entry.isDir) {
+                                  _open(entry.path);
+                                }
+                              }
+
+                              return SftpEntryRow(
+                                entry: entry,
+                                enabled: widget.enabled,
+                                showSelection: true,
+                                selected: _selected.contains(entry.path),
+                                strings: strings,
+                                onSelect: widget.enabled
+                                    ? (_) =>
+                                          _select(entry, entries, toggle: true)
+                                    : null,
+                                onTap: () {
+                                  if (!widget.enabled) return;
+                                  if (DesktopEnv.isMobile && entry.isDir) {
+                                    open();
+                                  } else {
+                                    _select(entry, entries);
+                                  }
+                                },
+                                onDoubleTap: open,
+                                onSecondary: (position) async {
+                                  final action = await showMenu<String>(
+                                    context: context,
+                                    position: RelativeRect.fromLTRB(
+                                      position.dx,
+                                      position.dy,
+                                      0,
+                                      0,
+                                    ),
+                                    items: [
+                                      if (entry.isDir)
+                                        PopupMenuItem(
+                                          value: 'open',
+                                          child: Text(
+                                            widget.isRu
+                                                ? 'Открыть папку'
+                                                : 'Open folder',
+                                          ),
+                                        ),
+                                      PopupMenuItem(
+                                        value: 'select',
+                                        enabled: widget.enabled,
+                                        child: Text(
+                                          widget.isRu ? 'Выбрать' : 'Select',
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'path',
+                                        child: Text(
+                                          widget.isRu
+                                              ? 'Копировать путь'
+                                              : 'Copy path',
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                  if (!mounted) return;
+                                  if (action == 'open') open();
+                                  if (action == 'select') {
+                                    _select(entry, entries, toggle: true);
+                                  }
+                                  if (action == 'path') {
+                                    Clipboard.setData(
+                                      ClipboardData(text: entry.path),
+                                    );
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+              ),
+            ),
           ),
           if (_selected.isNotEmpty)
             Material(

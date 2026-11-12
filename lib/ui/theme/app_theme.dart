@@ -40,7 +40,7 @@ ThemeData buildTheme({
     ColorScheme.fromSeed(seedColor: seed, brightness: brightness),
     roles,
   );
-  final radius = BorderRadius.circular(16);
+  final radius = BorderRadius.circular(20);
 
   return ThemeData(
     useMaterial3: true,
@@ -48,6 +48,21 @@ ThemeData buildTheme({
     brightness: brightness,
     visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
     scaffoldBackgroundColor: scheme.surface,
+    appBarTheme: AppBarThemeData(
+      backgroundColor: scheme.surfaceContainer,
+      foregroundColor: scheme.onSurface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: scheme.surfaceContainerLow,
+      surfaceTintColor: Colors.transparent,
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      menuPadding: const EdgeInsets.all(8),
+      textStyle: TextStyle(fontSize: 14, color: scheme.onSurface),
+    ),
     cardTheme: CardThemeData(
       elevation: 0,
       margin: EdgeInsets.zero,
@@ -86,18 +101,18 @@ ThemeData buildTheme({
     // пункты - «пилюли» с тональной подсветкой при наведении.
     menuTheme: MenuThemeData(
       style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerHigh),
+        backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerLow),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         elevation: const WidgetStatePropertyAll(3),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(8)),
       ),
     ),
     menuButtonTheme: MenuButtonThemeData(
       style: ButtonStyle(
-        minimumSize: const WidgetStatePropertyAll(Size(220, 48)),
+        minimumSize: const WidgetStatePropertyAll(Size(232, 48)),
         padding: const WidgetStatePropertyAll(
           EdgeInsets.symmetric(horizontal: 14),
         ),
@@ -114,11 +129,13 @@ ThemeData buildTheme({
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) return Colors.transparent;
           if (states.contains(WidgetState.pressed)) {
-            return scheme.secondaryContainer.withValues(alpha: 0.85);
+            return scheme.onSurface.withValues(alpha: 0.10);
           }
           if (states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused)) {
-            return scheme.secondaryContainer;
+            return scheme.onSurface.withValues(
+              alpha: states.contains(WidgetState.focused) ? 0.10 : 0.08,
+            );
           }
           return Colors.transparent;
         }),
@@ -128,7 +145,7 @@ ThemeData buildTheme({
           }
           if (states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused)) {
-            return scheme.onSecondaryContainer;
+            return scheme.onSurface;
           }
           return scheme.onSurface;
         }),
@@ -138,11 +155,11 @@ ThemeData buildTheme({
           }
           if (states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused)) {
-            return scheme.onSecondaryContainer;
+            return scheme.onSurface;
           }
           return scheme.onSurfaceVariant;
         }),
-        // Без лишнего «серого» слоя поверх - подсветку даёт backgroundColor.
+        // State layers use the content color, as in the M3 interaction model.
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
     ),
