@@ -18,5 +18,6 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
+      - run: flutter test third_party/irondash_message_channel/test
       - name: third_party/xterm2 = xterm2 с pub.dev + vysh.patch
         run: sh tools/xterm2/verify.sh

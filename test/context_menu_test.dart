@@ -14,7 +14,13 @@ void main() {
       MaterialApp(
         theme: buildTheme(seed: Colors.purple, brightness: Brightness.dark),
         home: Scaffold(
-          body: ContextMenuArea(key: key, child: const SizedBox.expand()),
+          body: ContextMenuArea(
+            key: key,
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              child: const SizedBox.expand(),
+            ),
+          ),
         ),
       ),
     );

@@ -44,6 +44,8 @@ dependency_overrides:
     path: third_party/super_native_extensions
   irondash_engine_context:
     path: third_party/irondash_engine_context
+  irondash_message_channel:
+    path: third_party/irondash_message_channel
   # Копия с правками для Android (compileSdk 36, minSdk 26), см.
   # third_party/flutter_pty/VYSH_PATCH.md. Нужна для настоящего PTY
   # в локальном терминале на Android.

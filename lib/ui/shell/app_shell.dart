@@ -10,6 +10,7 @@ import '../../app/controllers/update_controller.dart';
 import '../../infra/storage/app_paths.dart';
 import '../../infra/storage/json_store.dart';
 import '../../app/controllers/tabs_controller.dart';
+import '../../app/windows/detached_windows.dart';
 import '../../infra/update/update_service.dart';
 import '../dialogs/update_dialog.dart';
 import '../hosts/host_editor.dart';
@@ -106,6 +107,31 @@ class _AppShellState extends ConsumerState<AppShell> {
     ref.read(homeSectionProvider.notifier).select(section);
   }
 
+  List<int> get _visibleTabIndices {
+    final tabs = ref.read(tabsProvider);
+    final external = ref.read(detachedWindowsProvider);
+    return [
+      0,
+      for (var i = 0; i < tabs.tabs.length; i++)
+        if (!external.containsKey(tabs.tabs[i].id)) i + 1,
+    ];
+  }
+
+  void _activateVisibleTab(int index) {
+    final indices = _visibleTabIndices;
+    if (index < indices.length) {
+      ref.read(tabsProvider.notifier).activate(indices[index]);
+    }
+  }
+
+  void _stepVisibleTab(int delta) {
+    final indices = _visibleTabIndices;
+    final current = indices.indexOf(ref.read(tabsProvider).active);
+    ref
+        .read(tabsProvider.notifier)
+        .activate(indices[(current + delta) % indices.length]);
+  }
+
   Map<ShortcutActivator, VoidCallback> _buildBindings() {
     final ctrl = ref.read(tabsProvider.notifier);
     return {
@@ -121,9 +147,9 @@ class _AppShellState extends ConsumerState<AppShell> {
             case AppCommand.closeTab:
               if (id != null) ctrl.close(id);
             case AppCommand.nextTab:
-              ctrl.next();
+              _stepVisibleTab(1);
             case AppCommand.previousTab:
-              ctrl.previous();
+              _stepVisibleTab(-1);
             case AppCommand.reconnect:
               if (id != null) ctrl.reconnect(id);
             case AppCommand.newHost:
@@ -134,7 +160,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             case AppCommand.files:
               if (id != null) ref.read(sftpPaneProvider.notifier).toggle(id);
             default:
-              ctrl.activate(entry.value.index - AppCommand.tab1.index);
+              _activateVisibleTab(entry.value.index - AppCommand.tab1.index);
           }
         },
     };

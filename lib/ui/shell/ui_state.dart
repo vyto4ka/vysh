@@ -96,7 +96,9 @@ final draggedTabProvider = NotifierProvider<DraggedTab, String?>(
 class DraggedTab extends Notifier<String?> {
   @override
   String? build() => null;
-  void select(String? id) => state = id;
+  void select(String? id) {
+    if (ref.mounted) state = id;
+  }
 }
 
 final workspaceFocusProvider = NotifierProvider<WorkspaceFocus, String?>(

@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
-import '../../app/windows/detached_windows.dart';
 import '../../app/windows/window_client.dart';
 import '../../app/windows/window_prompts.dart';
+import '../../app/windows/window_transport.dart';
 import '../dialogs/session_prompt_dialogs.dart';
 import '../vysh_app.dart';
 
@@ -18,7 +16,7 @@ class SessionWindowApp extends StatefulWidget {
     required this.window,
     required this.arguments,
   });
-  final WindowController window;
+  final SessionWindowController window;
   final Map<String, dynamic> arguments;
   @override
   State<SessionWindowApp> createState() => _SessionWindowAppState();
@@ -35,7 +33,7 @@ class _SessionWindowAppState extends State<SessionWindowApp>
     client = WindowClient(
       initial: widget.arguments['initial'],
       closeWindow: _park,
-      request: (method, data) => sessionWindowChannel.invokeMethod(method, {
+      request: (method, data) => widget.window.requestOwner(method, {
         'windowKey': widget.arguments['windowKey'],
         'token': widget.arguments['token'],
         ...data,
@@ -46,24 +44,6 @@ class _SessionWindowAppState extends State<SessionWindowApp>
     unawaited(
       widget.window.setWindowMethodHandler((call) async {
         switch (call.method) {
-          case 'bind':
-            final args = Map<String, dynamic>.from(call.arguments as Map);
-            await windowManager.setTitle('${args['title']} — vysh');
-            await windowManager.setBounds(
-              Rect.fromLTWH(
-                (args['x'] as num).toDouble(),
-                (args['y'] as num).toDouble(),
-                (args['width'] as num).toDouble(),
-                (args['height'] as num).toDouble(),
-              ),
-            );
-            runApp(
-              SessionWindowApp(
-                key: UniqueKey(),
-                window: widget.window,
-                arguments: args,
-              ),
-            );
           case 'close':
             await _park();
           case 'focus':
@@ -88,16 +68,14 @@ class _SessionWindowAppState extends State<SessionWindowApp>
     if (mounted) setState(() {});
     await WidgetsBinding.instance.endOfFrame;
     client.dispose();
-    if (Platform.isLinux) {
-      await windowManager.hide();
-    } else {
-      await windowManager.destroy();
-    }
+    await windowManager.destroy();
   }
 
   @override
   void onWindowClose() {
-    if (!closing) unawaited(client.returnToMain().catchError((Object _) {}));
+    if (!closing) {
+      unawaited(client.returnToMain().catchError((Object _) => _park()));
+    }
   }
 
   @override

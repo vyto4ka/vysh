@@ -11,6 +11,7 @@ import '../../domain/models/host.dart';
 import '../../domain/ports/sftp.dart';
 import '../../domain/ports/secret_store.dart';
 import '../../infra/platform/capabilities.dart';
+import '../../infra/platform/window_placement.dart';
 import '../../l10n/app_strings.dart';
 import '../dependencies.dart';
 import '../settings/app_settings.dart';
@@ -22,18 +23,20 @@ import 'window_appearance.dart';
 import 'window_protocol.dart';
 import 'window_prompts.dart';
 import 'terminal_mirror.dart';
+import 'tab_transfer.dart';
+import 'window_transport.dart';
+export 'window_transport.dart' show sessionWindowChannel;
 
-const sessionWindowChannel = WindowMethodChannel(
-  'vysh/session-owner',
-  mode: ChannelMode.unidirectional,
-);
 final detachedWindowsProvider =
     NotifierProvider<DetachedWindows, Map<String, String>>(DetachedWindows.new);
+
+/// Linux isolates windows in separate processes to avoid shared EGL teardown.
+final processSessionWindowsProvider = Provider<bool>((_) => Platform.isLinux);
 
 class _WindowLease {
   _WindowLease(this.key, this.token);
   final String key, token;
-  WindowController? window;
+  SessionWindowController? window;
   final ids = <String>[];
   final mirrors = <String, TerminalMirrorEncoder>{};
   final listeners = <String, void Function()>{};
@@ -48,9 +51,8 @@ class _WindowLease {
 /// window, so closing its first tab cannot orphan sessions opened afterwards.
 class DetachedWindows extends Notifier<Map<String, String>>
     with WindowListener {
-  final _parked = <WindowController>[];
-  final _parking = <String>{};
   final _leases = <String, _WindowLease>{};
+  final _drags = <String, ({String id, String? source, DateTime expires})>{};
   final _opening = <String>{};
   StreamSubscription<void>? _windows;
   bool _initialized = false;
@@ -100,20 +102,24 @@ class DetachedWindows extends Notifier<Map<String, String>>
   }
 
   Future<void> _setup() async {
-    await sessionWindowChannel.setMethodCallHandler(_handle);
+    if (!ref.read(processSessionWindowsProvider)) {
+      await sessionWindowChannel.setMethodCallHandler(_handle);
+    }
     _initialized = true;
     windowManager.addListener(this);
-    _windows = onWindowsChanged.listen((_) async {
-      final alive = (await WindowController.getAll())
-          .map((w) => w.windowId)
-          .toSet();
-      if (!ref.mounted) return;
-      for (final lease in _leases.values.toList()) {
-        if (lease.window != null && !alive.contains(lease.window!.windowId)) {
-          await _returnWindow(lease, notifyWindow: false);
+    if (!ref.read(processSessionWindowsProvider)) {
+      _windows = onWindowsChanged.listen((_) async {
+        final alive = (await WindowController.getAll())
+            .map((w) => w.windowId)
+            .toSet();
+        if (!ref.mounted) return;
+        for (final lease in _leases.values.toList()) {
+          if (lease.window != null && !alive.contains(lease.window!.windowId)) {
+            await _returnWindow(lease, notifyWindow: false);
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   void _adopt(_WindowLease lease, String id) {
@@ -177,7 +183,7 @@ class DetachedWindows extends Notifier<Map<String, String>>
   }
 
   Future<void> detach(String id) => _detach(id);
-  Future<void> _detach(String id, {bool move = false}) async {
+  Future<void> _detach(String id, {bool move = false, Size? sourceSize}) async {
     if (!PlatformCapabilities.desktopWindow) return;
     if (state.containsKey(id) && !move) {
       await show(id);
@@ -204,15 +210,19 @@ class DetachedWindows extends Notifier<Map<String, String>>
     try {
       await windowManager.setPreventClose(true);
       final point = await screenRetriever.getCursorScreenPoint();
-      var width = 1000.0, height = 700.0, x = point.dx - 120, y = point.dy - 24;
+      final size = sourceSize ?? (await windowManager.getBounds()).size;
+      var width = size.width,
+          height = size.height,
+          x = point.dx - 120,
+          y = point.dy - 24;
       try {
         for (final display in await screenRetriever.getAllDisplays()) {
           final area =
               (display.visiblePosition ?? Offset.zero) &
               (display.visibleSize ?? display.size);
           if (area.contains(point)) {
-            width = width.clamp(540.0, area.width);
-            height = height.clamp(340.0, area.height);
+            width = width.clamp(WindowPlacement.minSize.width, area.width);
+            height = height.clamp(WindowPlacement.minSize.height, area.height);
             x = x.clamp(area.left, area.right - width);
             y = y.clamp(area.top, area.bottom - height);
             break;
@@ -230,17 +240,21 @@ class DetachedWindows extends Notifier<Map<String, String>>
         'width': width,
         'height': height,
       };
-      WindowController window;
-      if (Platform.isLinux && _parked.isNotEmpty) {
-        window = _parked.removeLast();
-        _parking.remove(window.windowId);
-        await window.invokeMethod('close');
-        await window.invokeMethod('bind', arguments);
-      } else {
-        window = await WindowController.create(
-          WindowConfiguration(arguments: jsonEncode(arguments)),
-        );
-      }
+      final window = ref.read(processSessionWindowsProvider)
+          ? await ProcessSessionWindow.launch(
+              arguments,
+              owner: _handle,
+              onExit: () async {
+                if (ref.mounted && _leases.containsKey(lease.key)) {
+                  await _returnWindow(lease, notifyWindow: false);
+                }
+              },
+            )
+          : EngineSessionWindow(
+              await WindowController.create(
+                WindowConfiguration(arguments: jsonEncode(arguments)),
+              ),
+            );
       if (!ref.mounted || session.isDisposed) {
         unawaited(window.invokeMethod('close'));
         if (ref.mounted) _leases.remove(lease.key);
@@ -249,7 +263,6 @@ class DetachedWindows extends Notifier<Map<String, String>>
       lease.window = window;
       if (previous != null) {
         _release(previous, id);
-        if (previous.ids.isEmpty) _park(previous);
       }
       session.prompts = WindowPrompts(
         (method, data) => window.invokeMethod(method, data),
@@ -265,7 +278,6 @@ class DetachedWindows extends Notifier<Map<String, String>>
             .read(tabsProvider.notifier)
             .activate(other == null ? 0 : tabs.tabs.indexOf(other) + 1);
       }
-      await window.show();
     } catch (_) {
       _release(lease, id);
       _park(lease);
@@ -288,9 +300,6 @@ class DetachedWindows extends Notifier<Map<String, String>>
     }
     final window = lease.window;
     if (window != null) {
-      if (Platform.isLinux && _parking.add(window.windowId)) {
-        _parked.add(window);
-      }
       if (notifyWindow) {
         unawaited(window.invokeMethod('close').catchError((Object _) => null));
       }
@@ -303,18 +312,80 @@ class DetachedWindows extends Notifier<Map<String, String>>
   Future<void> show(String id) async {
     final window = state[id];
     if (window == null) return;
-    await WindowController.fromWindowId(window).show();
+    final controller = _leaseOf(id)?.window;
+    if (controller == null) return;
+    await controller.show();
     try {
-      await WindowController.fromWindowId(window).invokeMethod('focus');
+      await controller.invokeMethod('focus');
     } catch (_) {}
   }
 
   Future<void> attach(String id) => returnToTabs(id);
+
+  _WindowLease? _leaseOf(String id) =>
+      _leases.values.where((lease) => lease.ids.contains(id)).firstOrNull;
+
+  Future<TabTransfer> beginDrag(String id) async {
+    if (!ref.read(tabsProvider).tabs.any((tab) => tab.id == id)) {
+      throw PlatformException(code: 'session_closed');
+    }
+    final token = newId();
+    final now = DateTime.now();
+    _drags.removeWhere((_, grant) => grant.expires.isBefore(now));
+    _drags[token] = (
+      id: id,
+      source: _leaseOf(id)?.key,
+      expires: now.add(const Duration(minutes: 1)),
+    );
+    return TabTransfer(id, token);
+  }
+
+  Future<void> finishDrag(TabTransfer transfer, {bool accepted = false}) async {
+    // A native cross-process drop may complete at the source before the target
+    // finishes reading its payload. The target consumes the grant atomically.
+    if (!accepted) _drags.remove(transfer.token);
+  }
+
+  Future<bool> canAcceptDrag(TabTransfer transfer) async =>
+      _allowsDrag(transfer);
+
+  bool _allowsDrag(TabTransfer transfer) {
+    final grant = _drags[transfer.token];
+    return grant != null &&
+        grant.expires.isAfter(DateTime.now()) &&
+        grant.id == transfer.id &&
+        grant.source == _leaseOf(transfer.id)?.key &&
+        ref.read(tabsProvider).tabs.any((tab) => tab.id == transfer.id);
+  }
+
+  Future<void> acceptDrag(TabTransfer transfer) => _receiveDrag(null, transfer);
+
+  Future<void> _receiveDrag(_WindowLease? target, TabTransfer transfer) async {
+    if (!_allowsDrag(transfer)) {
+      throw PlatformException(code: 'stale_tab_drag');
+    }
+    final source = _leaseOf(transfer.id);
+    _drags.remove(transfer.token);
+    if (source != target) {
+      if (source != null) _release(source, transfer.id);
+      if (target != null) _adopt(target, transfer.id);
+    }
+    final ctrl = ref.read(tabsProvider.notifier);
+    final tabs = ref.read(tabsProvider);
+    if (target == null) {
+      ctrl.activate(tabs.tabs.indexWhere((tab) => tab.id == transfer.id) + 1);
+    } else if (tabs.activeTab?.id == transfer.id) {
+      final other = tabs.tabs
+          .where((tab) => !state.containsKey(tab.id))
+          .firstOrNull;
+      ctrl.activate(other == null ? 0 : tabs.tabs.indexOf(other) + 1);
+    }
+  }
+
   Future<void> returnToTabs(String id) async {
     final lease = _leases.values.where((l) => l.ids.contains(id)).firstOrNull;
     if (lease == null) return;
     _release(lease, id);
-    if (lease.ids.isEmpty) _park(lease);
     await _showMain(id);
   }
 
@@ -420,6 +491,29 @@ class DetachedWindows extends Notifier<Map<String, String>>
     if (method == 'returnWindow') {
       await _returnWindow(lease, notifyWindow: false);
       return null;
+    }
+    if (method == 'beginDrag') {
+      final id = args['sessionId'] as String;
+      if (!lease.ids.contains(id)) {
+        throw PlatformException(code: 'foreign_session');
+      }
+      return (await beginDrag(id)).toJson();
+    }
+    if (method == 'canAcceptDrag' ||
+        method == 'acceptDrag' ||
+        method == 'finishDrag') {
+      final transfer = TabTransfer.decode(args['transfer']);
+      if (transfer == null) throw PlatformException(code: 'invalid_tab_drag');
+      if (method == 'canAcceptDrag') return canAcceptDrag(transfer);
+      if (method == 'finishDrag') {
+        final grant = _drags[transfer.token];
+        if (grant?.source == lease.key) {
+          await finishDrag(transfer, accepted: args['accepted'] == true);
+        }
+        return null;
+      }
+      await _receiveDrag(lease, transfer);
+      return {..._metadata(lease), 'activate': transfer.id};
     }
     if (method == 'document') {
       final name = args['name'] as String;
@@ -554,7 +648,16 @@ class DetachedWindows extends Notifier<Map<String, String>>
       case 'attach':
         await returnToTabs(id);
       case 'detach':
-        await _detach(id, move: true);
+        await _detach(
+          id,
+          move: true,
+          sourceSize: args['width'] is num && args['height'] is num
+              ? Size(
+                  (args['width'] as num).toDouble(),
+                  (args['height'] as num).toDouble(),
+                )
+              : null,
+        );
       case 'sftp':
         return _fileOperation(lease, id, args);
       default:

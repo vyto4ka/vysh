@@ -76,11 +76,24 @@ class ContextMenuAreaState extends State<ContextMenuArea> {
 
   @override
   Widget build(BuildContext context) {
-    return _DismissibleMenuAnchor(
-      controller: _controller,
-      menuChildren: _items,
-      onClose: widget.onClose,
-      child: widget.child,
+    // Терминал/список не входит в TapRegion якоря: иначе Flutter считает
+    // клик по нему кликом внутри открытого меню.
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        widget.child,
+        Positioned(
+          left: 0,
+          top: 0,
+          child: _DismissibleMenuAnchor(
+            controller: _controller,
+            menuChildren: _items,
+            onClose: widget.onClose,
+            consumeOutsideTap: true,
+            child: const SizedBox.shrink(),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -139,6 +152,7 @@ class _DismissibleMenuAnchor extends StatefulWidget {
     this.onClose,
     this.builder,
     this.child,
+    this.consumeOutsideTap = false,
   });
 
   final List<Widget> menuChildren;
@@ -146,6 +160,7 @@ class _DismissibleMenuAnchor extends StatefulWidget {
   final VoidCallback? onClose;
   final MenuAnchorChildBuilder? builder;
   final Widget? child;
+  final bool consumeOutsideTap;
 
   @override
   State<_DismissibleMenuAnchor> createState() => _DismissibleMenuAnchorState();
@@ -207,6 +222,7 @@ class _DismissibleMenuAnchorState extends State<_DismissibleMenuAnchor>
     onOpen: _onOpen,
     onClose: _onClose,
     builder: widget.builder,
+    consumeOutsideTap: widget.consumeOutsideTap,
     child: widget.child,
   );
 }

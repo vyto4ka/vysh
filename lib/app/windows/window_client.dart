@@ -20,6 +20,8 @@ import 'window_appearance.dart';
 import 'window_protocol.dart';
 import 'window_remote_session.dart';
 import 'window_scope.dart';
+import 'tab_transfer.dart';
+import 'package:window_manager/window_manager.dart';
 
 /// A per-engine view of the owner. No SSH connections, secrets or profile files
 /// are opened here. The normal AppShell/SessionView/SettingsPage use these ports.
@@ -158,6 +160,7 @@ class WindowClient implements WindowScope {
       }
     }
     final tabs = container.read(tabsProvider.notifier) as _WindowTabs;
+    if (data['activate'] case final String id) tabs.preferred = id;
     if (data['tabs'] case final List list) tabs.receive(list.cast<Map>());
     if (data['sessions'] case final Map sessions) {
       for (final entry in sessions.entries) {
@@ -368,7 +371,42 @@ class _WindowDetached extends DetachedWindows {
   @override
   Map<String, String> build() => {};
   @override
-  Future<void> detach(String id) => client.command('detach', {'sessionId': id});
+  Future<void> detach(String id) async {
+    final bounds = await windowManager.getBounds();
+    await client.command('detach', {
+      'sessionId': id,
+      'width': bounds.width,
+      'height': bounds.height,
+    });
+  }
+
+  @override
+  Future<TabTransfer> beginDrag(String id) async =>
+      TabTransfer.decode(await client.call('beginDrag', {'sessionId': id}))!;
+  @override
+  Future<void> finishDrag(TabTransfer transfer, {bool accepted = false}) async {
+    try {
+      await client.call('finishDrag', {
+        'transfer': transfer.toJson(),
+        'accepted': accepted,
+      });
+    } catch (_) {}
+  }
+
+  @override
+  Future<bool> canAcceptDrag(TabTransfer transfer) async =>
+      await client.call('canAcceptDrag', {'transfer': transfer.toJson()}) ==
+      true;
+  @override
+  Future<void> acceptDrag(TabTransfer transfer) async {
+    final metadata = await client.call('acceptDrag', {
+      'transfer': transfer.toJson(),
+    });
+    client.apply(metadata as Map);
+    client._needsFull = true;
+    await client.poll();
+  }
+
   @override
   Future<void> returnToTabs(String id) => client.returnToMain(id);
   @override

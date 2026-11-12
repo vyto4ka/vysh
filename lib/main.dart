@@ -12,7 +12,8 @@ import 'package:window_manager/window_manager.dart';
 import 'ui/vysh_app.dart';
 import 'app/settings/app_settings.dart';
 import 'app/settings/terminal_font.dart';
-import 'app/settings/window_chrome.dart';
+import 'app/windows/window_options.dart';
+import 'app/windows/window_transport.dart';
 import 'app/dependencies.dart';
 import 'infra/platform/font_files.dart';
 import 'infra/platform/window_placement.dart';
@@ -26,10 +27,17 @@ Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   Modifiers.init();
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    final controller = await WindowController.fromCurrentEngine();
-    if (controller.arguments.isNotEmpty) {
-      final arguments =
-          jsonDecode(controller.arguments) as Map<String, dynamic>;
+    final native = await WindowController.fromCurrentEngine();
+    final arguments = args.length == 2 && args.first == '--vysh-session-window'
+        ? jsonDecode(args[1]) as Map<String, dynamic>
+        : native.arguments.isNotEmpty
+        ? jsonDecode(native.arguments) as Map<String, dynamic>
+        : <String, dynamic>{};
+    if (arguments.isNotEmpty) {
+      final SessionWindowController controller =
+          args.length == 2 && args.first == '--vysh-session-window'
+          ? await ProcessSessionWindow.connect(arguments)
+          : EngineSessionWindow(native);
       if (arguments['type'] == 'session') {
         // A child engine must never take the profile lock or initialize another
         // set of SSH sessions. Only display the main engine's existing session.
@@ -37,30 +45,17 @@ Future<void> main(List<String> args) async {
         await _loadTerminalFont();
         await windowManager.ensureInitialized();
         windowManager.waitUntilReadyToShow(
-          WindowOptions(
+          appWindowOptions(
+            AppSettings.fromJson(
+              Map<String, Object?>.from(arguments['initial']['settings']),
+            ),
             size: Size(
               (arguments['width'] as num).toDouble(),
               (arguments['height'] as num).toDouble(),
             ),
-            minimumSize: Size(540, 340),
-            titleBarStyle:
-                useCustomTitleBar(
-                  AppSettings.fromJson(
-                    Map<String, Object?>.from(arguments['initial']['settings']),
-                  ).titleBarMode,
-                )
-                ? TitleBarStyle.hidden
-                : TitleBarStyle.normal,
-            windowButtonVisibility:
-                Platform.isMacOS ||
-                !useCustomTitleBar(
-                  AppSettings.fromJson(
-                    Map<String, Object?>.from(arguments['initial']['settings']),
-                  ).titleBarMode,
-                ),
           ),
           () async {
-            await windowManager.setTitle('${arguments['title']} — vysh');
+            await windowManager.setTitle('vysh');
             await windowManager.setPosition(
               Offset(
                 (arguments['x'] as num).toDouble(),
@@ -68,6 +63,16 @@ Future<void> main(List<String> args) async {
               ),
             );
             await windowManager.show();
+            // GTK can apply its initial default size when mapping the window.
+            // Reapply the requested bounds after the surface is visible.
+            await windowManager.setBounds(
+              Rect.fromLTWH(
+                (arguments['x'] as num).toDouble(),
+                (arguments['y'] as num).toDouble(),
+                (arguments['width'] as num).toDouble(),
+                (arguments['height'] as num).toDouble(),
+              ),
+            );
             await windowManager.focus();
           },
         );
@@ -101,7 +106,6 @@ Future<void> main(List<String> args) async {
     final settings = raw is Map<String, Object?>
         ? AppSettings.fromJson(raw)
         : const AppSettings();
-    final custom = useCustomTitleBar(settings.titleBarMode);
 
     // Движок уже выбран нативным кодом и передан в VYSH_RENDERER - запоминаем
     // фактический, чтобы настройки могли подсказать «нужен перезапуск».
@@ -119,13 +123,7 @@ Future<void> main(List<String> args) async {
           .catchError((_) {});
     }
 
-    final options = WindowOptions(
-      title: 'vysh',
-      minimumSize: WindowPlacement.minSize,
-      titleBarStyle: custom ? TitleBarStyle.hidden : TitleBarStyle.normal,
-      // macOS: светофор остаётся всегда, прячем только полосу заголовка.
-      windowButtonVisibility: !custom || Platform.isMacOS,
-    );
+    final options = appWindowOptions(settings);
     windowManager.waitUntilReadyToShow(options, () async {
       final maximize = await WindowPlacement.instance.restore();
       await windowManager.show();

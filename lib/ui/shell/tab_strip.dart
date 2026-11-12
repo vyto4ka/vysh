@@ -44,6 +44,9 @@ class _TabStripState extends ConsumerState<TabStrip> {
     final window = ref.watch(windowScopeProvider);
     final ctrl = ref.read(tabsProvider.notifier);
     final external = ref.watch(detachedWindowsProvider);
+    final visibleTabs = state.tabs
+        .where((tab) => !external.containsKey(tab.id))
+        .toList();
     final split = ref.watch(splitTabProvider);
     final focused = ref.watch(workspaceFocusProvider);
     final splitVisible =
@@ -110,14 +113,18 @@ class _TabStripState extends ConsumerState<TabStrip> {
                 controller: _scroll,
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: List.generate(state.tabs.length, (i) {
-                    final tab = state.tabs[i];
+                  children: List.generate(visibleTabs.length, (i) {
+                    final tab = visibleTabs[i];
                     return TabDropTarget(
                       key: _tabKeys.putIfAbsent(tab.id, () => GlobalKey()),
                       canAccept: (id) => id != tab.id,
                       onAccept: (id) {
-                        final from = state.tabs.indexWhere((t) => t.id == id);
-                        if (from >= 0) ctrl.move(from, i);
+                        final current = ref.read(tabsProvider);
+                        final from = current.tabs.indexWhere((t) => t.id == id);
+                        final to = current.tabs.indexWhere(
+                          (t) => t.id == tab.id,
+                        );
+                        if (from >= 0 && to >= 0) ctrl.move(from, to);
                       },
                       builder: (context, hover) => Padding(
                         padding: const EdgeInsets.only(right: 4),
@@ -156,7 +163,7 @@ class _TabStripState extends ConsumerState<TabStrip> {
                                 if (!(splitVisible &&
                                     (tab.id == split ||
                                         tab.id == state.activeTab?.id))) {
-                                  ctrl.activate(i + 1);
+                                  ctrl.activate(state.tabs.indexOf(tab) + 1);
                                 }
                                 ref
                                     .read(workspaceFocusProvider.notifier)
@@ -188,14 +195,6 @@ class _TabStripState extends ConsumerState<TabStrip> {
               ),
             ),
           ),
-          if (window != null)
-            IconButton(
-              tooltip: strings.isRu
-                  ? 'Вернуть окно во вкладки'
-                  : 'Return window to main tabs',
-              onPressed: () => window.returnToMain(),
-              icon: const Icon(Icons.move_to_inbox_outlined),
-            ),
           if (!state.isHome)
             MenuIconButton(
               isSelected: splitVisible,
@@ -294,46 +293,60 @@ class _TabStripState extends ConsumerState<TabStrip> {
     // С системным заголовком светофор в нём, полоса обычная.
     final trafficLights = custom && PlatformCapabilities.isMacOS;
 
-    return Container(
-      height: DesktopEnv.isMobile ? 56 : 40,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
-        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
-      ),
-      padding: EdgeInsets.only(
-        left: trafficLights ? 0 : 6,
-        right: custom && !trafficLights ? 0 : 6,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            // Свой заголовок: пустое место вокруг вкладок таскает окно,
-            // двойной клик - развернуть/восстановить.
-            child: custom
-                ? Stack(
-                    children: [
-                      const Positioned.fill(
-                        child: DragToMoveArea(child: SizedBox.expand()),
-                      ),
-                      Padding(
-                        padding: EdgeInsets.only(left: trafficLights ? 80 : 0),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: _stripButtons(tabs),
-                        ),
-                      ),
-                    ],
-                  )
-                : Align(
-                    alignment: Alignment.centerLeft,
-                    child: _stripButtons(tabs),
-                  ),
+    return TabDropTarget(
+      canAccept: (_) => true,
+      onAccept: (id) {
+        final tabs = ref.read(tabsProvider);
+        final index = tabs.tabs.indexWhere((tab) => tab.id == id);
+        if (index >= 0) ctrl.activate(index + 1);
+      },
+      builder: (context, hover) => Container(
+        height: DesktopEnv.isMobile ? 56 : 40,
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainer,
+          border: Border(
+            bottom: BorderSide(
+              color: hover ? scheme.primary : scheme.outlineVariant,
+            ),
           ),
-          if (custom && !trafficLights) ...[
-            const SizedBox(width: 6),
-            const WindowButtons(),
+        ),
+        padding: EdgeInsets.only(
+          left: trafficLights ? 0 : 6,
+          right: custom && !trafficLights ? 0 : 6,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              // Свой заголовок: пустое место вокруг вкладок таскает окно,
+              // двойной клик - развернуть/восстановить.
+              child: custom
+                  ? Stack(
+                      children: [
+                        const Positioned.fill(
+                          child: DragToMoveArea(child: SizedBox.expand()),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.only(
+                            left: trafficLights ? 80 : 0,
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: _stripButtons(tabs),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Align(
+                      alignment: Alignment.centerLeft,
+                      child: _stripButtons(tabs),
+                    ),
+            ),
+            if (custom && !trafficLights) ...[
+              const SizedBox(width: 6),
+              const WindowButtons(),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
