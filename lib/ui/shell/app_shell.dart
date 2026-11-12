@@ -16,11 +16,11 @@ import '../hosts/host_editor.dart';
 import '../hosts/hosts_page.dart';
 import '../settings/settings_page.dart';
 import 'session_workspace.dart';
-import '../../app/windows/detached_windows.dart';
-import '../sftp/sftp_pane.dart';
+import '../../app/windows/window_scope.dart';
 import '../widgets/strings_context.dart';
 import 'home_switcher.dart';
 import 'tab_strip.dart';
+import 'app_shortcuts.dart';
 import 'ui_state.dart';
 
 /// Корень интерфейса: полоса вкладок + содержимое активной вкладки.
@@ -108,98 +108,40 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   Map<ShortcutActivator, VoidCallback> _buildBindings() {
     final ctrl = ref.read(tabsProvider.notifier);
-    final mac = PlatformCapabilities.isMacOS;
     return {
-      // Новая вкладка → главная + фокус в поиск (быстрое подключение).
-      const SingleActivator(
-        LogicalKeyboardKey.keyT,
-        control: true,
-        shift: true,
-      ): () {
-        _goHome(0);
-        WidgetsBinding.instance.addPostFrameCallback(
-          (_) => ref.read(hostSearchFocusProvider).requestFocus(),
-        );
-      },
-      const SingleActivator(
-        LogicalKeyboardKey.keyW,
-        control: true,
-        shift: true,
-      ): () {
-        final id = _focusedSessionId;
-        if (id != null) ctrl.close(id);
-      },
-      const SingleActivator(LogicalKeyboardKey.tab, control: true): ctrl.next,
-      const SingleActivator(LogicalKeyboardKey.tab, control: true, shift: true):
-          ctrl.previous,
-      const SingleActivator(
-        LogicalKeyboardKey.keyR,
-        control: true,
-        shift: true,
-      ): () {
-        final id = _focusedSessionId;
-        if (id != null) ctrl.reconnect(id);
-      },
-      const SingleActivator(
-        LogicalKeyboardKey.keyN,
-        control: true,
-        shift: true,
-      ): () {
-        _goHome(0);
-        showHostEditor(context);
-      },
-      const SingleActivator(LogicalKeyboardKey.comma, control: true): () =>
-          _goHome(1),
-      const SingleActivator(
-        LogicalKeyboardKey.keyE,
-        control: true,
-        shift: true,
-      ): () {
-        final id = _focusedSessionId;
-        if (id != null) ref.read(sftpPaneProvider.notifier).toggle(id);
-      },
-      // macOS: те же действия привычными ⌘-шорткатами.
-      if (mac) ...{
-        const SingleActivator(LogicalKeyboardKey.keyT, meta: true): () {
-          _goHome(0);
-          WidgetsBinding.instance.addPostFrameCallback(
-            (_) => ref.read(hostSearchFocusProvider).requestFocus(),
-          );
-        },
-        const SingleActivator(LogicalKeyboardKey.keyW, meta: true): () {
+      for (final entry in applicationShortcuts().entries)
+        entry.key: () {
           final id = _focusedSessionId;
-          if (id != null) ctrl.close(id);
+          switch (entry.value) {
+            case AppCommand.newTab:
+              _goHome(0);
+              WidgetsBinding.instance.addPostFrameCallback(
+                (_) => ref.read(hostSearchFocusProvider).requestFocus(),
+              );
+            case AppCommand.closeTab:
+              if (id != null) ctrl.close(id);
+            case AppCommand.nextTab:
+              ctrl.next();
+            case AppCommand.previousTab:
+              ctrl.previous();
+            case AppCommand.reconnect:
+              if (id != null) ctrl.reconnect(id);
+            case AppCommand.newHost:
+              _goHome(0);
+              showHostEditor(context);
+            case AppCommand.settings:
+              _goHome(1);
+            case AppCommand.files:
+              if (id != null) ref.read(sftpPaneProvider.notifier).toggle(id);
+            default:
+              ctrl.activate(entry.value.index - AppCommand.tab1.index);
+          }
         },
-        const SingleActivator(LogicalKeyboardKey.keyR, meta: true): () {
-          final id = _focusedSessionId;
-          if (id != null) ctrl.reconnect(id);
-        },
-        const SingleActivator(LogicalKeyboardKey.keyN, meta: true): () {
-          _goHome(0);
-          showHostEditor(context);
-        },
-        const SingleActivator(LogicalKeyboardKey.comma, meta: true): () =>
-            _goHome(1),
-        const SingleActivator(LogicalKeyboardKey.keyE, meta: true): () {
-          final id = _focusedSessionId;
-          if (id != null) ref.read(sftpPaneProvider.notifier).toggle(id);
-        },
-        for (var i = 1; i <= 9; i++)
-          SingleActivator(_digitKeys[i - 1], meta: true): () =>
-              ctrl.activate(i - 1),
-      },
-      for (var i = 1; i <= 9; i++)
-        SingleActivator(_digitKeys[i - 1], alt: true): () =>
-            ctrl.activate(i - 1),
     };
   }
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(windowFilesRequestProvider, (_, _) {
-      final id = ref.read(windowFilesRequestProvider.notifier).tabId;
-      if (id != null) unawaited(showSessionFiles(context, id));
-    });
     // Нашлось обновление - всплывающее окно (с периодичностью из настроек,
     // пропущенная версия не показывается). Первый показ - не в момент
     // подключения, а когда проверка завершится.
@@ -218,9 +160,33 @@ class _AppShellState extends ConsumerState<AppShell> {
       });
     });
 
+    final window = ref.watch(windowScopeProvider);
     final body = Column(
       children: [
         const TabStrip(),
+        if (window != null)
+          ValueListenableBuilder<String?>(
+            valueListenable: window.failure,
+            builder: (context, error, _) => error == null
+                ? const SizedBox.shrink()
+                : MaterialBanner(
+                    content: Text(
+                      context.strings.isRu
+                          ? 'Не удалось связаться с владельцем сессий: $error'
+                          : 'Could not contact the session owner: $error',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => window.returnToMain(),
+                        child: Text(
+                          context.strings.isRu
+                              ? 'Вернуть в главное окно'
+                              : 'Return to main window',
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         Expanded(child: const SessionWorkspace(home: _HomeView())),
       ],
     );
@@ -241,18 +207,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 }
-
-const _digitKeys = [
-  LogicalKeyboardKey.digit1,
-  LogicalKeyboardKey.digit2,
-  LogicalKeyboardKey.digit3,
-  LogicalKeyboardKey.digit4,
-  LogicalKeyboardKey.digit5,
-  LogicalKeyboardKey.digit6,
-  LogicalKeyboardKey.digit7,
-  LogicalKeyboardKey.digit8,
-  LogicalKeyboardKey.digit9,
-];
 
 class _HomeView extends ConsumerWidget {
   const _HomeView();

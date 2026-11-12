@@ -25,11 +25,12 @@ class FilePathBar extends StatelessWidget {
     padding: const EdgeInsets.all(8),
     child: Row(
       children: [
-        IconButton(
+        IconButton.filledTonal(
           tooltip: isRu ? 'На уровень выше' : 'Parent folder',
           onPressed: enabled ? onUp : null,
           icon: const Icon(Icons.arrow_upward),
         ),
+        const SizedBox(width: 8),
         Expanded(
           child: TextField(
             controller: controller,
@@ -40,17 +41,23 @@ class FilePathBar extends StatelessWidget {
             decoration: InputDecoration(
               hintText: isRu ? 'Путь к папке' : 'Folder path',
               filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+              fillColor: Theme.of(context).colorScheme.surfaceContainer,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
-                vertical: 14,
+                vertical: 12,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(
                   color: Theme.of(context).colorScheme.primary,
                   width: 2,
@@ -59,6 +66,7 @@ class FilePathBar extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(width: 4),
         IconButton(
           tooltip: isRu ? 'Обновить папку' : 'Refresh folder',
           onPressed: enabled ? onRefresh : null,

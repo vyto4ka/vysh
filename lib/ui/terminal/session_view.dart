@@ -20,6 +20,7 @@ import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../sftp/sftp_pane.dart';
 import '../shell/ui_state.dart';
+import '../shell/app_shortcuts.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
@@ -59,6 +60,8 @@ class SessionView extends ConsumerStatefulWidget {
 /// по mixin-ам в part-файлах: буфер обмена, выделение и жесты, меню ПК.
 abstract class _SessionViewBase extends ConsumerState<SessionView> {
   final _controller = StableSelectionController();
+  final _applicationKeys = applicationShortcuts().keys.toList(growable: false);
+  final _applicationPressed = <LogicalKeyboardKey>{};
   final _focus = FocusNode(debugLabel: 'terminal');
   final _terminalViewKey = GlobalKey<TerminalViewState>();
   final _terminalStackKey = GlobalKey();
@@ -128,6 +131,9 @@ class _SessionViewState extends _SessionViewBase
     super.initState();
 
     WidgetsBinding.instance.addObserver(this);
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _applicationPressed.clear();
+    });
     _controller.addListener(_onSelectionChanged);
     _scrollController.addListener(_onScrollChanged);
     _scrollController.addListener(_dragFix.onScroll);
@@ -305,6 +311,10 @@ class _SessionViewState extends _SessionViewBase
             // (правка в third_party/xterm2, см. PATCHES.md).
             enableIMEPersonalizedLearning: true,
             onKeyEvent: (focusNode, event) {
+              if (event is KeyUpEvent &&
+                  _applicationPressed.remove(event.logicalKey)) {
+                return KeyEventResult.handled;
+              }
               if (event is KeyDownEvent &&
                   ref.read(settingsProvider).customClipboard) {
                 final settings = ref.read(settingsProvider);
@@ -323,6 +333,12 @@ class _SessionViewState extends _SessionViewBase
                   _paste();
                   return KeyEventResult.handled;
                 }
+              }
+              if (_applicationKeys.any(
+                (key) => key.accepts(event, HardwareKeyboard.instance),
+              )) {
+                _applicationPressed.add(event.logicalKey);
+                return KeyEventResult.handled;
               }
               if (event is KeyDownEvent) {
                 if (session.ctrlModifier) {

@@ -17,6 +17,7 @@ import '../sftp/file_workspace.dart';
 import '../../app/windows/detached_windows.dart';
 import 'workspace_actions.dart';
 import 'tab_drag.dart';
+import '../../app/windows/window_scope.dart';
 
 /// Полоса вкладок: закреплённая «главная» + вкладки сессий.
 class TabStrip extends ConsumerStatefulWidget {
@@ -39,6 +40,7 @@ class _TabStripState extends ConsumerState<TabStrip> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(tabsProvider);
+    final window = ref.watch(windowScopeProvider);
     final ctrl = ref.read(tabsProvider.notifier);
     final external = ref.watch(detachedWindowsProvider);
     final split = ref.watch(splitTabProvider);
@@ -169,7 +171,9 @@ class _TabStripState extends ConsumerState<TabStrip> {
                             onDetach: PlatformCapabilities.desktopWindow
                                 ? () => detachSession(context, ref, tab.id)
                                 : null,
-                            onAttach: external.containsKey(tab.id)
+                            onAttach: window != null
+                                ? () => window.returnToMain(tab.id)
+                                : external.containsKey(tab.id)
                                 ? () => ref
                                       .read(detachedWindowsProvider.notifier)
                                       .returnToTabs(tab.id)
@@ -183,91 +187,80 @@ class _TabStripState extends ConsumerState<TabStrip> {
               ),
             ),
           ),
+          if (window != null)
+            IconButton(
+              tooltip: strings.isRu
+                  ? 'Вернуть окно во вкладки'
+                  : 'Return window to main tabs',
+              onPressed: () => window.returnToMain(),
+              icon: const Icon(Icons.move_to_inbox_outlined),
+            ),
           if (!state.isHome)
-            PopupMenuButton<String>(
+            MenuIconButton(
+              tonal: true,
               tooltip: strings.isRu
                   ? 'Компоновка и действия сессии'
                   : 'Layout and session actions',
-              icon: Icon(
-                splitVisible
-                    ? Icons.view_column
-                    : Icons.space_dashboard_outlined,
-              ),
-              onSelected: (value) {
-                switch (value) {
-                  case 'right':
-                    chooseSplit(context, ref, Axis.horizontal);
-                  case 'below':
-                    chooseSplit(context, ref, Axis.vertical);
-                  case 'unsplit':
-                    ref.read(splitTabProvider.notifier).select(null);
-                  case 'detach':
-                    if (focusId != null) detachSession(context, ref, focusId);
-                  case 'reconnect':
-                    if (focusId != null) ctrl.reconnect(focusId);
-                  case 'duplicate':
-                    if (focusId != null) ctrl.duplicate(focusId);
-                }
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: 'right',
-                  child: ListTile(
-                    leading: const Icon(Icons.vertical_split_outlined),
-                    title: Text(
-                      strings.isRu
-                          ? 'Открыть вкладку справа'
-                          : 'Open a tab on the right',
-                    ),
-                  ),
+              icon: splitVisible
+                  ? Icons.view_column
+                  : Icons.space_dashboard_outlined,
+              items: [
+                menuItem(
+                  strings.isRu
+                      ? 'Открыть вкладку справа'
+                      : 'Open a tab on the right',
+                  icon: Icons.vertical_split_outlined,
+                  onPressed:
+                      state.tabs
+                              .where((t) => !external.containsKey(t.id))
+                              .length >
+                          1
+                      ? () => chooseSplit(context, ref, Axis.horizontal)
+                      : null,
                 ),
-                PopupMenuItem(
-                  value: 'below',
-                  child: ListTile(
-                    leading: const Icon(Icons.horizontal_split_outlined),
-                    title: Text(
-                      strings.isRu
-                          ? 'Открыть вкладку снизу'
-                          : 'Open a tab below',
-                    ),
-                  ),
+                menuItem(
+                  strings.isRu ? 'Открыть вкладку снизу' : 'Open a tab below',
+                  icon: Icons.horizontal_split_outlined,
+                  onPressed:
+                      state.tabs
+                              .where((t) => !external.containsKey(t.id))
+                              .length >
+                          1
+                      ? () => chooseSplit(context, ref, Axis.vertical)
+                      : null,
                 ),
-                if (splitVisible)
-                  PopupMenuItem(
-                    value: 'unsplit',
-                    child: ListTile(
-                      leading: const Icon(Icons.crop_landscape),
-                      title: Text(
-                        strings.isRu ? 'Убрать разделение' : 'Unsplit',
-                      ),
-                    ),
-                  ),
+                menuItem(
+                  strings.isRu ? 'Убрать разделение' : 'Unsplit',
+                  icon: Icons.crop_landscape,
+                  onPressed: splitVisible
+                      ? () => ref.read(splitTabProvider.notifier).select(null)
+                      : null,
+                ),
                 if (PlatformCapabilities.desktopWindow)
-                  PopupMenuItem(
-                    value: 'detach',
-                    child: ListTile(
-                      leading: const Icon(Icons.open_in_new),
-                      title: Text(
-                        strings.isRu
-                            ? 'В отдельное окно'
-                            : 'Move to separate window',
-                      ),
-                    ),
+                  menuItem(
+                    strings.isRu
+                        ? 'В отдельное окно'
+                        : 'Move to separate window',
+                    icon: Icons.open_in_new,
+                    onPressed: focusId == null
+                        ? null
+                        : () => detachSession(context, ref, focusId),
                   ),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: 'reconnect',
-                  child: ListTile(
-                    leading: const Icon(Icons.refresh),
-                    title: Text(strings.reconnect),
-                  ),
+                menuDivider(),
+                menuItem(
+                  strings.reconnect,
+                  icon: Icons.refresh,
+                  shortcut: Keys.reconnect,
+                  onPressed: focusId == null
+                      ? null
+                      : () => ctrl.reconnect(focusId),
                 ),
-                PopupMenuItem(
-                  value: 'duplicate',
-                  child: ListTile(
-                    leading: const Icon(Icons.copy_all_outlined),
-                    title: Text(strings.duplicate),
-                  ),
+                menuItem(
+                  strings.duplicate,
+                  icon: Icons.copy_all_outlined,
+                  onPressed: focusId == null
+                      ? null
+                      : () => ctrl.duplicate(focusId),
                 ),
               ],
             ),
@@ -301,8 +294,11 @@ class _TabStripState extends ConsumerState<TabStrip> {
     final trafficLights = custom && PlatformCapabilities.isMacOS;
 
     return Container(
-      height: 48,
-      color: scheme.surfaceContainerLow,
+      height: 56,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainer,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+      ),
       padding: EdgeInsets.only(
         left: trafficLights ? 0 : 6,
         right: custom && !trafficLights ? 0 : 6,
@@ -372,17 +368,19 @@ class _HomeTab extends StatelessWidget {
                     .ceil(),
                 filterQuality: FilterQuality.medium,
               ),
-              const SizedBox(width: 8),
-              Text(
-                'vysh',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                  color: selected
-                      ? scheme.onSecondaryContainer
-                      : scheme.onSurface,
+              if (MediaQuery.sizeOf(context).width >= 600)
+                const SizedBox(width: 8),
+              if (MediaQuery.sizeOf(context).width >= 600)
+                Text(
+                  'vysh',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                    color: selected
+                        ? scheme.onSecondaryContainer
+                        : scheme.onSurface,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -486,7 +484,9 @@ class _SessionTabChipState extends State<_SessionTabChip> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final fg = widget.selected ? scheme.primary : scheme.onSurfaceVariant;
+    final fg = widget.selected
+        ? scheme.onSecondaryContainer
+        : scheme.onSurfaceVariant;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -583,23 +583,35 @@ class _TabSurface extends StatelessWidget {
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOut,
       height: 48,
-      color: selected ? scheme.surface : Colors.transparent,
+      decoration: BoxDecoration(
+        color: selected ? scheme.secondaryContainer : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Semantics(
         selected: selected,
         child: Material(
-          type: MaterialType.transparency,
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
           child: InkWell(
+            borderRadius: BorderRadius.circular(16),
             onTap: onTap,
             child: Stack(
               children: [
                 Center(widthFactor: 1, child: child),
                 if (selected)
                   Positioned(
-                    left: 0,
-                    right: 0,
+                    left: 20,
+                    right: 20,
                     bottom: 0,
                     child: IgnorePointer(
-                      child: Container(height: 3, color: scheme.primary),
+                      child: Container(
+                        height: 3,
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
                     ),
                   ),
               ],

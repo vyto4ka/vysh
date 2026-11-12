@@ -646,7 +646,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
             onSecondaryTapUp: (d) => _contextMenu(null, d.globalPosition),
             child: ListView.builder(
               padding: const EdgeInsets.only(bottom: 8),
-              itemCount: list.length + 1,
+              itemCount: list.isEmpty ? 2 : list.length + 1,
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return SftpEntryRow(
@@ -656,6 +656,15 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                     onDoubleTap: () => _open(remoteParent(_cwd ?? '/')),
                     onSecondary: (_) {},
                     strings: _s,
+                  );
+                }
+                if (list.isEmpty) {
+                  return SizedBox(
+                    height: 180,
+                    child: SftpPlaceholder(
+                      icon: Icons.folder_open_outlined,
+                      text: _s.isRu ? 'Папка пуста' : 'This folder is empty',
+                    ),
                   );
                 }
                 final e = list[i - 1];
@@ -680,115 +689,135 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
     return ContextMenuArea(
       key: _menu,
-      child: Material(
-        color: scheme.surfaceContainerLow,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            FilePathBar(
-              controller: _pathField,
-              enabled: ready,
-              onOpen: _open,
-              onUp: _cwd != null && _cwd != '/'
-                  ? () => _open(remoteParent(_cwd!))
-                  : null,
-              onRefresh: _refresh,
-              isRu: _s.isRu,
-              trailing: MenuIconButton(
-                enabled: ready && !_loading && _error == null,
-                items: _folderItems(),
-              ),
-            ),
-            if (_selected.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
-                        style: theme.textTheme.labelLarge,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: _s.isRu ? 'Снять выделение' : 'Clear selection',
-                      onPressed: () => setState(_selected.clear),
-                      icon: const Icon(Icons.close),
-                    ),
-                    IconButton(
-                      tooltip: _s.isRu
-                          ? 'Скачать выделенное'
-                          : 'Download selected',
-                      onPressed: () => _download(_selection),
-                      icon: const Icon(Icons.download_outlined),
-                    ),
-                  ],
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Material(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: scheme.outlineVariant),
+          ),
+          clipBehavior: Clip.antiAlias,
+          color: scheme.surfaceContainerLow,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FilePathBar(
+                controller: _pathField,
+                enabled: ready,
+                onOpen: _open,
+                onUp: _cwd != null && _cwd != '/'
+                    ? () => _open(remoteParent(_cwd!))
+                    : null,
+                onRefresh: _refresh,
+                isRu: _s.isRu,
+                trailing: MenuIconButton(
+                  enabled: ready && !_loading && _error == null,
+                  items: _folderItems(),
                 ),
               ),
-            if (_loading)
-              const LinearProgressIndicator(minHeight: 2)
-            else
-              const SizedBox(height: 2),
-            // Список с приёмом файлов перетаскиванием.
-            Expanded(
-              child: SftpDropZone(
-                enabled: widget.active && ready && _cwd != null,
-                onHover: (over) {
-                  if (mounted && _dragOver != over) {
-                    setState(() => _dragOver = over);
-                  }
-                },
-                onDropPaths: (paths) {
-                  if (mounted) setState(() => _dragOver = false);
-                  if (_cwd != null) _upload(paths);
-                },
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: body),
-                    if (_dragOver)
+              if (_selected.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
+                          style: theme.textTheme.labelLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: _s.isRu
+                            ? 'Снять выделение'
+                            : 'Clear selection',
+                        onPressed: () => setState(_selected.clear),
+                        icon: const Icon(Icons.close),
+                      ),
+                      IconButton(
+                        tooltip: _s.isRu
+                            ? 'Скачать выделенное'
+                            : 'Download selected',
+                        onPressed: () => _download(_selection),
+                        icon: const Icon(Icons.download_outlined),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_loading)
+                const LinearProgressIndicator(minHeight: 2)
+              else
+                const SizedBox(height: 2),
+              // Список с приёмом файлов перетаскиванием.
+              Expanded(
+                child: SftpDropZone(
+                  enabled: widget.active && ready && _cwd != null,
+                  onHover: (over) {
+                    if (mounted && _dragOver != over) {
+                      setState(() => _dragOver = over);
+                    }
+                  },
+                  onDropPaths: (paths) {
+                    if (mounted) setState(() => _dragOver = false);
+                    if (_cwd != null) _upload(paths);
+                  },
+                  child: Stack(
+                    children: [
                       Positioned.fill(
-                        child: IgnorePointer(
-                          child: Container(
-                            margin: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: scheme.primaryContainer.withValues(
-                                alpha: 0.85,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                          child: Material(
+                            color: scheme.surface,
+                            borderRadius: BorderRadius.circular(16),
+                            clipBehavior: Clip.antiAlias,
+                            child: body,
+                          ),
+                        ),
+                      ),
+                      if (_dragOver)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Container(
+                              margin: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: scheme.primaryContainer.withValues(
+                                  alpha: 0.85,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: scheme.primary,
+                                  width: 2,
+                                ),
                               ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: scheme.primary,
-                                width: 2,
-                              ),
-                            ),
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.upload,
-                                    size: 40,
-                                    color: scheme.onPrimaryContainer,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _s.dropToUpload(_cwd ?? ''),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.upload,
+                                      size: 40,
                                       color: scheme.onPrimaryContainer,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _s.dropToUpload(_cwd ?? ''),
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: scheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            TransfersView(tabId: widget.tab.id),
-          ],
+              TransfersView(tabId: widget.tab.id),
+            ],
+          ),
         ),
       ),
     );
