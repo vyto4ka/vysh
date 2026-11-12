@@ -17,6 +17,7 @@ import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../infra/storage/app_paths.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_icon.dart';
 import 'appearance_sections.dart';
 import 'backup_section.dart';
 import 'clipboard_section.dart';
@@ -262,12 +263,7 @@ class SettingsPage extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        Image.asset(
-                          'assets/icon/vysh_256.png',
-                          width: 56,
-                          height: 56,
-                          errorBuilder: (_, _, _) => const Icon(Icons.dns_rounded, size: 56),
-                        ),
+                        const AppIcon(size: 56),
                         const SizedBox(width: 16),
                         Expanded(
                           child: Column(
@@ -432,7 +428,7 @@ class _MacSafeLicensePage extends StatelessWidget {
           '© vyto4ka and contributors',
       applicationIcon: Padding(
         padding: const EdgeInsets.all(8),
-        child: Image.asset('assets/icon/vysh_256.png', width: 48, height: 48),
+        child: const AppIcon(size: 48),
       ),
     );
     if (!PlatformCapabilities.isMacOS) return page;

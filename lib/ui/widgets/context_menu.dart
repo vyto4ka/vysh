@@ -1,5 +1,10 @@
+import 'dart:ui' show ViewFocusEvent, ViewFocusState;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
+
+import '../../infra/platform/capabilities.dart';
 
 import 'strings_context.dart';
 
@@ -71,7 +76,7 @@ class ContextMenuAreaState extends State<ContextMenuArea> {
 
   @override
   Widget build(BuildContext context) {
-    return MenuAnchor(
+    return _DismissibleMenuAnchor(
       controller: _controller,
       menuChildren: _items,
       onClose: widget.onClose,
@@ -88,7 +93,7 @@ class MenuIconButton extends StatelessWidget {
     this.icon = Icons.more_vert,
     this.tooltip,
     this.enabled = true,
-    this.tonal = false,
+    this.isSelected = false,
   });
 
   final List<Widget> items;
@@ -97,14 +102,15 @@ class MenuIconButton extends StatelessWidget {
   /// null - «Ещё» на языке интерфейса.
   final String? tooltip;
   final bool enabled;
-  final bool tonal;
+  final bool isSelected;
 
   @override
   Widget build(BuildContext context) {
-    return MenuAnchor(
+    return _DismissibleMenuAnchor(
       menuChildren: items,
       builder: (context, controller, _) => IconButton(
-        style: tonal
+        isSelected: isSelected || controller.isOpen,
+        style: isSelected || controller.isOpen
             ? IconButton.styleFrom(
                 backgroundColor: Theme.of(
                   context,
@@ -122,6 +128,87 @@ class MenuIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// MenuAnchor закрывается по клику внутри приложения. За его границами
+/// указатель уже не приходит во Flutter, поэтому учитываем фокус окна.
+class _DismissibleMenuAnchor extends StatefulWidget {
+  const _DismissibleMenuAnchor({
+    required this.menuChildren,
+    this.controller,
+    this.onClose,
+    this.builder,
+    this.child,
+  });
+
+  final List<Widget> menuChildren;
+  final MenuController? controller;
+  final VoidCallback? onClose;
+  final MenuAnchorChildBuilder? builder;
+  final Widget? child;
+
+  @override
+  State<_DismissibleMenuAnchor> createState() => _DismissibleMenuAnchorState();
+}
+
+class _DismissibleMenuAnchorState extends State<_DismissibleMenuAnchor>
+    with WidgetsBindingObserver, WindowListener {
+  final _fallbackController = MenuController();
+  bool _observing = false;
+
+  MenuController get _controller => widget.controller ?? _fallbackController;
+
+  void _onOpen() {
+    _observing = true;
+    WidgetsBinding.instance.addObserver(this);
+    if (PlatformCapabilities.desktopWindow) windowManager.addListener(this);
+    setState(() {});
+  }
+
+  void _stopObserving() {
+    if (!_observing) return;
+    _observing = false;
+    WidgetsBinding.instance.removeObserver(this);
+    if (PlatformCapabilities.desktopWindow) windowManager.removeListener(this);
+  }
+
+  void _onClose() {
+    _stopObserving();
+    if (mounted) setState(() {});
+    widget.onClose?.call();
+  }
+
+  @override
+  void onWindowBlur() => _controller.close();
+
+  @override
+  void didChangeViewFocus(ViewFocusEvent event) {
+    if (event.viewId == View.of(context).viewId &&
+        event.state == ViewFocusState.unfocused) {
+      _controller.close();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _controller.close();
+  }
+
+  @override
+  void dispose() {
+    _stopObserving();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MenuAnchor(
+    controller: _controller,
+    menuChildren: widget.menuChildren,
+    onOpen: _onOpen,
+    onClose: _onClose,
+    builder: widget.builder,
+    child: widget.child,
+  );
 }
 
 /// Сочетания клавиш для подписей в меню.

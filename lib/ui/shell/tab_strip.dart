@@ -11,6 +11,7 @@ import '../../app/controllers/tabs_controller.dart';
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/app_icon.dart';
 import 'ui_state.dart';
 import 'window_buttons.dart';
 import '../sftp/file_workspace.dart';
@@ -197,7 +198,7 @@ class _TabStripState extends ConsumerState<TabStrip> {
             ),
           if (!state.isHome)
             MenuIconButton(
-              tonal: true,
+              isSelected: splitVisible,
               tooltip: strings.isRu
                   ? 'Компоновка и действия сессии'
                   : 'Layout and session actions',
@@ -294,7 +295,7 @@ class _TabStripState extends ConsumerState<TabStrip> {
     final trafficLights = custom && PlatformCapabilities.isMacOS;
 
     return Container(
-      height: 56,
+      height: DesktopEnv.isMobile ? 56 : 40,
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,
         border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
@@ -318,12 +319,15 @@ class _TabStripState extends ConsumerState<TabStrip> {
                         padding: EdgeInsets.only(left: trafficLights ? 80 : 0),
                         child: Align(
                           alignment: Alignment.centerLeft,
-                          child: tabs,
+                          child: _stripButtons(tabs),
                         ),
                       ),
                     ],
                   )
-                : Align(alignment: Alignment.centerLeft, child: tabs),
+                : Align(
+                    alignment: Alignment.centerLeft,
+                    child: _stripButtons(tabs),
+                  ),
           ),
           if (custom && !trafficLights) ...[
             const SizedBox(width: 6),
@@ -331,6 +335,23 @@ class _TabStripState extends ConsumerState<TabStrip> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _stripButtons(Widget child) {
+    if (DesktopEnv.isMobile) return child;
+    return IconButtonTheme(
+      data: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(32),
+          maximumSize: const Size.square(32),
+          padding: EdgeInsets.zero,
+          iconSize: 18,
+          visualDensity: VisualDensity.standard,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+      child: child,
     );
   }
 }
@@ -359,15 +380,7 @@ class _HomeTab extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Декодируем сразу в нужном размере, а не все 256×256.
-              Image.asset(
-                'assets/icon/vysh_256.png',
-                width: 18,
-                height: 18,
-                cacheWidth: (18 * MediaQuery.devicePixelRatioOf(context))
-                    .ceil(),
-                filterQuality: FilterQuality.medium,
-              ),
+              const AppIcon(),
               if (MediaQuery.sizeOf(context).width >= 600)
                 const SizedBox(width: 8),
               if (MediaQuery.sizeOf(context).width >= 600)
@@ -544,9 +557,16 @@ class _SessionTabChipState extends State<_SessionTabChip> {
                               : context.strings.close,
                           iconSize: 16,
                           visualDensity: VisualDensity.compact,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 48,
-                            height: 48,
+                          style: IconButton.styleFrom(
+                            minimumSize: Size.square(
+                              DesktopEnv.isMobile ? 48 : 24,
+                            ),
+                            maximumSize: Size.square(
+                              DesktopEnv.isMobile ? 48 : 24,
+                            ),
+                            tapTargetSize: DesktopEnv.isMobile
+                                ? MaterialTapTargetSize.padded
+                                : MaterialTapTargetSize.shrinkWrap,
                           ),
                           padding: EdgeInsets.zero,
                           icon: Icon(Icons.close_rounded, color: fg),
@@ -582,7 +602,7 @@ class _TabSurface extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       curve: Curves.easeOut,
-      height: 48,
+      height: DesktopEnv.isMobile ? 48 : 32,
       decoration: BoxDecoration(
         color: selected ? scheme.secondaryContainer : Colors.transparent,
         borderRadius: BorderRadius.circular(16),
@@ -596,26 +616,7 @@ class _TabSurface extends StatelessWidget {
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: onTap,
-            child: Stack(
-              children: [
-                Center(widthFactor: 1, child: child),
-                if (selected)
-                  Positioned(
-                    left: 20,
-                    right: 20,
-                    bottom: 0,
-                    child: IgnorePointer(
-                      child: Container(
-                        height: 3,
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+            child: Center(widthFactor: 1, child: child),
           ),
         ),
       ),

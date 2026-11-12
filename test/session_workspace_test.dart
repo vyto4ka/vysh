@@ -12,6 +12,7 @@ import 'package:vysh/ui/terminal/session_view.dart';
 import 'package:vysh/app/windows/detached_windows.dart';
 import 'package:vysh/ui/shell/tab_drag.dart';
 import 'package:vysh/ui/shell/tab_strip.dart';
+import 'package:vysh/ui/theme/app_theme.dart';
 
 class _Store implements DocumentStore {
   @override
@@ -81,8 +82,9 @@ Future<ProviderContainer> workspace(
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(
-        home: Scaffold(
+      child: MaterialApp(
+        theme: buildTheme(seed: Colors.purple, brightness: Brightness.dark),
+        home: const Scaffold(
           body: Column(
             children: [
               TabStrip(),
@@ -98,6 +100,35 @@ Future<ProviderContainer> workspace(
 }
 
 void main() {
+  testWidgets('layout selection follows the menu and visible split', (
+    tester,
+  ) async {
+    final c = await workspace(tester);
+    final button = find.byWidgetPredicate(
+      (widget) =>
+          widget is IconButton &&
+          widget.tooltip == 'Layout and session actions',
+    );
+    bool selected() => tester.widget<IconButton>(button).isSelected!;
+    expect(selected(), isFalse);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(selected(), isTrue);
+    await tester.tapAt(const Offset(700, 500));
+    await tester.pumpAndSettle();
+    expect(selected(), isFalse);
+    c.read(splitTabProvider.notifier).select('two');
+    await tester.pumpAndSettle();
+    expect(selected(), isTrue);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unsplit'));
+    await tester.pumpAndSettle();
+    expect(selected(), isFalse);
+    expect(c.read(splitTabProvider), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('splitting and returning preserve both session views', (
     tester,
   ) async {

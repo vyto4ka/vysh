@@ -33,29 +33,27 @@ class _StatusBar extends StatelessWidget {
     final style = theme.textTheme.labelMedium?.copyWith(
       color: scheme.onSurfaceVariant,
     );
-    final (status, color) = switch (tab.status) {
-      SessionStatus.connecting => (
+    final status = switch (tab.status) {
+      SessionStatus.connecting =>
         tab.isLocal
             ? strings.localShellStarting
             : (strings.isRussian ? 'Подключение…' : 'Connecting…'),
-        scheme.tertiary,
-      ),
-      SessionStatus.ready => (
+      SessionStatus.ready =>
         tab.isLocal
             ? strings.localShellRunning
             : (strings.isRussian ? 'Подключено' : 'Connected'),
-        Colors.green.shade500,
-      ),
-      SessionStatus.lost => (
+      SessionStatus.lost =>
         tab.isLocal
             ? strings.localShellFailed
             : (strings.isRussian ? 'Нет соединения' : 'Connection lost'),
-        scheme.error,
-      ),
-      SessionStatus.closed => (
+      SessionStatus.closed =>
         strings.isRussian ? 'Сессия завершена' : 'Session closed',
-        scheme.outline,
-      ),
+    };
+    final statusColor = switch (tab.status) {
+      SessionStatus.connecting => scheme.tertiary,
+      SessionStatus.lost => scheme.error,
+      SessionStatus.closed => scheme.outline,
+      SessionStatus.ready => scheme.onSurfaceVariant,
     };
     final location = tab.isLocal
         ? strings.localTerminal
@@ -72,21 +70,14 @@ class _StatusBar extends StatelessWidget {
               children: [
                 const SizedBox(width: 12),
                 Tooltip(
-                  message: [
-                    location,
-                    ?serverVersion,
-                  ].join('\n'),
+                  message: [location, ?serverVersion].join('\n'),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        tab.status == SessionStatus.ready
-                            ? Icons.check_circle_outline
-                            : Icons.info_outline,
-                        size: 14,
-                        color: color,
-                      ),
-                      const SizedBox(width: 6),
+                      if (tab.status != SessionStatus.ready) ...[
+                        Icon(Icons.info_outline, size: 14, color: statusColor),
+                        const SizedBox(width: 6),
+                      ],
                       Text(status, style: style),
                     ],
                   ),
