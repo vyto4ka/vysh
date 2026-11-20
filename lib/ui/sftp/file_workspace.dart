@@ -1,4 +1,6 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../app/controllers/tabs_controller.dart';
@@ -9,14 +11,15 @@ import '../../domain/models/session_tab.dart';
 import '../../domain/ports/sftp.dart';
 import '../../app/dependencies.dart';
 import '../../infra/platform/capabilities.dart';
+import '../../infra/platform/desktop_env.dart';
+import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
+import '../shell/ui_state.dart';
 import 'transfers_view.dart';
 import 'file_path_bar.dart';
 import 'sftp_entry_row.dart';
 import '../widgets/modifiers.dart';
 import '../widgets/context_menu.dart';
-import 'package:flutter/services.dart';
-import '../../infra/platform/desktop_env.dart';
 
 final fileWorkspaceLocalProvider = localFileSessionProvider;
 
@@ -122,27 +125,35 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace> {
         .tabs
         .where((t) => !t.isLocal && t.status == SessionStatus.ready)
         .toList();
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(isRu ? 'Файлы' : 'Files'),
-        actions: [
-          if (_busy)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  semanticsLabel: isRu
-                      ? 'Передача файлов'
-                      : 'Transferring files',
+    final macTop =
+        PlatformCapabilities.isMacOS && ref.watch(customTitleBarProvider)
+        ? 40.0
+        : 0.0;
+    return Padding(
+      padding: EdgeInsets.only(top: macTop),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(isRu ? 'Файлы' : 'Files'),
+          actions: [
+            if (_busy)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    semanticsLabel: isRu
+                        ? 'Передача файлов'
+                        : 'Transferring files',
+                  ),
                 ),
               ),
-            ),
-        ],
-      ),
-      body: Column(
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: Column(
         children: [
           Expanded(
             child: LayoutBuilder(
@@ -247,6 +258,8 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace> {
           const TransfersView(tabId: 'file-workspace'),
         ],
       ),
+        ),
+      ),
     );
   }
 }
@@ -286,15 +299,40 @@ class _BrowserState extends ConsumerState<_Browser> {
   });
   final _path = TextEditingController();
   final _selected = <String>{};
+  final _menu = GlobalKey<ContextMenuAreaState>();
+  bool _hasStorageAccess = true;
   int _request = 0;
   List<RemoteEntry> _previous = const [];
   String? _anchor;
+
+  String get _localLabel => PlatformCapabilities.sharedDownloads
+      ? (_hasStorageAccess
+            ? (widget.isRu ? 'Память устройства' : 'Device storage')
+            : (widget.isRu ? 'Файлы приложения' : 'App files'))
+      : (widget.isRu ? 'Этот компьютер' : 'This computer');
+
   String get _sourceTitle => _source.isEmpty
-      ? (PlatformCapabilities.sharedDownloads
-            ? (widget.isRu ? 'Файлы приложения' : 'App files')
-            : (widget.isRu ? 'Этот компьютер' : 'This computer'))
+      ? _localLabel
       : widget.tabs.where((t) => t.id == _source).firstOrNull?.title ??
             (widget.isRu ? 'Подключение закрыто' : 'Connection closed');
+
+  Future<void> _checkStorageAccess() async {
+    if (!PlatformCapabilities.sharedDownloads) return;
+    final ok = await LocalFiles.hasStorageAccess();
+    if (mounted && ok != _hasStorageAccess) {
+      setState(() => _hasStorageAccess = ok);
+    }
+  }
+
+  Future<void> _requestStorageAccess() async {
+    final granted = await LocalFiles.requestStorageAccess();
+    if (!mounted) return;
+    setState(() => _hasStorageAccess = granted);
+    if (granted && _source.isEmpty) {
+      await directory.home();
+    }
+  }
+
   void _select(
     RemoteEntry entry,
     List<RemoteEntry> entries, {
@@ -362,6 +400,7 @@ class _BrowserState extends ConsumerState<_Browser> {
   void initState() {
     super.initState();
     directory.addListener(_changed);
+    unawaited(_checkStorageAccess());
     _connect();
   }
 
@@ -397,9 +436,13 @@ class _BrowserState extends ConsumerState<_Browser> {
       await directory.home();
     } catch (e) {
       if (mounted && request == _request) {
+        final strings = AppStrings.of(
+          context,
+          ref.read(settingsProvider).language,
+        );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ).showSnackBar(SnackBar(content: Text(strings.errorText(e))));
       }
     }
   }
@@ -431,296 +474,353 @@ class _BrowserState extends ConsumerState<_Browser> {
     );
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Card.filled(
-      color: scheme.surfaceContainerLow,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: MenuAnchor(
-                    menuChildren: [
-                      MenuItemButton(
-                        leadingIcon: const Icon(Icons.computer_outlined),
-                        trailingIcon: _source.isEmpty
-                            ? const Icon(Icons.check)
-                            : null,
-                        onPressed: widget.enabled
-                            ? () {
-                                setState(() => _source = '');
-                                _connect();
-                              }
-                            : null,
-                        child: Text(
-                          PlatformCapabilities.sharedDownloads
-                              ? (widget.isRu ? 'Файлы приложения' : 'App files')
-                              : (widget.isRu
-                                    ? 'Этот компьютер'
-                                    : 'This computer'),
-                        ),
-                      ),
-                      if (widget.tabs.isNotEmpty) menuDivider(),
-                      for (final t in widget.tabs)
+    final isLocal = _source.isEmpty;
+    return ContextMenuArea(
+      key: _menu,
+      child: Card.filled(
+        color: scheme.surfaceContainerLow,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: MenuAnchor(
+                      menuChildren: [
                         MenuItemButton(
-                          leadingIcon: const Icon(Icons.dns_outlined),
-                          trailingIcon: t.id == _source
+                          leadingIcon: const Icon(Icons.computer_outlined),
+                          trailingIcon: _source.isEmpty
                               ? const Icon(Icons.check)
                               : null,
                           onPressed: widget.enabled
                               ? () {
-                                  setState(() => _source = t.id);
+                                  setState(() => _source = '');
                                   _connect();
                                 }
                               : null,
-                          child: Text(t.title),
+                          child: Text(_localLabel),
                         ),
-                    ],
-                    builder: (context, menu, _) => TextButton(
-                      onPressed: !widget.enabled
-                          ? null
-                          : () => menu.isOpen ? menu.close() : menu.open(),
-                      style: TextButton.styleFrom(
-                        foregroundColor: scheme.onSurface,
-                        minimumSize: const Size(48, 48),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _source.isEmpty
-                                ? Icons.computer_outlined
-                                : Icons.dns_outlined,
-                            color: scheme.primary,
+                        if (widget.tabs.isNotEmpty) menuDivider(),
+                        for (final t in widget.tabs)
+                          MenuItemButton(
+                            leadingIcon: const Icon(Icons.dns_outlined),
+                            trailingIcon: t.id == _source
+                                ? const Icon(Icons.check)
+                                : null,
+                            onPressed: widget.enabled
+                                ? () {
+                                    setState(() => _source = t.id);
+                                    _connect();
+                                  }
+                                : null,
+                            child: Text(t.title),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _sourceTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall,
-                            ),
-                          ),
-                          const Icon(Icons.expand_more),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                if (directory.cwd != null)
-                  Text(
-                    '${entries.length}',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          FilePathBar(
-            controller: _path,
-            enabled: widget.enabled && endpoint != null,
-            onOpen: _open,
-            isRu: widget.isRu,
-            onUp: directory.cwd != null
-                ? () =>
-                      _open(remoteParent(directory.cwd!.replaceAll('\\', '/')))
-                : null,
-            onRefresh: () {
-              _clear();
-              directory.refresh();
-            },
-          ),
-          SizedBox(
-            height: 2,
-            child: directory.loading ? const LinearProgressIndicator() : null,
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Material(
-                color: scheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                clipBehavior: Clip.antiAlias,
-                child: directory.error != null
-                    ? SftpPlaceholder(
-                        icon: Icons.error_outline,
-                        text: strings.errorText(directory.error!),
-                        action: Wrap(
-                          alignment: WrapAlignment.center,
+                      ],
+                      builder: (context, menu, _) => TextButton(
+                        onPressed: !widget.enabled
+                            ? null
+                            : () => menu.isOpen ? menu.close() : menu.open(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: scheme.onSurface,
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        child: Row(
                           children: [
-                            TextButton(
-                              onPressed: () => directory.refresh(),
-                              child: Text(strings.tryAgain),
+                            Icon(
+                              _source.isEmpty
+                                  ? Icons.computer_outlined
+                                  : Icons.dns_outlined,
+                              color: scheme.primary,
                             ),
-                            TextButton(
-                              onPressed: () {
-                                _clear();
-                                directory.home();
-                              },
-                              child: Text(strings.homeFolder),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _sourceTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall,
+                              ),
                             ),
+                            const Icon(Icons.expand_more),
                           ],
                         ),
-                      )
-                    : !directory.loading && entries.isEmpty
-                    ? SftpPlaceholder(
-                        icon: Icons.folder_open_outlined,
-                        text: widget.isRu
-                            ? 'Папка пуста'
-                            : 'This folder is empty',
-                      )
-                    : CallbackShortcuts(
-                        bindings: {
-                          const SingleActivator(
-                            LogicalKeyboardKey.keyA,
-                            control: true,
-                          ): () {
-                            setState(
-                              () =>
-                                  _selected.addAll(entries.map((e) => e.path)),
-                            );
-                            widget.onChanged();
-                          },
-                          const SingleActivator(LogicalKeyboardKey.escape):
-                              _clear,
-                          const SingleActivator(LogicalKeyboardKey.enter): () {
-                            final selected = selection;
-                            if (widget.enabled &&
-                                selected.length == 1 &&
-                                selected.single.isDir) {
-                              _open(selected.single.path);
-                            }
-                          },
-                        },
-                        child: Focus(
-                          child: ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            itemCount: entries.length,
-                            itemBuilder: (context, i) {
-                              final entry = entries[i];
-                              void open() {
-                                if (widget.enabled && entry.isDir) {
-                                  _open(entry.path);
-                                }
-                              }
-
-                              return SftpEntryRow(
-                                entry: entry,
-                                enabled: widget.enabled,
-                                showSelection: true,
-                                selected: _selected.contains(entry.path),
-                                strings: strings,
-                                onSelect: widget.enabled
-                                    ? (_) =>
-                                          _select(entry, entries, toggle: true)
-                                    : null,
-                                onTap: () {
-                                  if (!widget.enabled) return;
-                                  if (DesktopEnv.isMobile && entry.isDir) {
-                                    open();
-                                  } else {
-                                    _select(entry, entries);
-                                  }
-                                },
-                                onDoubleTap: open,
-                                onSecondary: (position) async {
-                                  final action = await showMenu<String>(
-                                    context: context,
-                                    position: RelativeRect.fromLTRB(
-                                      position.dx,
-                                      position.dy,
-                                      0,
-                                      0,
-                                    ),
-                                    items: [
-                                      if (entry.isDir)
-                                        PopupMenuItem(
-                                          value: 'open',
-                                          child: Text(
-                                            widget.isRu
-                                                ? 'Открыть папку'
-                                                : 'Open folder',
-                                          ),
-                                        ),
-                                      PopupMenuItem(
-                                        value: 'select',
-                                        enabled: widget.enabled,
-                                        child: Text(
-                                          widget.isRu ? 'Выбрать' : 'Select',
-                                        ),
-                                      ),
-                                      PopupMenuItem(
-                                        value: 'path',
-                                        child: Text(
-                                          widget.isRu
-                                              ? 'Копировать путь'
-                                              : 'Copy path',
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                  if (!mounted) return;
-                                  if (action == 'open') open();
-                                  if (action == 'select') {
-                                    _select(entry, entries, toggle: true);
-                                  }
-                                  if (action == 'path') {
-                                    Clipboard.setData(
-                                      ClipboardData(text: entry.path),
-                                    );
-                                  }
-                                },
-                              );
-                            },
-                          ),
-                        ),
                       ),
+                    ),
+                  ),
+                  if (directory.cwd != null)
+                    Text(
+                      '${entries.length}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-          if (_selected.isNotEmpty)
-            Material(
-              color: scheme.secondaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 16, right: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${widget.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
-                        style: theme.textTheme.labelLarge?.copyWith(
+            FilePathBar(
+              controller: _path,
+              enabled: widget.enabled && endpoint != null,
+              onOpen: _open,
+              isRu: widget.isRu,
+              onUp:
+                  directory.cwd != null &&
+                      !(isLocal
+                          ? LocalFiles.isRootPath(directory.cwd!)
+                          : directory.cwd == '/')
+                  ? () => _open(
+                      isLocal
+                          ? LocalFiles.parentPath(directory.cwd!)
+                          : remoteParent(directory.cwd!),
+                    )
+                  : null,
+              onRefresh: () {
+                _clear();
+                directory.refresh();
+              },
+            ),
+            if (PlatformCapabilities.sharedDownloads &&
+                isLocal &&
+                !_hasStorageAccess)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                child: Material(
+                  color: scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.folder_off_outlined,
+                          size: 18,
                           color: scheme.onSecondaryContainer,
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            widget.isRu
+                                ? 'Показана папка приложения. Разрешите доступ к файлам устройства.'
+                                : 'Showing app folder. Allow access to device files.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSecondaryContainer,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _requestStorageAccess,
+                          child: Text(widget.isRu ? 'Разрешить' : 'Allow'),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      tooltip: widget.isRu
-                          ? 'Снять выделение'
-                          : 'Clear selection',
-                      onPressed: _clear,
-                      icon: const Icon(Icons.close),
-                    ),
-                    Tooltip(
-                      message:
-                          widget.destination ??
-                          (widget.isRu
-                              ? 'Выберите папку назначения'
-                              : 'Choose destination folder'),
-                      child: TextButton.icon(
-                        onPressed: widget.onCopy,
-                        icon: Icon(widget.copyIcon),
-                        label: Text(widget.copyLabel),
-                      ),
-                    ),
-                  ],
+                  ),
+                ),
+              ),
+            SizedBox(
+              height: 2,
+              child: directory.loading ? const LinearProgressIndicator() : null,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Material(
+                  color: scheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  clipBehavior: Clip.antiAlias,
+                  child: directory.error != null
+                      ? SftpPlaceholder(
+                          icon: Icons.error_outline,
+                          text: strings.errorText(directory.error!),
+                          action: Wrap(
+                            alignment: WrapAlignment.center,
+                            children: [
+                              if (PlatformCapabilities.sharedDownloads &&
+                                  isLocal &&
+                                  !_hasStorageAccess)
+                                FilledButton.tonal(
+                                  onPressed: _requestStorageAccess,
+                                  child: Text(
+                                    widget.isRu
+                                        ? 'Разрешить доступ'
+                                        : 'Allow access',
+                                  ),
+                                ),
+                              TextButton(
+                                onPressed: () => directory.refresh(),
+                                child: Text(strings.tryAgain),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  _clear();
+                                  directory.home();
+                                },
+                                child: Text(strings.homeFolder),
+                              ),
+                            ],
+                          ),
+                        )
+                      : !directory.loading && entries.isEmpty
+                      ? SftpPlaceholder(
+                          icon: Icons.folder_open_outlined,
+                          text: widget.isRu
+                              ? 'Папка пуста'
+                              : 'This folder is empty',
+                        )
+                      : CallbackShortcuts(
+                          bindings: {
+                            const SingleActivator(
+                              LogicalKeyboardKey.keyA,
+                              control: true,
+                            ): () {
+                              setState(
+                                () => _selected.addAll(
+                                  entries.map((e) => e.path),
+                                ),
+                              );
+                              widget.onChanged();
+                            },
+                            if (PlatformCapabilities.isMacOS)
+                              const SingleActivator(
+                                LogicalKeyboardKey.keyA,
+                                meta: true,
+                              ): () {
+                                setState(
+                                  () => _selected.addAll(
+                                    entries.map((e) => e.path),
+                                  ),
+                                );
+                                widget.onChanged();
+                              },
+                            const SingleActivator(LogicalKeyboardKey.escape):
+                                _clear,
+                            const SingleActivator(LogicalKeyboardKey.enter): () {
+                              final selected = selection;
+                              if (widget.enabled &&
+                                  selected.length == 1 &&
+                                  selected.single.isDir) {
+                                _open(selected.single.path);
+                              }
+                            },
+                          },
+                          child: Focus(
+                            child: ListView.builder(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              itemCount: entries.length,
+                              itemBuilder: (context, i) {
+                                final entry = entries[i];
+                                void open() {
+                                  if (widget.enabled && entry.isDir) {
+                                    _open(entry.path);
+                                  }
+                                }
+
+                                return SftpEntryRow(
+                                  entry: entry,
+                                  enabled: widget.enabled,
+                                  showSelection: true,
+                                  selected: _selected.contains(entry.path),
+                                  strings: strings,
+                                  onSelect: widget.enabled
+                                      ? (_) => _select(
+                                          entry,
+                                          entries,
+                                          toggle: true,
+                                        )
+                                      : null,
+                                  onTap: () {
+                                    if (!widget.enabled) return;
+                                    if (DesktopEnv.isMobile && entry.isDir) {
+                                      open();
+                                    } else {
+                                      _select(entry, entries);
+                                    }
+                                  },
+                                  onDoubleTap: open,
+                                  onSecondary: (position) {
+                                    _menu.currentState?.open(position, [
+                                      if (entry.isDir)
+                                        menuItem(
+                                          widget.isRu
+                                              ? 'Открыть папку'
+                                              : 'Open folder',
+                                          icon: Icons.folder_open,
+                                          onPressed: open,
+                                        ),
+                                      menuItem(
+                                        widget.isRu ? 'Выбрать' : 'Select',
+                                        icon: Icons.check_box_outlined,
+                                        onPressed: widget.enabled
+                                            ? () => _select(
+                                                entry,
+                                                entries,
+                                                toggle: true,
+                                              )
+                                            : null,
+                                      ),
+                                      menuItem(
+                                        widget.isRu
+                                            ? 'Копировать путь'
+                                            : 'Copy path',
+                                        icon: Icons.content_copy,
+                                        onPressed: () => Clipboard.setData(
+                                          ClipboardData(text: entry.path),
+                                        ),
+                                      ),
+                                    ]);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),
-        ],
+            if (_selected.isNotEmpty)
+              Material(
+                color: scheme.secondaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${widget.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: scheme.onSecondaryContainer,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: widget.isRu
+                            ? 'Снять выделение'
+                            : 'Clear selection',
+                        onPressed: _clear,
+                        icon: const Icon(Icons.close),
+                      ),
+                      Tooltip(
+                        message:
+                            widget.destination ??
+                            (widget.isRu
+                                ? 'Выберите папку назначения'
+                                : 'Choose destination folder'),
+                        child: TextButton.icon(
+                          onPressed: widget.onCopy,
+                          icon: Icon(widget.copyIcon),
+                          label: Text(widget.copyLabel),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

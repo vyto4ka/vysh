@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,8 +51,9 @@ class BackupController {
   Future<(Uint8List, int)> createBytes({String password = ''}) async {
     final data = await _collect();
     final plain = Uint8List.fromList(utf8.encode(data.encodeJson()));
-    final bytes =
-        password.isEmpty ? plain : BackupCrypto.encrypt(plain, password);
+    final bytes = password.isEmpty
+        ? plain
+        : await Isolate.run(() => BackupCrypto.encrypt(plain, password));
     return (bytes, data.secrets.length);
   }
 
@@ -60,8 +62,9 @@ class BackupController {
   Future<int> create(File file, {String password = ''}) async {
     final data = await _collect();
     final plain = Uint8List.fromList(utf8.encode(data.encodeJson()));
-    final bytes =
-        password.isEmpty ? plain : BackupCrypto.encrypt(plain, password);
+    final bytes = password.isEmpty
+        ? plain
+        : await Isolate.run(() => BackupCrypto.encrypt(plain, password));
     final tmp = File('${file.path}.vysh-tmp');
     await tmp.writeAsBytes(bytes, flush: true);
     await tmp.rename(file.path);
@@ -87,7 +90,7 @@ class BackupController {
     final Uint8List plain;
     if (parsed.encrypted) {
       if (password.isEmpty) throw const BackupException('password required');
-      plain = BackupCrypto.decrypt(bytes, password);
+      plain = await Isolate.run(() => BackupCrypto.decrypt(bytes, password));
     } else {
       plain = bytes;
     }

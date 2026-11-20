@@ -206,44 +206,46 @@ class _SecretDialogState extends State<_SecretDialog> {
       title: Text(widget.title),
       content: SizedBox(
         width: 380,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.subtitle,
-                style: monoStyle(context, size: 13, color: theme.colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _text,
-              autofocus: true,
-              obscureText: _obscure,
-              onSubmitted: (_) => _submit(),
-              decoration: InputDecoration(
-                labelText: widget.label,
-                errorText: widget.error,
-                filled: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                suffixIcon: IconButton(
-                  tooltip: _obscure ? context.strings.show : context.strings.hide,
-                  icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _obscure = !_obscure),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.subtitle,
+                  style: monoStyle(context, size: 13, color: theme.colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _text,
+                autofocus: true,
+                obscureText: _obscure,
+                onSubmitted: (_) => _submit(),
+                decoration: InputDecoration(
+                  labelText: widget.label,
+                  errorText: widget.error,
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: IconButton(
+                    tooltip: _obscure ? context.strings.show : context.strings.hide,
+                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
                 ),
               ),
-            ),
-            if (widget.canRemember) ...[
-              const SizedBox(height: 8),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _remember,
-                onChanged: (v) => setState(() => _remember = v ?? false),
-                title: Text(context.strings.saveInKeyring),
-              ),
+              if (widget.canRemember) ...[
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _remember,
+                  onChanged: (v) => setState(() => _remember = v ?? false),
+                  title: Text(context.strings.saveInKeyring),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [
@@ -289,34 +291,36 @@ class _InteractiveDialogState extends State<_InteractiveDialog> {
       title: Text(widget.title),
       content: SizedBox(
         width: 380,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (widget.instruction.trim().isNotEmpty) ...[
-              Text(widget.instruction.trim()),
-              const SizedBox(height: 12),
-            ],
-            for (var i = 0; i < widget.prompts.length; i++) ...[
-              TextField(
-                controller: _fields[i],
-                autofocus: i == 0,
-                obscureText: !widget.prompts[i].echo,
-                onSubmitted: (_) {
-                  if (i == widget.prompts.length - 1) _submit();
-                },
-                decoration: InputDecoration(
-                  labelText: widget.prompts[i].text.trim().replaceAll(RegExp(r':\s*$'), ''),
-                  filled: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.instruction.trim().isNotEmpty) ...[
+                Text(widget.instruction.trim()),
+                const SizedBox(height: 12),
+              ],
+              for (var i = 0; i < widget.prompts.length; i++) ...[
+                TextField(
+                  controller: _fields[i],
+                  autofocus: i == 0,
+                  obscureText: !widget.prompts[i].echo,
+                  onSubmitted: (_) {
+                    if (i == widget.prompts.length - 1) _submit();
+                  },
+                  decoration: InputDecoration(
+                    labelText: widget.prompts[i].text.trim().replaceAll(RegExp(r':\s*$'), ''),
+                    filled: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [

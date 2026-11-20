@@ -63,7 +63,7 @@ class SelectionMenu extends StatefulWidget {
     required this.onReset,
     required this.onClear,
     this.onSftp,
-    required this.onLog,
+    this.onLog,
     required this.onReconnect,
     required this.onDismiss,
   });
@@ -83,7 +83,7 @@ class SelectionMenu extends StatefulWidget {
   final VoidCallback onReset;
   final VoidCallback onClear;
   final VoidCallback? onSftp;
-  final VoidCallback onLog;
+  final VoidCallback? onLog;
   final VoidCallback onReconnect;
   final VoidCallback onDismiss;
 
@@ -304,6 +304,12 @@ class _SelectionMenuState extends State<SelectionMenu> {
                                 label: strings.clear,
                                 onTap: widget.onClear,
                               ),
+                              if (widget.onLog != null)
+                                _SecondaryButton(
+                                  icon: Icons.receipt_long_outlined,
+                                  label: strings.log,
+                                  onTap: widget.onLog!,
+                                ),
                               _SecondaryButton(
                                 icon: Icons.refresh_rounded,
                                 label: strings.reconnect,

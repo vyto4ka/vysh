@@ -67,7 +67,7 @@ class TerminalFontSection extends ConsumerWidget {
                         icon: const Icon(Icons.open_in_new, size: 18),
                         label: Text(strings.nerdFontsLink),
                         onPressed: () =>
-                            LocalFiles.openWithSystem(_nerdFontsUrl).catchError((_) {}),
+                            LocalFiles.openUrl(_nerdFontsUrl).catchError((_) {}),
                       ),
                   ],
                 ),

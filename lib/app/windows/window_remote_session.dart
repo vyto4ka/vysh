@@ -5,6 +5,7 @@ import '../../domain/models/session_tab.dart';
 import '../../domain/models/host.dart';
 import '../../domain/ports/sftp.dart';
 import '../../domain/ports/ssh_transport.dart';
+import '../terminal/terminal_input.dart';
 import '../terminal/terminal_session.dart';
 import 'terminal_mirror.dart';
 import 'window_protocol.dart';
@@ -114,6 +115,16 @@ class WindowRemoteSession extends TerminalSession {
       }
     }
     notifyListeners();
+  }
+
+  @override
+  void sendCtrlChar(String char) {
+    ctrlModifier = false;
+    onModifiersChanged?.call();
+    final byte = TerminalInput.ctrlByte(char);
+    if (byte != null) {
+      request('raw', {'text': String.fromCharCode(byte)}).ignore();
+    }
   }
 
   @override

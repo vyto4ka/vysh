@@ -16,6 +16,7 @@ import '../controllers/settings_controller.dart';
 import '../controllers/external_colors_controller.dart';
 import 'detached_windows.dart';
 import '../controllers/tabs_controller.dart';
+import '../controllers/transfer_queue.dart';
 import 'window_appearance.dart';
 import 'window_protocol.dart';
 import 'window_remote_session.dart';
@@ -275,7 +276,10 @@ class _WindowTabs extends TabsController {
     final sessions = ref.read(sessionsProvider);
     final alive = raw.map((t) => t['id']).toSet();
     for (final id in sessions.keys.toList()) {
-      if (!alive.contains(id)) sessions.remove(id)!.dispose();
+      if (!alive.contains(id)) {
+        ref.read(transferQueueProvider.notifier).closeTab(id);
+        sessions.remove(id)!.dispose();
+      }
     }
     for (final data in raw) {
       final tab = decodeTab(data);
@@ -340,6 +344,21 @@ class _WindowTabs extends TabsController {
       'password': password,
     }, activate: true),
   );
+  @override
+  void openHosts(List<Host> hosts) {
+    for (var i = 0; i < hosts.length; i++) {
+      final host = hosts[i];
+      Future<void>.delayed(Duration(milliseconds: 150 * i), () {
+        if (!ref.mounted) return;
+        unawaited(
+          client.command('openHost', {
+            'host': host.toJson(),
+            'password': null,
+          }, activate: i == 0),
+        );
+      });
+    }
+  }
   @override
   void duplicate(String id) =>
       unawaited(client.command('duplicate', {'sessionId': id}, activate: true));

@@ -94,7 +94,7 @@ class TabsController extends Notifier<TabsState> {
       Future<void>.delayed(Duration(milliseconds: 150 * i), () {
         if (!ref.mounted) return;
         openHost(host);
-        if (i == hosts.length - 1) {
+        if (i == hosts.length - 1 && state.tabs.isNotEmpty) {
           state = TabsState(
             tabs: state.tabs,
             active: first.clamp(1, state.tabs.length),
@@ -108,12 +108,29 @@ class TabsController extends Notifier<TabsState> {
     final session = _sessions[id];
     if (session == null) return;
     if (!session.isLocal) {
-      // Хост могли изменить в редакторе - берём свежую версию.
+      // Хост могли изменить в редакторе - берём свежую версию и обновляем вкладку.
       final fresh = ref
           .read(hostsProvider)
           .where((h) => h.id == session.host.id)
           .firstOrNull;
-      if (fresh != null) session.host = fresh;
+      if (fresh != null) {
+        session.host = fresh;
+        state = TabsState(
+          tabs: [
+            for (final t in state.tabs)
+              t.id == id
+                  ? SessionTab(
+                      id: t.id,
+                      host: fresh,
+                      title: fresh.title,
+                      status: t.status,
+                      isLocal: t.isLocal,
+                    )
+                  : t,
+          ],
+          active: state.active,
+        );
+      }
     }
     session.connect();
   }

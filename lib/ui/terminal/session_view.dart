@@ -74,6 +74,7 @@ abstract class _SessionViewBase extends ConsumerState<SessionView> {
   );
 
   double _paneWidth = 420;
+  bool _sftpInitialized = false;
 
   bool _failureDismissed = false;
   bool _showLogManually = false;
@@ -409,13 +410,15 @@ class _SessionViewState extends _SessionViewBase
                 onShare: _share,
                 onReset: _reset,
                 onClear: _clear,
-                onLog: () {
-                  _dismissselectionMenu();
+                onLog: widget.tab.isLocal
+                    ? null
+                    : () {
+                        _dismissselectionMenu();
 
-                  setState(() {
-                    _showLogManually = true;
-                  });
-                },
+                        setState(() {
+                          _showLogManually = true;
+                        });
+                      },
                 onReconnect: () {
                   _dismissselectionMenu();
                   _reconnect();
@@ -434,6 +437,8 @@ class _SessionViewState extends _SessionViewBase
       ),
     );
 
+    if (paneOpen) _sftpInitialized = true;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -449,10 +454,12 @@ class _SessionViewState extends _SessionViewBase
                   index: paneOpen ? 1 : 0,
                   children: [
                     terminalArea,
-                    SftpPane(
-                      tab: widget.tab,
-                      active: widget.active && paneOpen,
-                    ),
+                    _sftpInitialized
+                        ? SftpPane(
+                            tab: widget.tab,
+                            active: widget.active && paneOpen,
+                          )
+                        : const SizedBox.shrink(),
                   ],
                 )
               : Row(

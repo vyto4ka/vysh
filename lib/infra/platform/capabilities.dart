@@ -62,8 +62,8 @@ abstract final class PlatformCapabilities {
   /// Список установленных шрифтов можно прочитать из системных папок.
   static bool get systemFontList => desktopWindow;
 
-  /// Ссылку можно открыть в браузере (на Android openWithSystem не работает).
-  static bool get openLinks => desktopWindow;
+  /// Ссылку можно открыть в браузере (на Android через ACTION_VIEW).
+  static bool get openLinks => desktopWindow || sharedDownloads;
 
   /// Можно узнать расход памяти процесса (ProcessInfo).
   static bool get memoryInfo => !kIsWeb;

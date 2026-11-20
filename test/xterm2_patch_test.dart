@@ -30,4 +30,14 @@ void main() {
     expect(_lastConfig(tester)['enableIMEPersonalizedLearning'], isTrue);
     expect(_lastConfig(tester)['inputType']['name'], isNot('TextInputType.visiblePassword'));
   });
+
+  test('KeytabInputHandler не отправляет shortcut-строки вроде scrollLineUp в терминал', () {
+    final output = <String>[];
+    final terminal = Terminal(onOutput: output.add);
+    terminal.keyInput(TerminalKey.arrowUp, shift: true);
+    terminal.keyInput(TerminalKey.pageUp, shift: true);
+    terminal.keyInput(TerminalKey.arrowDown, shift: true);
+    terminal.keyInput(TerminalKey.pageDown, shift: true);
+    expect(output.join(), isNot(contains('scroll')));
+  });
 }

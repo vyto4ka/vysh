@@ -227,52 +227,91 @@ class _SelectionBar extends StatelessWidget {
         color: scheme.secondaryContainer,
         borderRadius: BorderRadius.circular(22),
       ),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: context.strings.clearSelectionEsc,
-            icon: Icon(Icons.close, color: scheme.onSecondaryContainer),
-            onPressed: onClear,
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    context.strings.selectedCount(count),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(color: scheme.onSecondaryContainer),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final narrow = box.maxWidth < 480;
+          return Row(
+            children: [
+              IconButton(
+                tooltip: context.strings.clearSelectionEsc,
+                icon: Icon(Icons.close, color: scheme.onSecondaryContainer),
+                onPressed: onClear,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        context.strings.selectedCount(count),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: scheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ),
+                    if (!allSelected) ...[
+                      const SizedBox(width: 4),
+                      if (narrow)
+                        IconButton(
+                          tooltip: context.strings.selectEverything,
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(
+                            Icons.select_all,
+                            size: 20,
+                            color: scheme.onSecondaryContainer,
+                          ),
+                          onPressed: onSelectAll,
+                        )
+                      else
+                        TextButton(
+                          onPressed: onSelectAll,
+                          child: Text(context.strings.selectEverything),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+              if (narrow) ...[
+                IconButton.filled(
+                  tooltip: context.strings.connectAll(count),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onConnect,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                ),
+                const SizedBox(width: 4),
+                IconButton.filledTonal(
+                  tooltip: context.strings.delete,
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    backgroundColor: scheme.errorContainer,
+                    foregroundColor: scheme.onErrorContainer,
                   ),
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ] else ...[
+                FilledButton.icon(
+                  onPressed: onConnect,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(context.strings.connectAll(count)),
                 ),
                 const SizedBox(width: 8),
-                if (!allSelected)
-                  TextButton(
-                    onPressed: onSelectAll,
-                    child: Text(context.strings.selectEverything),
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.errorContainer,
+                    foregroundColor: scheme.onErrorContainer,
                   ),
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  label: Text(context.strings.delete),
+                ),
               ],
-            ),
-          ),
-          FilledButton.icon(
-            onPressed: onConnect,
-            icon: const Icon(Icons.play_arrow_rounded),
-            label: Text(context.strings.connectAll(count)),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.tonalIcon(
-            style: FilledButton.styleFrom(
-              backgroundColor: scheme.errorContainer,
-              foregroundColor: scheme.onErrorContainer,
-            ),
-            onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline),
-            label: Text(context.strings.delete),
-          ),
-          const SizedBox(width: 2),
-        ],
+              const SizedBox(width: 2),
+            ],
+          );
+        },
       ),
     );
   }

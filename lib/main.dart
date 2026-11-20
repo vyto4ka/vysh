@@ -101,6 +101,22 @@ Future<void> main(List<String> args) async {
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     await windowManager.ensureInitialized();
 
+    if (!profileFree) {
+      windowManager.waitUntilReadyToShow(
+        const WindowOptions(
+          size: Size(420, 220),
+          center: true,
+          title: 'vysh',
+        ),
+        () async {
+          await windowManager.show();
+          await windowManager.focus();
+        },
+      );
+      runApp(const _AlreadyRunning());
+      return;
+    }
+
     // Настройки нужны до показа окна: от них зависит, чей будет заголовок.
     final raw = JsonStore('settings.json').readSync();
     final settings = raw is Map<String, Object?>

@@ -418,7 +418,13 @@ mixin _PointerGestures on _SessionViewBase {
       return;
     }
 
-    _touchStartLocal = event.localPosition;
+    final terminal = _terminal;
+    if (terminal != null && terminal.mouseMode != MouseMode.none) {
+      return;
+    }
+
+    final geometry = _geometry;
+    _touchStartLocal = geometry?.globalToLocal(event.position) ?? event.localPosition;
     _touchStartGlobal = event.position;
     _isSelecting = false;
 
@@ -452,7 +458,10 @@ mixin _PointerGestures on _SessionViewBase {
       final geometry = _geometry;
 
       if (startLocal != null && geometry != null) {
-        geometry.selectCharacters(startLocal, event.localPosition);
+        geometry.selectCharacters(
+          startLocal,
+          geometry.globalToLocal(event.position),
+        );
       }
     }
   }

@@ -46,19 +46,15 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
         'PROMPT': windowsDirectoryPrompt(Platform.environment['PROMPT']),
     };
 
-    // Windows и Android: настоящий псевдотерминал (ConPTY / forkpty).
-    // Без него на Windows cmd запускается по пайпам: нет эха, нет
-    // мигающего курсора и не работает Ctrl+C - только заголовок cmd.
-    if (Platform.isAndroid || Platform.isWindows) {
-      final pty = _tryStartPty(
-        shell,
-        columns,
-        rows,
-        environment,
-        workingDirectory: workingDirectory,
-      );
-      if (pty != null) return pty;
-    }
+    // Настоящий псевдотерминал (ConPTY на Windows, forkpty на Linux/macOS/Android).
+    final pty = _tryStartPty(
+      shell,
+      columns,
+      rows,
+      environment,
+      workingDirectory: workingDirectory,
+    );
+    if (pty != null) return pty;
 
     if (!Platform.isWindows && !Platform.isAndroid) {
       final script = _findExecutable('script');
@@ -72,7 +68,11 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
             environment,
             workingDirectory: workingDirectory,
           );
-        } catch (_) {}
+        } catch (e, st) {
+          if (kDebugMode) {
+            debugPrint('Local shell script PTY fallback failed: $e\n$st');
+          }
+        }
       }
     }
 
@@ -129,6 +129,16 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
       if (name == 'cmd.exe' || name == 'cmd') {
         return const [];
       }
+      return _directArguments();
+    }
+    if (Platform.isMacOS) {
+      return _loginFlag(shell).isNotEmpty ? const ['-l'] : const [];
+    }
+    if (Platform.isLinux) {
+      // На Linux интерактивный PTY-шелл запускается без -l (как в Kitty/Alacritty),
+      // чтобы не выполнять повторный автостарт WM/Hyprland из ~/.bash_profile
+      // и корректно работать с fish/nushell.
+      return const [];
     }
     return _directArguments();
   }
@@ -155,10 +165,13 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
           workingDirectory: workingDirectory,
         );
       } else {
+        // util-linux script выполняет -c через $SHELL: если у пользователя fish
+        // или nushell, POSIX-команда с `$$` упадёт. Принудительно задаём /bin/sh
+        // для script, а внутри команды восстанавливаем SHELL и делаем exec.
         process = await Process.start(
           script,
           ['-q', '-f', '-c', command, '/dev/null'],
-          environment: environment,
+          environment: {...environment, 'SHELL': '/bin/sh'},
           workingDirectory: workingDirectory,
         );
       }
@@ -171,7 +184,7 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
 
     String? tty;
     int? pid;
-    for (var attempt = 0; attempt < 20; attempt++) {
+    for (var attempt = 0; attempt < 80; attempt++) {
       try {
         final lines = await control.readAsLines();
         if (lines.length >= 2) {
@@ -206,9 +219,10 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
   String _ptyCommand(String shell, String controlPath, int columns, int rows) {
     final control = _quote(controlPath);
     final executable = _quote(shell);
+    final login = Platform.isMacOS ? _loginFlag(shell) : '';
     return 'tty > $control; echo \$\$ >> $control; '
         'stty rows $rows cols $columns 2>/dev/null; '
-        'exec $executable${_loginFlag(shell)}';
+        'export SHELL=$executable; exec $executable$login';
   }
 
   List<String> _directArguments() {
@@ -232,10 +246,18 @@ class ProcessLocalShellLauncher implements LocalShellLauncher {
     if (shell != null && shell.isNotEmpty && File(shell).existsSync()) {
       return shell;
     }
-    for (final candidate in const ['/bin/bash', '/bin/zsh', '/bin/sh']) {
+    for (final candidate in const [
+      '/bin/bash',
+      '/usr/bin/bash',
+      '/bin/zsh',
+      '/usr/bin/zsh',
+      '/usr/bin/fish',
+      '/bin/sh',
+      '/usr/bin/sh',
+    ]) {
       if (File(candidate).existsSync()) return candidate;
     }
-    return '/bin/sh';
+    return _findExecutable('bash') ?? _findExecutable('sh') ?? '/bin/sh';
   }
 
   String _loginFlag(String shell) {

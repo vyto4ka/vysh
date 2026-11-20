@@ -28,6 +28,35 @@ class LocalFiles {
     }
   }
 
+  /// Родительская папка для локального пути (учитывает корни дисков Windows `C:\`).
+  static String parentPath(String path) {
+    if (kIsWeb || !Platform.isWindows) {
+      final clean = path.length > 1 && path.endsWith('/')
+          ? path.substring(0, path.length - 1)
+          : path;
+      final i = clean.lastIndexOf('/');
+      return i <= 0 ? '/' : clean.substring(0, i);
+    }
+    var clean = path.replaceAll('/', '\\');
+    while (clean.length > 3 && clean.endsWith('\\')) {
+      clean = clean.substring(0, clean.length - 1);
+    }
+    if (RegExp(r'^[A-Za-z]:\\?$').hasMatch(clean)) {
+      return '${clean.substring(0, 2)}\\';
+    }
+    final i = clean.lastIndexOf('\\');
+    if (i < 0) return clean;
+    if (i == 2 && clean[1] == ':') return '${clean.substring(0, 2)}\\';
+    return i == 0 ? '\\' : clean.substring(0, i);
+  }
+
+  /// Является ли локальный путь корневым (`/` или `C:\`).
+  static bool isRootPath(String path) {
+    if (kIsWeb || !Platform.isWindows) return path == '/';
+    return RegExp(r'^[A-Za-z]:\\?$').hasMatch(path.replaceAll('/', '\\')) ||
+        path == '\\';
+  }
+
   // ─── Общая папка Download на Android ────────────────────────────
 
   static const _filesChannel = MethodChannel('uwu.vyto4ka.vysh/local_files');
@@ -74,6 +103,37 @@ class LocalFiles {
         throw const LocalFileFailure(LocalFileError.storagePermissionDenied);
       }
       throw LocalFileFailure(LocalFileError.publishFailed, {'detail': e.message ?? e.code});
+    }
+  }
+
+  /// Есть ли на Android доступ ко всему хранилищу устройства (/storage/emulated/0).
+  static Future<bool> hasStorageAccess() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    try {
+      return await _filesChannel.invokeMethod<bool>('hasStorageAccess') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Запросить у пользователя доступ ко всем файлам на Android (MANAGE_EXTERNAL_STORAGE
+  /// на Android 11+ или READ/WRITE_EXTERNAL_STORAGE на Android 8-10).
+  static Future<bool> requestStorageAccess() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    try {
+      return await _filesChannel.invokeMethod<bool>('requestStorageAccess') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Корень пользовательского хранилища Android (обычно `/storage/emulated/0`).
+  static Future<String?> externalStorageRoot() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      return await _filesChannel.invokeMethod<String>('externalStorageRoot');
+    } catch (_) {
+      return null;
     }
   }
 
@@ -269,6 +329,12 @@ class LocalFiles {
       );
       if (r.exitCode != 0) {
         throw LocalFileFailure(LocalFileError.openFailed, {'detail': '${r.stderr}'.trim()});
+      }
+    } else if (Platform.isAndroid) {
+      try {
+        await _filesChannel.invokeMethod<bool>('openFile', {'path': path});
+      } on PlatformException catch (e) {
+        throw LocalFileFailure(LocalFileError.openFailed, {'detail': e.message ?? e.code});
       }
     } else if (Platform.isMacOS) {
       await Process.start('open', [path], mode: ProcessStartMode.detached);

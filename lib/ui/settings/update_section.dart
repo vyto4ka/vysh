@@ -57,7 +57,8 @@ class _UpdateSectionState extends ConsumerState<UpdateSection> {
         const SizedBox(height: 4),
         _UpdateStatusLine(
           info: update.value ?? _manualInfo,
-          loading: update.isLoading,
+          loading: update.isLoading || _checking,
+          hasError: update.hasError && _manualInfo == null,
           autoCheckEnabled: s.checkForUpdates,
           strings: strings,
           onCheck: () => _checkNow(context),
@@ -67,8 +68,12 @@ class _UpdateSectionState extends ConsumerState<UpdateSection> {
     );
   }
 
+  bool _checking = false;
+
   Future<void> _checkNow(BuildContext context) async {
+    if (_checking) return;
     final strings = context.strings;
+    setState(() => _checking = true);
     try {
       final info = await UpdateService.checkForUpdate(force: true);
       ref.invalidate(updateInfoProvider);
@@ -86,6 +91,13 @@ class _UpdateSectionState extends ConsumerState<UpdateSection> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(strings.updateCheckFailure(e))),
       );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(strings.updateCheckFailed)),
+      );
+    } finally {
+      if (mounted) setState(() => _checking = false);
     }
   }
 }
@@ -94,6 +106,7 @@ class _UpdateStatusLine extends StatelessWidget {
   const _UpdateStatusLine({
     required this.info,
     required this.loading,
+    required this.hasError,
     required this.autoCheckEnabled,
     required this.strings,
     required this.onCheck,
@@ -102,6 +115,7 @@ class _UpdateStatusLine extends StatelessWidget {
 
   final UpdateInfo? info;
   final bool loading;
+  final bool hasError;
   final bool autoCheckEnabled;
   final AppStrings strings;
   final VoidCallback onCheck;
@@ -128,11 +142,17 @@ class _UpdateStatusLine extends StatelessWidget {
                 ? 'vysh ${current.displayLatestVersion} · ${current.formattedSize}'
                 : loading
                     ? strings.updateCheck
-                    : autoCheckEnabled
-                        ? strings.updateLatest
-                        : '',
+                    : hasError
+                        ? strings.updateCheckFailed
+                        : autoCheckEnabled
+                            ? strings.updateLatest
+                            : '',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: current != null ? scheme.onSurface : scheme.onSurfaceVariant,
+              color: current != null
+                  ? scheme.onSurface
+                  : hasError
+                      ? scheme.error
+                      : scheme.onSurfaceVariant,
             ),
           ),
         ),

@@ -4,6 +4,7 @@ export 'package:xterm2/src/core/input/kitty_handler.dart';
 import 'package:xterm2/src/core/input/event.dart';
 import 'package:xterm2/src/core/input/keys.dart';
 import 'package:xterm2/src/core/input/keytab/keytab.dart';
+import 'package:xterm2/src/core/input/keytab/keytab_record.dart';
 import 'package:xterm2/src/core/input/kitty_handler.dart';
 import 'package:xterm2/src/core/platform.dart';
 
@@ -210,7 +211,7 @@ class KeytabInputHandler implements TerminalInputHandler {
       appScreen: event.altBuffer,
       macos: event.platform == TerminalTargetPlatform.macos,
     );
-    if (record == null) {
+    if (record == null || record.action.type == KeytabActionType.shortcut) {
       return null;
     }
 

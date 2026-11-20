@@ -56,35 +56,17 @@ class Pty {
   }) {
     _ensureInitialized();
 
-    final effectiveEnv = <String, String>{};
+    final effectiveEnv = <String, String>{...Platform.environment};
 
     effectiveEnv['TERM'] = 'xterm-256color';
-    // Without this, tools like "vi" produce sequences that are not UTF-8 friendly
+    // Сохраняем системную локаль (например, ru_RU.UTF-8); en_US.UTF-8 ставим
+    // только если локаль не задана или равна C/POSIX.
     if (!Platform.isWindows) {
-      effectiveEnv['LANG'] = 'en_US.UTF-8';
-    }
-
-    if (Platform.isWindows) {
-      // Windows: полное окружение родительского процесса. Белый список из 6
-      // переменных ломал cmd: без SYSTEMROOT не работал WSL и падали
-      // некоторые системные вызовы, без COMSPEC/TMP/USERPROFILE ломались
-      // вложенные powershell и скрипты. Пустое или неполное окружение у
-      // CreateProcessW на Windows не «наследуется» само.
-      effectiveEnv.addAll(Platform.environment);
-    } else {
-      const envValuesToCopy = {
-        'LOGNAME',
-        'USER',
-        'DISPLAY',
-        'LC_TYPE',
-        'HOME',
-        'PATH'
-      };
-
-      for (var entry in Platform.environment.entries) {
-        if (envValuesToCopy.contains(entry.key)) {
-          effectiveEnv[entry.key] = entry.value;
-        }
+      final lang = effectiveEnv['LANG'] ?? '';
+      final lcAll = effectiveEnv['LC_ALL'] ?? '';
+      if ((lang.isEmpty || lang == 'C' || lang == 'POSIX') &&
+          (lcAll.isEmpty || lcAll == 'C' || lcAll == 'POSIX')) {
+        effectiveEnv['LANG'] = 'en_US.UTF-8';
       }
     }
 
@@ -95,10 +77,17 @@ class Pty {
     }
 
     // build argv
+    final nativeStrings = <Pointer<Utf8>>[];
+    Pointer<Utf8> allocUtf8(String value) {
+      final ptr = value.toNativeUtf8();
+      nativeStrings.add(ptr);
+      return ptr;
+    }
+
     final argv = calloc<Pointer<Utf8>>(arguments.length + 2);
-    argv.elementAt(0).value = executable.toNativeUtf8();
+    argv.elementAt(0).value = allocUtf8(executable);
     for (var i = 0; i < arguments.length; i++) {
-      argv.elementAt(i + 1).value = arguments[i].toNativeUtf8();
+      argv.elementAt(i + 1).value = allocUtf8(arguments[i]);
     }
     argv.elementAt(arguments.length + 1).value = nullptr;
 
@@ -112,14 +101,14 @@ class Pty {
     final envp = calloc<Pointer<Utf8>>(envEntries.length + 1);
     for (var i = 0; i < envEntries.length; i++) {
       final entry = envEntries[i];
-      envp.elementAt(i).value = '${entry.key}=${entry.value}'.toNativeUtf8();
+      envp.elementAt(i).value = allocUtf8('${entry.key}=${entry.value}');
     }
     envp.elementAt(envEntries.length).value = nullptr;
 
     final options = calloc<PtyOptions>();
     options.ref.rows = rows;
     options.ref.cols = columns;
-    options.ref.executable = executable.toNativeUtf8().cast();
+    options.ref.executable = allocUtf8(executable).cast();
     options.ref.arguments = argv.cast();
     options.ref.environment = envp.cast();
     options.ref.stdout_port = _stdoutPort.sendPort.nativePort;
@@ -127,14 +116,21 @@ class Pty {
     options.ref.ackRead = ackRead;
 
     if (workingDirectory != null) {
-      options.ref.working_directory = workingDirectory.toNativeUtf8().cast();
+      options.ref.working_directory = allocUtf8(workingDirectory).cast();
     } else {
       options.ref.working_directory = nullptr;
     }
 
-    _handle = _bindings.pty_create(options);
-
-    calloc.free(options);
+    try {
+      _handle = _bindings.pty_create(options);
+    } finally {
+      calloc.free(options);
+      calloc.free(argv);
+      calloc.free(envp);
+      for (final ptr in nativeStrings) {
+        calloc.free(ptr);
+      }
+    }
 
     if (_handle == nullptr) {
       throw StateError('Failed to create PTY: ${_getPtyError()}');

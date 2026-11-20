@@ -107,8 +107,13 @@ class TypedCommand {
   String text = '';
 
   void feed(String data) {
-    for (var i = 0; i < data.length; i++) {
+    var i = 0;
+    while (i < data.length) {
       final code = data.codeUnitAt(i);
+      if (code == 0x1b) {
+        i = _skipEscape(data, i);
+        continue;
+      }
       if (code == 13 || code == 10 || code == 3 || code == 21) {
         // Enter, ^C, ^U.
         text = '';
@@ -122,6 +127,40 @@ class TypedCommand {
       } else if (code >= 32) {
         text += String.fromCharCode(code);
       }
+      i++;
     }
+  }
+
+  /// Пропускает ANSI escape-последовательность, начинающуюся с `\x1b` на [start].
+  static int _skipEscape(String data, int start) {
+    final next = start + 1;
+    if (next >= data.length) return next;
+    final c = data.codeUnitAt(next);
+    if (c == 0x5b /* [ CSI */) {
+      var j = next + 1;
+      while (j < data.length) {
+        final b = data.codeUnitAt(j);
+        j++;
+        if (b >= 0x40 && b <= 0x7e) break;
+      }
+      return j;
+    }
+    if (c == 0x4f /* O SS3 */) {
+      return next + 2 <= data.length ? next + 2 : data.length;
+    }
+    if (c == 0x5d /* ] OSC */) {
+      var j = next + 1;
+      while (j < data.length) {
+        final b = data.codeUnitAt(j);
+        if (b == 0x07) return j + 1;
+        if (b == 0x1b && j + 1 < data.length && data.codeUnitAt(j + 1) == 0x5c) {
+          return j + 2;
+        }
+        j++;
+      }
+      return j;
+    }
+    // Alt+символ (ESC + 1 символ).
+    return next + 1;
   }
 }

@@ -64,7 +64,7 @@
 | Терминал | **`xterm2`** | Поддерживаемый форк `xterm.dart`. Своя копия с правками в `third_party/xterm2` (клавиатура Android не в анонимном режиме) |
 | Окно | `window_manager`, `screen_retriever` | Управление декорациями, размером, положением |
 | Секреты | `flutter_secure_storage` | DPAPI на Windows, Secret Service на Linux, Keychain на macOS, Android Keystore. Vault-файл - позже, см. 3.5 |
-| Файлы | `file_selector`, `desktop_drop`, `path_provider` | Диалоги выбора, файлы из ОС в окно, системные папки |
+| Файлы | `file_selector`, `super_drag_and_drop`, `super_clipboard`, `path_provider` | Диалоги выбора, drag&drop в обе стороны, системные папки |
 | Отрисовка | Skia по умолчанию | Impeller держит заметно больше памяти; переключается в настройках, применяется после перезапуска |
 
 Версия Flutter закреплена в workflow CI (сейчас 3.47.6).
@@ -187,7 +187,7 @@
 ## 5. Окно и оконные менеджеры
 
 Принцип: **обычное окно, никаких хаков.**
-- `app_id` / `WM_CLASS` = `vysh` → работают правила Hyprland/sway/i3 (`windowrule = ..., class:vysh`).
+- `app_id` / `WM_CLASS` = `dev.vysh.vysh` → работают правила Hyprland/sway/i3 (`windowrule = ..., class:dev.vysh.vysh`).
 - Нет фиксированных размеров и самовольного позиционирования, разумный минимальный размер, без «поверх всех». Размер и положение окна восстанавливаются (в Wayland положение решает композитор).
 - **Заголовок: `auto | system | custom`** (в настройках два варианта, `auto` - по умолчанию)
   - `system` - рамку рисует WM (на тайлинге её просто нет), вкладки в контенте;

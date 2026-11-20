@@ -2,13 +2,12 @@
 
 Копия [xterm2](https://github.com/SoFluffyOS/xterm2) 5.2.0 (MIT, см. LICENSE) с одной правкой. Правка целиком лежит в [`vysh.patch`](vysh.patch); кроме неё, `lib/` совпадает с архивом pub.dev (sha256 `0b62e751…8149`).
 
-## Правка
+## Правки
 
-В оригинале `CustomTextEdit` жёстко задаёт `enableSuggestions: false` и `enableIMEPersonalizedLearning: false`. На Android из-за второго флага Gboard и другие клавиатуры открываются в анонимном режиме: клавиатуре запрещено обучение.
+1. **Обучение экранной клавиатуры Android:** в оригинале `CustomTextEdit` жёстко задаёт `enableSuggestions: false` и `enableIMEPersonalizedLearning: false`. На Android из-за второго флага Gboard и другие клавиатуры открываются в анонимном режиме: клавиатуре запрещено обучение. Оба флага стали параметрами `TerminalView`, по умолчанию `false`, как в оригинале. vysh передаёт `enableIMEPersonalizedLearning: true` (`lib/ui/terminal/session_view.dart`); `enableSuggestions` остаётся `false`.
+2. **Игнорирование `KeytabActionType.shortcut` в `KeytabInputHandler`:** в оригинале при нажатии `Shift+Up`/`Shift+PgUp` в основном буфере обработчик возвращал имя шортката (`"scrollLineUp"`, `"scrollPageUp"`) и отправлял его буквальным текстом в оболочку.
 
-Оба флага стали параметрами `TerminalView`, по умолчанию `false`, как в оригинале. vysh передаёт `enableIMEPersonalizedLearning: true` (`lib/ui/terminal/session_view.dart`); `enableSuggestions` остаётся `false`: подсказки над строкой терминала не нужны, и для анонимного режима этот флаг значения не имеет. Проверено на устройстве в 0.4.2.
-
-Тест: `test/xterm2_patch_test.dart` проверяет, что флаг доходит до системного ввода.
+Тест: `test/xterm2_patch_test.dart` проверяет обе правки.
 
 ## Проверка и обновление
 

@@ -66,20 +66,27 @@ class _TransfersViewState extends ConsumerState<TransfersView> {
                   ),
                 ),
                 const SizedBox(width: 6),
-                Text(
-                  active > 0 ? s.transfersActive(active) : s.transfersDone,
-                  style: theme.textTheme.labelMedium,
-                ),
-                if (failed > 0) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    s.transfersFailed(failed),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: scheme.error,
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: active > 0
+                              ? s.transfersActive(active)
+                              : s.transfersDone,
+                        ),
+                        if (failed > 0)
+                          TextSpan(
+                            text: ' · ${s.transfersFailed(failed)}',
+                            style: TextStyle(color: scheme.error),
+                          ),
+                      ],
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium,
                   ),
-                ],
-                const Spacer(),
+                ),
                 if (active > 0)
                   TextButton(
                     style: TextButton.styleFrom(

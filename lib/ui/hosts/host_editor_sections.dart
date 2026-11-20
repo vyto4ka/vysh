@@ -137,11 +137,13 @@ class _AuthSection extends StatelessWidget {
               label: Text(strings.authKey),
               icon: const Icon(Icons.key),
             ),
-            ButtonSegment(
-              value: AuthMethod.agent,
-              label: Text(strings.authAuto),
-              icon: const Icon(Icons.auto_awesome),
-            ),
+            if (!PlatformCapabilities.sharedDownloads ||
+                form.auth == AuthMethod.agent)
+              ButtonSegment(
+                value: AuthMethod.agent,
+                label: Text(strings.authAuto),
+                icon: const Icon(Icons.auto_awesome),
+              ),
           ],
           selected: {form.auth},
           onSelectionChanged: (s) => form.auth = s.first,
@@ -340,7 +342,7 @@ class _EditorActions extends StatelessWidget {
     Widget withShortcut(String keys, Widget child) =>
         DesktopEnv.isDesktop ? Tooltip(message: keys, child: child) : child;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 24, 16),
+      padding: const EdgeInsets.fromLTRB(12, 10, 16, 14),
       child: Row(
         children: [
           if (onDelete != null)
@@ -351,17 +353,26 @@ class _EditorActions extends StatelessWidget {
               icon: const Icon(Icons.delete_outline),
             ),
           const Spacer(),
-          withShortcut(
-            PlatformCapabilities.isMacOS ? '⌘⇧Enter' : 'Ctrl+Shift+Enter',
-            TextButton(
-              onPressed: saving ? null : onSaveAndConnect,
-              child: Text(strings.saveAndConnect),
+          Flexible(
+            child: withShortcut(
+              PlatformCapabilities.isMacOS ? '⌘⇧Enter' : 'Ctrl+Shift+Enter',
+              TextButton(
+                onPressed: saving ? null : onSaveAndConnect,
+                child: Text(
+                  strings.saveAndConnect,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           withShortcut(
             PlatformCapabilities.isMacOS ? '⌘Enter' : 'Ctrl+Enter',
-            FilledButton(onPressed: saving ? null : onSave, child: Text(strings.save)),
+            FilledButton(
+              onPressed: saving ? null : onSave,
+              child: Text(strings.save),
+            ),
           ),
         ],
       ),

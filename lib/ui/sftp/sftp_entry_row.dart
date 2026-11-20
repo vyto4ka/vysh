@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/ports/sftp.dart';
+import '../../infra/platform/desktop_env.dart';
 import '../../l10n/app_strings.dart';
 
 /// Строки списка панели файлов: запись папки и заглушка пустого состояния.
@@ -72,6 +74,7 @@ class SftpEntryRow extends StatelessWidget {
     final scheme = theme.colorScheme;
     final e = entry;
     final dim = scheme.onSurfaceVariant;
+    final mobile = DesktopEnv.isMobile;
 
     final icon = e == null
         ? Icons.subdirectory_arrow_left
@@ -98,95 +101,134 @@ class SftpEntryRow extends StatelessWidget {
                         : null,
                   ),
                 Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: enabled ? onTap : null,
-                    onDoubleTap: enabled ? onDoubleTap : null,
-                    onSecondaryTapUp: enabled
-                        ? (d) => onSecondary(d.globalPosition)
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onLongPressStart: enabled && mobile && e != null
+                        ? (d) {
+                            HapticFeedback.mediumImpact();
+                            onSecondary(d.globalPosition);
+                          }
                         : null,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight:
-                            Theme.of(context).visualDensity ==
-                                VisualDensity.compact
-                            ? 48
-                            : 56,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: enabled ? onTap : null,
+                      // На телефоне без onDoubleTap уходит 300 мс задержка тапа.
+                      onDoubleTap: enabled && !mobile ? onDoubleTap : null,
+                      onSecondaryTapUp: enabled
+                          ? (d) => onSecondary(d.globalPosition)
+                          : null,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight:
+                              Theme.of(context).visualDensity ==
+                                  VisualDensity.compact
+                              ? 48
+                              : 56,
                         ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: selected
-                                    ? scheme.secondaryContainer
-                                    : e?.isDir == true
-                                    ? scheme.secondaryContainer
-                                    : scheme.surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                selected && !showSelection
-                                    ? Icons.check_circle
-                                    : icon,
-                                size: 20,
-                                color: selected
-                                    ? scheme.onSecondaryContainer
-                                    : e?.isDir == true
-                                    ? scheme.onSecondaryContainer
-                                    : iconColor,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                e?.name ?? '..',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium?.copyWith(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            12,
+                            4,
+                            mobile && e != null ? 4 : 12,
+                            4,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: selected
+                                      ? scheme.secondaryContainer
+                                      : e?.isDir == true
+                                      ? scheme.secondaryContainer
+                                      : scheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  selected && !showSelection
+                                      ? Icons.check_circle
+                                      : icon,
+                                  size: 20,
                                   color: selected
                                       ? scheme.onSecondaryContainer
-                                      : e != null && e.isHidden
-                                      ? dim
-                                      : scheme.onSurface,
+                                      : e?.isDir == true
+                                      ? scheme.onSecondaryContainer
+                                      : iconColor,
                                 ),
                               ),
-                            ),
-                            if (e != null) ...[
-                              if (!e.isDir)
-                                SizedBox(
-                                  width: 72,
-                                  child: Text(
-                                    strings.bytes(e.size),
-                                    textAlign: TextAlign.end,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: dim,
-                                    ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  e?.name ?? '..',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: selected
+                                        ? scheme.onSecondaryContainer
+                                        : e != null && e.isHidden
+                                        ? dim
+                                        : scheme.onSurface,
                                   ),
                                 ),
-                              if (box.maxWidth > 500) ...[
-                                const SizedBox(width: 12),
-                                Tooltip(
-                                  message: e.permissions,
-                                  child: SizedBox(
-                                    width: 112,
+                              ),
+                              if (e != null) ...[
+                                if (!e.isDir)
+                                  SizedBox(
+                                    width: 68,
                                     child: Text(
-                                      _date(e.modified, strings),
+                                      strings.bytes(e.size),
                                       textAlign: TextAlign.end,
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(color: dim),
                                     ),
                                   ),
-                                ),
+                                if (box.maxWidth > 500) ...[
+                                  const SizedBox(width: 12),
+                                  Tooltip(
+                                    message: e.permissions,
+                                    child: SizedBox(
+                                      width: 112,
+                                      child: Text(
+                                        _date(e.modified, strings),
+                                        textAlign: TextAlign.end,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(color: dim),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                if (mobile)
+                                  Builder(
+                                    builder: (btnCtx) => IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      iconSize: 20,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 36,
+                                      ),
+                                      icon: Icon(Icons.more_vert, color: dim),
+                                      onPressed: enabled
+                                          ? () {
+                                              final box =
+                                                  btnCtx.findRenderObject()
+                                                      as RenderBox?;
+                                              final pos = box != null
+                                                  ? box.localToGlobal(
+                                                      box.size.center(
+                                                        Offset.zero,
+                                                      ),
+                                                    )
+                                                  : Offset.zero;
+                                              onSecondary(pos);
+                                            }
+                                          : null,
+                                    ),
+                                  ),
                               ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),

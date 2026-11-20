@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,8 @@ import '../../app/controllers/tabs_controller.dart';
 import '../../app/terminal/session_auth.dart' show expandHome;
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
+import '../../infra/platform/local_files.dart';
+import '../../infra/storage/app_paths.dart';
 import '../theme/app_theme.dart';
 import '../widgets/strings_context.dart';
 import 'host_form.dart';
@@ -100,9 +104,31 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
   Future<void> _pickKey() async {
     final file = await openFile(
       confirmButtonText: context.strings.choose,
-      initialDirectory: expandHome('~/.ssh'),
+      initialDirectory: PlatformCapabilities.sharedDownloads
+          ? null
+          : expandHome('~/.ssh'),
     );
-    if (file != null) _form.keyPath.text = file.path;
+    if (file == null) return;
+    if (PlatformCapabilities.sharedDownloads) {
+      // На Android file_selector возвращает копию из cacheDir, которую ОС
+      // может очистить. Копируем ключ в постоянную папку профиля `keys/`.
+      try {
+        final keysDir = Directory(
+          LocalFiles.join(AppPaths.configDir.path, 'keys'),
+        );
+        await keysDir.create(recursive: true);
+        final name = LocalFiles.safeName(file.name);
+        final target = File(LocalFiles.uniquePath(keysDir.path, name));
+        try {
+          await target.writeAsBytes(await file.readAsBytes(), flush: true);
+        } finally {
+          LocalFiles.releasePath(target.path);
+        }
+        _form.keyPath.text = target.path;
+        return;
+      } catch (_) {}
+    }
+    _form.keyPath.text = file.path;
   }
 
   Future<void> _save({bool connect = false}) async {
@@ -143,8 +169,33 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
     }
   }
 
-  void _delete() {
-    ref.read(hostsProvider.notifier).remove(widget.host!.id);
+  Future<void> _delete() async {
+    final host = widget.host!;
+    final scheme = Theme.of(context).colorScheme;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(Icons.delete_outline, color: scheme.error),
+        title: Text(context.strings.deleteHostsTitle(1)),
+        content: Text(context.strings.deleteHostsDesc([host.title])),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.strings.cancel),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.strings.delete),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    ref.read(hostsProvider.notifier).remove(host.id);
     Navigator.of(context).pop();
   }
 
@@ -156,6 +207,8 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
     final strings = AppStrings.of(context, lang);
     final groups = ref.watch(hostGroupsProvider);
     final width = MediaQuery.sizeOf(context).width;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final fullWidth = width < 520;
     final title = _isEdit
         ? strings.editHostTitle
         : (widget.duplicate ? strings.duplicateHostTitle : strings.newHostTitle);
@@ -175,59 +228,66 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
       child: Material(
         color: scheme.surfaceContainerLow,
         elevation: 2,
-        borderRadius: const BorderRadius.horizontal(left: Radius.circular(28)),
+        borderRadius: fullWidth
+            ? BorderRadius.zero
+            : const BorderRadius.horizontal(left: Radius.circular(28)),
         clipBehavior: Clip.antiAlias,
         child: SizedBox(
-          width: width < 520 ? width : 460,
+          width: fullWidth ? width : 460,
           height: double.infinity,
-          child: SafeArea(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 28, 12, 8),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(title, style: theme.textTheme.titleLarge)),
-                        IconButton(
-                          tooltip: DesktopEnv.isDesktop ? '${strings.close} (Esc)' : strings.close,
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListenableBuilder(
-                      listenable: _form,
-                      builder: (context, _) => ListView(
-                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 100),
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: SafeArea(
+              bottom: bottomInset == 0,
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 28, 12, 8),
+                      child: Row(
                         children: [
-                          _ConnectionSection(form: _form, strings: strings, autofocus: !_isEdit),
-                          _AuthSection(
-                            form: _form,
-                            strings: strings,
-                            hasSavedPassword: _hasSavedPassword,
-                            onPickKey: _pickKey,
+                          Expanded(child: Text(title, style: theme.textTheme.titleLarge)),
+                          IconButton(
+                            tooltip: DesktopEnv.isDesktop ? '${strings.close} (Esc)' : strings.close,
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close),
                           ),
-                          _ListSection(form: _form, strings: strings, groups: groups),
-                          const SizedBox(height: 16),
-                          _KeepAliveSection(form: _form, strings: strings),
                         ],
                       ),
                     ),
-                  ),
-                  const Divider(),
-                  _EditorActions(
-                    strings: strings,
-                    saving: _saving,
-                    onDelete: _isEdit ? _delete : null,
-                    onSave: _save,
-                    onSaveAndConnect: () => _save(connect: true),
-                  ),
-                ],
+                    Expanded(
+                      child: ListenableBuilder(
+                        listenable: _form,
+                        builder: (context, _) => ListView(
+                          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                          children: [
+                            _ConnectionSection(form: _form, strings: strings, autofocus: !_isEdit),
+                            _AuthSection(
+                              form: _form,
+                              strings: strings,
+                              hasSavedPassword: _hasSavedPassword,
+                              onPickKey: _pickKey,
+                            ),
+                            _ListSection(form: _form, strings: strings, groups: groups),
+                            const SizedBox(height: 16),
+                            _KeepAliveSection(form: _form, strings: strings),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Divider(),
+                    _EditorActions(
+                      strings: strings,
+                      saving: _saving,
+                      onDelete: _isEdit ? _delete : null,
+                      onSave: _save,
+                      onSaveAndConnect: () => _save(connect: true),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -25,9 +25,13 @@ class KnownHostKey {
 class KnownHosts {
   KnownHosts(this._store) {
     final raw = _store.readSync();
-    if (raw is Map<String, Object?>) {
+    if (raw is Map) {
       raw.forEach((k, v) {
-        if (v is Map<String, Object?>) _entries[k] = KnownHostKey.fromJson(v);
+        if (k is String && v is Map) {
+          _entries[k] = KnownHostKey.fromJson(
+            v is Map<String, Object?> ? v : Map<String, Object?>.from(v),
+          );
+        }
       });
     }
   }

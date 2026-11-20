@@ -1,7 +1,9 @@
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <pthread.h>
 #include <unistd.h>
@@ -60,7 +62,14 @@ static void *read_loop(void *arg)
 
         if (n < 0)
         {
-            // TODO: handle error
+            if (errno == EINTR)
+            {
+                if (options->waitForReadAck)
+                {
+                    pthread_mutex_unlock(options->mutex);
+                }
+                continue;
+            }
             break;
         }
 
@@ -78,6 +87,8 @@ static void *read_loop(void *arg)
         Dart_PostCObject_DL(options->port, &result);
     }
 
+    close(options->fd);
+    free(options);
     return NULL;
 }
 
@@ -95,7 +106,15 @@ static void start_read_thread(int fd, Dart_Port port, pthread_mutex_t *mutex, bo
 
     pthread_t _thread;
 
-    pthread_create(&_thread, NULL, &read_loop, options);
+    if (pthread_create(&_thread, NULL, &read_loop, options) == 0)
+    {
+        pthread_detach(_thread);
+    }
+    else
+    {
+        close(fd);
+        free(options);
+    }
 }
 
 typedef struct WaitExitOptions
@@ -110,9 +129,11 @@ static void *wait_exit_thread(void *arg)
 {
     WaitExitOptions *options = (WaitExitOptions *)arg;
 
-    int status;
+    int status = 0;
 
-    waitpid(options->pid, &status, 0);
+    while (waitpid(options->pid, &status, 0) < 0 && errno == EINTR)
+    {
+    }
 
     if (WIFEXITED(status))
     {
@@ -123,6 +144,7 @@ static void *wait_exit_thread(void *arg)
         Dart_PostInteger_DL(options->port, -WTERMSIG(status));
     }
 
+    free(options);
     return NULL;
 }
 
@@ -136,7 +158,14 @@ static void start_wait_exit_thread(int pid, Dart_Port port)
 
     pthread_t _thread;
 
-    pthread_create(&_thread, NULL, &wait_exit_thread, options);
+    if (pthread_create(&_thread, NULL, &wait_exit_thread, options) == 0)
+    {
+        pthread_detach(_thread);
+    }
+    else
+    {
+        free(options);
+    }
 }
 
 static void set_environment(char **environment)
@@ -186,6 +215,7 @@ FFI_PLUGIN_EXPORT PtyHandle *pty_create(PtyOptions *options)
         {
             perror("execvp");
         }
+        _exit(127);
     }
 
     PtyHandle *handle = (PtyHandle *)malloc(sizeof(PtyHandle));

@@ -237,8 +237,8 @@ class AppStrings {
         : (mac ? 'Terminal style. Paste with ⌘V' : 'Linux terminal style. Paste with Ctrl+Shift+V');
   }
   String get accessoryBarTitle => isRu
-      ? 'Панель горячих клавиш (Ctrl, Esc, стрелки)'
-      : 'Terminal accessory bar (Ctrl, Esc, arrows)';
+      ? 'Панель горячих клавиш (Esc, Tab, Ctrl, стрелки)'
+      : 'Terminal accessory bar (Esc, Tab, Ctrl, arrows)';
   String get accessoryBarDesc => isRu
       ? 'Однострочная панель keyboard над клавиатурой на смартфонах.'
       : 'Single-row keyboard style toolbar above the mobile keyboard.';

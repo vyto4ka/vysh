@@ -22,32 +22,73 @@ Future<String?> askText(
   required String label,
   String initial = '',
 }) {
-  final c = TextEditingController(text: initial);
-  // Выделяем имя без расширения - как в файловых менеджерах.
-  final dot = initial.lastIndexOf('.');
-  c.selection = TextSelection(baseOffset: 0, extentOffset: dot > 0 ? dot : initial.length);
   return showDialog<String>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
+    builder: (_) => _AskTextDialog(title: title, label: label, initial: initial),
+  );
+}
+
+class _AskTextDialog extends StatefulWidget {
+  const _AskTextDialog({
+    required this.title,
+    required this.label,
+    required this.initial,
+  });
+
+  final String title;
+  final String label;
+  final String initial;
+
+  @override
+  State<_AskTextDialog> createState() => _AskTextDialogState();
+}
+
+class _AskTextDialogState extends State<_AskTextDialog> {
+  late final TextEditingController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = TextEditingController(text: widget.initial);
+    // Выделяем имя без расширения - как в файловых менеджерах.
+    final dot = widget.initial.lastIndexOf('.');
+    _c.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: dot > 0 ? dot : widget.initial.length,
+    );
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
       content: SizedBox(
         width: 360,
         child: TextField(
-          controller: c,
+          controller: _c,
           autofocus: true,
-          decoration: _dec(label),
+          decoration: _dec(widget.label),
           onSubmitted: (v) => Navigator.pop(context, v.trim()),
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.strings.cancel)),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.strings.cancel),
+        ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, c.text.trim()),
+          onPressed: () => Navigator.pop(context, _c.text.trim()),
           child: Text(context.strings.ok),
         ),
       ],
-    ),
-  );
+    );
+  }
 }
 
 Future<bool> confirmDelete(BuildContext context, List<RemoteEntry> entries) async {

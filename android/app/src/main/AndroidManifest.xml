@@ -1,12 +1,20 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- Скачивание файлов из SFTP в общую папку Download (на Android 10+
-         идёт через MediaStore и разрешений не требует; это - для старых). -->
+    <!-- Доступ к файлам устройства в эксплорере и скачивание в Download
+         (на Android 11+ для прямого обзора /storage/emulated/0 требуется
+         MANAGE_EXTERNAL_STORAGE, на Android 8-10 — READ/WRITE_EXTERNAL_STORAGE). -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"/>
+        android:maxSdkVersion="29"/>
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <!-- dataSync - Android 10-13, specialUse - 14+ (без лимита 6 часов). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
@@ -21,6 +29,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher_monet"
         android:roundIcon="@mipmap/ic_launcher_monet_round"
+        android:requestLegacyExternalStorage="true"
         android:localeConfig="@xml/locales_config">
         <activity
             android:name=".MainActivity"

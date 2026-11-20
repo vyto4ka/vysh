@@ -1,22 +1,36 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
+import 'local_files.dart';
+
 /// Browsing and local shells must agree on an accessible starting directory.
 /// Android's HOME/current directory often points outside the app sandbox.
 class LocalDirectories {
-  static Future<String> home() => resolve(
-    android: Platform.isAndroid,
-    candidates: [
-      if (Platform.isWindows) ...[
-        Platform.environment['USERPROFILE'],
-        if (Platform.environment['HOMEDRIVE'] != null &&
-            Platform.environment['HOMEPATH'] != null)
-          '${Platform.environment['HOMEDRIVE']}${Platform.environment['HOMEPATH']}',
-      ] else
-        Platform.environment['HOME'],
-    ],
-    documents: () async => (await getApplicationDocumentsDirectory()).path,
-  );
+  static Future<String> home() async {
+    if (Platform.isAndroid && await LocalFiles.hasStorageAccess()) {
+      final externalRoot =
+          await LocalFiles.externalStorageRoot() ?? '/storage/emulated/0';
+      if (await readable(externalRoot)) return externalRoot;
+    }
+    return resolve(
+      android: Platform.isAndroid,
+      candidates: [
+        if (Platform.isWindows) ...[
+          Platform.environment['USERPROFILE'],
+          if (Platform.environment['HOMEDRIVE'] != null &&
+              Platform.environment['HOMEPATH'] != null)
+            '${Platform.environment['HOMEDRIVE']}${Platform.environment['HOMEPATH']}',
+        ] else
+          Platform.environment['HOME'],
+      ],
+      documents: () async {
+        final docs = (await getApplicationDocumentsDirectory()).path;
+        // На Android в корне documents лежит служебная папка `vysh/` с
+        // hosts.json и settings.json — отдаём отдельную подпапку `files/`.
+        return Platform.isAndroid ? '$docs/files' : docs;
+      },
+    );
+  }
 
   static Future<String> resolve({
     required bool android,

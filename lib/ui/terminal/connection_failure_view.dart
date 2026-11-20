@@ -240,11 +240,12 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
                         icon: const Icon(Icons.network_ping),
                         label: Text(strings.isRu ? 'Пинг' : 'Ping'),
                       ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => _runDiag(DiagKind.traceroute),
-                        icon: const Icon(Icons.route_outlined),
-                        label: Text(strings.isRu ? 'Трассировка' : 'Traceroute'),
-                      ),
+                      if (!DesktopEnv.isMobile)
+                        FilledButton.tonalIcon(
+                          onPressed: () => _runDiag(DiagKind.traceroute),
+                          icon: const Icon(Icons.route_outlined),
+                          label: Text(strings.isRu ? 'Трассировка' : 'Traceroute'),
+                        ),
                       FilledButton.tonalIcon(
                         onPressed: () => _runDiag(DiagKind.port),
                         icon: const Icon(Icons.settings_ethernet),

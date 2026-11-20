@@ -9,8 +9,9 @@ class LocalFileSession implements SftpSession {
   Future<String> home() => LocalDirectories.home();
   @override
   Future<RemoteEntry> stat(String path) async {
+    final isLink = await FileSystemEntity.isLink(path);
     final s = await FileStat.stat(path);
-    if (s.type == FileSystemEntityType.notFound) {
+    if (s.type == FileSystemEntityType.notFound && !isLink) {
       throw const SftpFailure(SftpFailureCode.noSuchFile);
     }
     return RemoteEntry(
@@ -19,9 +20,9 @@ class LocalFileSession implements SftpSession {
           path,
       path: path,
       isDir: s.type == FileSystemEntityType.directory,
-      isLink: await FileSystemEntity.isLink(path),
+      isLink: isLink,
       size: s.size,
-      modified: s.modified,
+      modified: s.type == FileSystemEntityType.notFound ? null : s.modified,
       mode: s.mode,
     );
   }

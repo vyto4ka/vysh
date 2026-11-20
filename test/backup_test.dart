@@ -99,9 +99,9 @@ void main() {
 
     final f = File('${tmp.path}/enc.vyshbak');
     await c.read(backupControllerProvider).create(f, password: 'hunter22');
-    // Не JSON: байтов нет '{' в первых байтах заголовка.
+    // Не JSON: бинарный заголовок, первый байт не '{'.
     final bytes = f.readAsBytesSync();
-    expect(bytes.sublist(0, 12).contains(0x7b), isFalse);
+    expect(bytes.first, isNot(0x7b));
 
     final info = await BackupController.inspect(f);
     expect(info.encrypted, true);

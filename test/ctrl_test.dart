@@ -52,5 +52,18 @@ void main() {
       t.feed('abc\x15');
       expect(t.text, '');
     });
+
+    test('ANSI escape-последовательности не попадают в буфер команды', () {
+      final t = TypedCommand()..feed('ls ');
+      // Стрелка вверх, Ctrl+Left, bracketed paste маркер, SS3 F1, OSC, Alt+b.
+      t.feed('\x1b[A');
+      t.feed('\x1b[1;5D');
+      t.feed('\x1b[200~');
+      t.feed('\x1bOP');
+      t.feed('\x1b]0;title\x07');
+      t.feed('\x1bb');
+      t.feed('-la');
+      expect(t.text, 'ls -la');
+    });
   });
 }

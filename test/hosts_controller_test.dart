@@ -109,4 +109,25 @@ void main() {
     expect(pastedAddress('example.com', previousLength: 0), isNull);
     expect(pastedAddress('example.com:2200', previousLength: 0)!.port, 2200);
   });
+
+  test('чтение списка хостов с Map<Object?, Object?> (StandardMessageCodec)', () {
+    store.data = <Object?>[
+      <Object?, Object?>{
+        'id': 'h2',
+        'label': 'remote',
+        'address': '10.0.0.2',
+        'port': 2222,
+        'username': 'root',
+      },
+    ];
+    final c2 = ProviderContainer(overrides: [
+      secretStoreProvider.overrideWithValue(secrets),
+      documentStoreProvider.overrideWith((ref, name) => store),
+    ]);
+    addTearDown(c2.dispose);
+    final loaded = c2.read(hostsProvider);
+    expect(loaded.length, 1);
+    expect(loaded.single.id, 'h2');
+    expect(loaded.single.port, 2222);
+  });
 }

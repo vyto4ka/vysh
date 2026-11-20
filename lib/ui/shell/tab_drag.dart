@@ -11,6 +11,7 @@ import '../../domain/models/session_tab.dart';
 import '../../app/windows/detached_windows.dart';
 import '../../app/windows/tab_transfer.dart';
 import '../../infra/platform/capabilities.dart';
+import '../../infra/platform/desktop_env.dart';
 import 'ui_state.dart';
 import 'workspace_actions.dart';
 
@@ -72,27 +73,42 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
   Widget build(BuildContext context) {
     if (!widget.enabled) return widget.child;
     if (!ref.watch(nativeTabDragProvider)) {
+      final feedback = Material(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(widget.tab.title),
+        ),
+      );
+      void onDragStarted() =>
+          ref.read(draggedTabProvider.notifier).select(widget.tab.id);
+      void onDragUpdate(DragUpdateDetails d) => _position = d.globalPosition;
+      void onDragEnd(DraggableDetails d) {
+        ref.read(draggedTabProvider.notifier).select(null);
+        if (!d.wasAccepted &&
+            !(Offset.zero & MediaQuery.sizeOf(context))
+                .inflate(6)
+                .contains(_position ?? d.offset) &&
+            PlatformCapabilities.desktopWindow) {
+          detachSession(context, ref, widget.tab.id);
+        }
+      }
+
+      if (DesktopEnv.isMobile) {
+        return LongPressDraggable<String>(
+          data: widget.tab.id,
+          feedback: feedback,
+          onDragStarted: onDragStarted,
+          onDragUpdate: onDragUpdate,
+          onDragEnd: onDragEnd,
+          child: widget.child,
+        );
+      }
       return Draggable<String>(
         data: widget.tab.id,
-        feedback: Material(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(widget.tab.title),
-          ),
-        ),
-        onDragStarted: () =>
-            ref.read(draggedTabProvider.notifier).select(widget.tab.id),
-        onDragUpdate: (d) => _position = d.globalPosition,
-        onDragEnd: (d) {
-          ref.read(draggedTabProvider.notifier).select(null);
-          if (!d.wasAccepted &&
-              !(Offset.zero & MediaQuery.sizeOf(context))
-                  .inflate(6)
-                  .contains(_position ?? d.offset) &&
-              PlatformCapabilities.desktopWindow) {
-            detachSession(context, ref, widget.tab.id);
-          }
-        },
+        feedback: feedback,
+        onDragStarted: onDragStarted,
+        onDragUpdate: onDragUpdate,
+        onDragEnd: onDragEnd,
         child: widget.child,
       );
     }

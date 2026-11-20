@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
 import android.os.Build
+import android.provider.Settings
+import android.webkit.MimeTypeMap
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -27,6 +29,9 @@ class MainActivity : FlutterActivity() {
     /// Держим в Activity: данные уже собраны, до записи - только выбор места.
     private var dataBytes: ByteArray? = null
     private val saveDocumentRequest = 4043
+    private var pendingStorageAccess: MethodChannel.Result? = null
+    private val manageStorageRequest = 4044
+    private val browseStoragePermissionRequest = 4045
     private var notificationsAsked = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -51,6 +56,89 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, filesChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
+                "hasStorageAccess" -> {
+                    result.success(hasAllStorageAccess())
+                }
+                "externalStorageRoot" -> {
+                    @Suppress("DEPRECATION")
+                    result.success(Environment.getExternalStorageDirectory().absolutePath)
+                }
+                "requestStorageAccess" -> {
+                    if (hasAllStorageAccess()) {
+                        result.success(true)
+                        return@setMethodCallHandler
+                    }
+                    pendingStorageAccess?.success(false)
+                    pendingStorageAccess = result
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        try {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            )
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, manageStorageRequest)
+                        } catch (_: Exception) {
+                            try {
+                                val fallback = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                @Suppress("DEPRECATION")
+                                startActivityForResult(fallback, manageStorageRequest)
+                            } catch (e: Exception) {
+                                pendingStorageAccess = null
+                                result.error("STORAGE_ERROR", e.message, null)
+                            }
+                        }
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        requestPermissions(
+                            arrayOf(
+                                Manifest.permission.READ_EXTERNAL_STORAGE,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE
+                            ),
+                            browseStoragePermissionRequest
+                        )
+                    } else {
+                        pendingStorageAccess = null
+                        result.success(true)
+                    }
+                }
+                "openFile" -> {
+                    try {
+                        val path = call.argument<String>("path") ?: ""
+                        val source = java.io.File(path)
+                        if (!source.exists()) {
+                            result.error("OPEN_ERROR", "File not found: $path", null)
+                            return@setMethodCallHandler
+                        }
+                        val uri = try {
+                            androidx.core.content.FileProvider.getUriForFile(
+                                this, "$packageName.fileprovider", source
+                            )
+                        } catch (_: IllegalArgumentException) {
+                            // Файл вне корневых папок FileProvider: копируем в cache/shared.
+                            val dir = java.io.File(cacheDir, "shared").apply { mkdirs() }
+                            val copy = java.io.File(dir, source.name)
+                            source.copyTo(copy, overwrite = true)
+                            androidx.core.content.FileProvider.getUriForFile(
+                                this, "$packageName.fileprovider", copy
+                            )
+                        }
+                        val ext = source.extension.lowercase()
+                        val mime = if (ext.isNotEmpty()) {
+                            MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+                        } else {
+                            "*/*"
+                        }
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, mime)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(Intent.createChooser(intent, null))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("OPEN_ERROR", e.message, null)
+                    }
+                }
                 "saveToDownloads" -> {
                     if (needsStoragePermission()) {
                         // Android 9 и ниже: без разрешения в общую Download не записать.
@@ -193,12 +281,28 @@ class MainActivity : FlutterActivity() {
         SshForegroundService.stop(this)
         pendingSaveDocument?.error("CANCELLED", "Activity destroyed", null)
         pendingSaveDocument = null
+        dataBytes = null
+        pendingStorageAccess?.success(false)
+        pendingStorageAccess = null
         val waiting = pendingSaves.toList()
         pendingSaves.clear()
         for ((_, result) in waiting) {
             result.error("SAVE_ERROR", "Activity destroyed", null)
         }
         super.onDestroy()
+    }
+
+    private fun hasAllStorageAccess(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+        return true
     }
 
     /// Android 13+: без разрешения уведомление сервиса не видно в шторке,
@@ -231,6 +335,12 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == browseStoragePermissionRequest) {
+            val result = pendingStorageAccess ?: return
+            pendingStorageAccess = null
+            result.success(hasAllStorageAccess())
+            return
+        }
         if (requestCode != storagePermissionRequest) return
         val granted = grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
@@ -252,12 +362,19 @@ class MainActivity : FlutterActivity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == manageStorageRequest) {
+            val result = pendingStorageAccess ?: return
+            pendingStorageAccess = null
+            result.success(hasAllStorageAccess())
+            return
+        }
         if (requestCode != saveDocumentRequest) return
         val result = pendingSaveDocument ?: return
         pendingSaveDocument = null
         val uri = data?.data
         if (resultCode != RESULT_OK || uri == null) {
             // Пользователь закрыл диалог - не ошибка, просто отмена.
+            dataBytes = null
             result.success(null)
             return
         }

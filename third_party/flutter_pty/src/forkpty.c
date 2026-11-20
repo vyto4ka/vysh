@@ -25,6 +25,7 @@ pid_t pty_forkpty(
 
     if (grantpt(ptm) || unlockpt(ptm))
     {
+        close(ptm);
         return -1;
     }
 
@@ -32,12 +33,14 @@ pid_t pty_forkpty(
 
     if ((devname = ptsname(ptm)) == NULL)
     {
+        close(ptm);
         return -1;
     }
 
     int pts = open(devname, O_RDWR | O_NOCTTY);
     if (pts < 0)
     {
+        close(ptm);
         return -1;
     }
 
@@ -55,6 +58,8 @@ pid_t pty_forkpty(
 
     if (pid < 0)
     {
+        close(pts);
+        close(ptm);
         return -1;
     }
 
@@ -62,7 +67,7 @@ pid_t pty_forkpty(
     {
         setsid();
         if (ioctl(pts, TIOCSCTTY, (char *)NULL) == -1)
-            exit(-1);
+            _exit(1);
 
         dup2(pts, STDIN_FILENO);
         dup2(pts, STDOUT_FILENO);
@@ -79,6 +84,10 @@ pid_t pty_forkpty(
         if (slave)
         {
             *slave = pts;
+        }
+        else
+        {
+            close(pts);
         }
     }
 

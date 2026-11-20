@@ -25,9 +25,12 @@ class HostsController extends Notifier<List<Host>> {
     // Одна испорченная запись не должна стоить всего списка.
     final hosts = <Host>[];
     for (final item in raw) {
-      if (item is! Map<String, Object?>) continue;
+      if (item is! Map) continue;
       try {
-        final h = Host.fromJson(item);
+        final map = item is Map<String, Object?>
+            ? item
+            : Map<String, Object?>.from(item);
+        final h = Host.fromJson(map);
         if (h.address.isNotEmpty) hosts.add(h);
       } catch (e) {
         debugPrint('vysh: пропущена запись hosts.json: $e');

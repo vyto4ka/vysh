@@ -128,7 +128,7 @@ class FileCopy {
           entry.path,
           file,
           cancel: cancel,
-          onProgress: (_) {},
+          onProgress: progress,
         );
         _check();
         if (existing != null &&

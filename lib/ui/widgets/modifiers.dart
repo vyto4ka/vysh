@@ -41,7 +41,10 @@ class Modifiers {
   bool _has(LogicalKeyboardKey left, LogicalKeyboardKey right) =>
       _down.contains(left) || _down.contains(right);
 
-  bool get ctrl => _has(LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.controlRight);
+  bool get ctrl =>
+      _has(LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.controlRight) ||
+      meta;
   bool get shift => _has(LogicalKeyboardKey.shiftLeft, LogicalKeyboardKey.shiftRight);
   bool get alt => _has(LogicalKeyboardKey.altLeft, LogicalKeyboardKey.altRight);
+  bool get meta => _has(LogicalKeyboardKey.metaLeft, LogicalKeyboardKey.metaRight);
 }

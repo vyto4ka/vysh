@@ -48,8 +48,13 @@ class DartSsh2Sftp implements SftpSession {
       });
 
   @override
-  Future<RemoteEntry> stat(String path) =>
-      _guard(() async => _entry(path, remoteBasename(path), await _c.stat(path)));
+  Future<RemoteEntry> stat(String path) => _guard(
+    () async => _entry(
+      path,
+      remoteBasename(path),
+      await _c.stat(path, followLink: false),
+    ),
+  );
 
   RemoteEntry _entry(String path, String name, SftpFileAttrs a) => RemoteEntry(
         name: name,

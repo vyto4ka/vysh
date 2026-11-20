@@ -47,6 +47,7 @@ jobs:
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - run: flutter test third_party/irondash_message_channel/test
+      - run: sh tools/xterm2/verify.sh
 
   linux:
     # TODO (этап 6): собирать в контейнере на старой базе ради Astra + AppImage/deb через fastforge.

@@ -415,7 +415,12 @@ class _LocalEdit implements LocalEditHandle {
     _lastModified = await local.lastModified();
     _sub = dir.watch().listen(
       (event) {
-        if (_closed || event.path.split(RegExp(r'[\\/]')).last != _fileName) {
+        if (_closed) return;
+        final name = event.path.split(RegExp(r'[\\/]')).last;
+        final destName = event is FileSystemMoveEvent
+            ? event.destination?.split(RegExp(r'[\\/]')).last
+            : null;
+        if (name != _fileName && destName != _fileName) {
           return;
         }
         _debounce?.cancel();

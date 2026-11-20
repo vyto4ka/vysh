@@ -30,7 +30,20 @@ class SshForegroundService : Service() {
         private const val WAKE_LOCK_MS = 30 * 60 * 1000L
         private const val RENEW_MS = 25 * 60 * 1000L
 
+        @Volatile
+        private var running = false
+
         fun start(context: Context, hostTitle: String? = null): Boolean {
+            if (running) {
+                return try {
+                    val title = hostTitle ?: context.getString(R.string.ssh_connected)
+                    val manager = context.getSystemService(NotificationManager::class.java)
+                    manager?.notify(NOTIFICATION_ID, buildNotification(context, title))
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            }
             val intent = Intent(context, SshForegroundService::class.java).apply {
                 if (hostTitle != null) putExtra("title", hostTitle)
             }
@@ -48,10 +61,44 @@ class SshForegroundService : Service() {
         }
 
         fun stop(context: Context) {
+            running = false
             try {
                 val intent = Intent(context, SshForegroundService::class.java)
                 context.stopService(intent)
             } catch (_: Exception) {}
+        }
+
+        private fun buildNotification(context: Context, hostTitle: String): Notification {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                this.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val pendingIntent = if (launchIntent != null) {
+                PendingIntent.getActivity(
+                    context,
+                    0,
+                    launchIntent,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+                )
+            } else null
+
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(context)
+            }
+
+            builder
+                .setContentTitle("vysh: $hostTitle")
+                .setContentText(context.getString(R.string.ssh_notification_text))
+                .setSmallIcon(R.drawable.ic_stat_vysh)
+                .setOngoing(true)
+
+            if (pendingIntent != null) {
+                builder.setContentIntent(pendingIntent)
+            }
+
+            return builder.build()
         }
     }
 
@@ -73,7 +120,7 @@ class SshForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val title = intent?.getStringExtra("title") ?: getString(R.string.ssh_connected)
-        val notification = buildNotification(title)
+        val notification = buildNotification(this, title)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -93,8 +140,10 @@ class SshForegroundService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+            running = true
         } catch (_: Exception) {
             // Без foreground-режима сервис бесполезен и будет убит системой.
+            running = false
             stopSelf()
             return START_NOT_STICKY
         }
@@ -108,10 +157,12 @@ class SshForegroundService : Service() {
     /// лимита нет). По истечении нужно остановиться, иначе система завершит
     /// приложение.
     override fun onTimeout(startId: Int, fgsType: Int) {
+        running = false
         stopSelf()
     }
 
     override fun onDestroy() {
+        running = false
         handler.removeCallbacks(renew)
         try {
             if (wakeLock?.isHeld == true) wakeLock?.release()
@@ -143,38 +194,5 @@ class SshForegroundService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
         }
-    }
-
-    private fun buildNotification(hostTitle: String): Notification {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            this.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingIntent = if (launchIntent != null) {
-            PendingIntent.getActivity(
-                this,
-                0,
-                launchIntent,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-            )
-        } else null
-
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-
-        builder
-            .setContentTitle("vysh: $hostTitle")
-            .setContentText(getString(R.string.ssh_notification_text))
-            .setSmallIcon(R.mipmap.ic_launcher_monet)
-            .setOngoing(true)
-
-        if (pendingIntent != null) {
-            builder.setContentIntent(pendingIntent)
-        }
-
-        return builder.build()
     }
 }

@@ -88,6 +88,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   bool _downloading = false;
   bool _applying = false;
   double _progress = 0;
+  String? _error;
 
   @override
   Widget build(BuildContext context) {
@@ -104,51 +105,69 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       title: Text(s.updateTitle),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'vysh ${info.currentVersion} → ${info.displayLatestVersion}',
-              style: theme.textTheme.titleSmall,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              s.updateSize(info.formattedSize),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
-            ),
-            if (cleanNotes != null && cleanNotes.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                constraints: const BoxConstraints(maxHeight: 200),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    cleanNotes,
-                    style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
-                  ),
-                ),
-              ),
-            ],
-            if (_downloading) ...[
-              const SizedBox(height: 16),
-              LinearProgressIndicator(
-                value: _applying || _progress <= 0 ? null : _progress,
-              ),
-              const SizedBox(height: 6),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Text(
-                _statusLabel(context),
+                'vysh ${info.currentVersion} → ${info.displayLatestVersion}',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                s.updateSize(info.formattedSize),
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: scheme.onSurfaceVariant),
               ),
+              if (cleanNotes != null && cleanNotes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      cleanNotes,
+                      style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
+                    ),
+                  ),
+                ),
+              ],
+              if (_downloading) ...[
+                const SizedBox(height: 16),
+                LinearProgressIndicator(
+                  value: _applying || _progress <= 0 ? null : _progress,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _statusLabel(context),
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.onErrorContainer),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [
@@ -177,6 +196,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       ],
     );
   }
+
   String _statusLabel(BuildContext context) {
     final s = context.strings;
     if (_applying) return s.updateApplying;
@@ -190,6 +210,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
       _downloading = true;
       _applying = false;
       _progress = 0;
+      _error = null;
     });
 
     try {
@@ -219,16 +240,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         setState(() {
           _downloading = false;
           _applying = false;
+          _error = e is UpdateInstallException
+              ? s.updateInstallFailure(e)
+              : s.updateInstallUnexpected('$e');
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e is UpdateInstallException
-                  ? s.updateInstallFailure(e)
-                  : s.updateInstallUnexpected('$e'),
-            ),
-          ),
-        );
       }
     }
   }
