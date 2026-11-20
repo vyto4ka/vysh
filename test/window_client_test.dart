@@ -187,6 +187,44 @@ void main() {
   );
 
   test(
+    'stale owner frames with old resizeSeq do not revert a newer window resize',
+    () async {
+      final owner = Owner();
+      owner.terminal.resize(80, 24);
+      final client = owner.client();
+      addTearDown(client.dispose);
+      client.apply(owner.frame());
+      final session = client.container
+          .read(tabsProvider.notifier)
+          .sessionOf('first')!;
+      final staleFrame = owner.frame(); // resizeSeq == 0, size 80x24
+      session.terminal.resize(120, 40);
+      expect(session.terminal.viewWidth, 120);
+      expect(session.terminal.viewHeight, 40);
+      client.apply(staleFrame);
+      expect(session.terminal.viewWidth, 120);
+      expect(session.terminal.viewHeight, 40);
+    },
+  );
+
+  test(
+    'standalone modifier keys return false so platform IME and dead keys stay intact',
+    () async {
+      final owner = Owner();
+      final client = owner.client();
+      addTearDown(client.dispose);
+      final session = client.container
+          .read(tabsProvider.notifier)
+          .sessionOf('first')!;
+      owner.calls.clear();
+      expect(session.terminal.keyInput(TerminalKey.shiftLeft), isFalse);
+      expect(session.terminal.keyInput(TerminalKey.controlLeft), isFalse);
+      expect(session.terminal.keyInput(TerminalKey.none), isFalse);
+      expect(owner.calls.where((c) => c.$1 == 'key'), isEmpty);
+    },
+  );
+
+  test(
     'new tabs stay usable after the original detached tab closes; home focus is preserved',
     () async {
       final owner = Owner();

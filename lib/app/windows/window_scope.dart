@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 abstract interface class WindowScope {
   ValueListenable<String?> get failure;
   Future<void> returnToMain([String? tabId]);
+  Future<void> closeThisWindow();
 }
 
 final windowScopeProvider = Provider<WindowScope?>((_) => null);

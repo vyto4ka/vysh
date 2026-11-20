@@ -41,24 +41,33 @@ class _SessionWindowAppState extends State<SessionWindowApp>
     );
     windowManager.addListener(this);
     unawaited(windowManager.setPreventClose(true));
-    unawaited(
-      widget.window.setWindowMethodHandler((call) async {
-        switch (call.method) {
-          case 'close':
-            await _park();
-          case 'focus':
-            await windowManager.show();
-            await windowManager.focus();
-          case 'prompt':
-            return answerWindowPrompt(
-              DialogSessionPrompts(rootNavigatorKey),
-              call.arguments as Map,
-            );
-        }
-        return null;
-      }),
-    );
-    client.start();
+    // Register the window method handler (and signal _ready) after the first
+    // frame so rootNavigatorKey is mounted before any auth prompt can arrive.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || closing) return;
+      unawaited(
+        widget.window.setWindowMethodHandler((call) async {
+          switch (call.method) {
+            case 'push':
+              if (call.arguments case final Map frame) {
+                client.apply(frame);
+              }
+            case 'close':
+              await _park();
+            case 'focus':
+              await windowManager.show();
+              await windowManager.focus();
+            case 'prompt':
+              return answerWindowPrompt(
+                DialogSessionPrompts(rootNavigatorKey),
+                call.arguments as Map,
+              );
+          }
+          return null;
+        }),
+      );
+      client.start();
+    });
   }
 
   Future<void> _park() => _parking ??= _doPark();
@@ -68,13 +77,16 @@ class _SessionWindowAppState extends State<SessionWindowApp>
     if (mounted) setState(() {});
     await WidgetsBinding.instance.endOfFrame;
     client.dispose();
+    await widget.window.close();
     await windowManager.destroy();
   }
 
   @override
   void onWindowClose() {
     if (!closing) {
-      unawaited(client.returnToMain().catchError((Object _) => _park()));
+      // Browser behavior: closing this window closes its own tabs without
+      // resurrecting a previously closed initial window.
+      unawaited(client.closeThisWindow().catchError((Object _) => _park()));
     }
   }
 

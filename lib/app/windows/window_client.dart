@@ -14,6 +14,7 @@ import '../settings/app_settings.dart';
 import '../controllers/hosts_controller.dart';
 import '../controllers/settings_controller.dart';
 import '../controllers/external_colors_controller.dart';
+import '../controllers/update_controller.dart';
 import 'detached_windows.dart';
 import '../controllers/tabs_controller.dart';
 import '../controllers/transfer_queue.dart';
@@ -48,6 +49,8 @@ class WindowClient implements WindowScope {
         externalColorsProvider.overrideWith(() => _WindowColors(this)),
         tabsProvider.overrideWith(() => _WindowTabs(this)),
         detachedWindowsProvider.overrideWith(() => _WindowDetached(this)),
+        // Update checks run once in the owner; secondary windows stay quiet.
+        updateInfoProvider.overrideWith((_) async => null),
         ...overrides,
       ],
     );
@@ -62,8 +65,9 @@ class WindowClient implements WindowScope {
   final _pendingDocuments = <String, int>{};
   final _documentKeys = <String, String>{};
   String? _settingsKey, _colorsKey;
-  Timer? _timer;
-  bool _busy = false, _closed = false, _needsFull = true;
+  Timer? _retryTimer;
+  Future<void>? _inflightPoll;
+  bool _closed = false, _needsFull = true;
   @override
   final ValueNotifier<String?> failure = ValueNotifier<String?>(null);
 
@@ -92,7 +96,10 @@ class WindowClient implements WindowScope {
     } on SecretStoreUnavailable {
       rethrow;
     } catch (e) {
-      if (!_closed) failure.value = '$e';
+      if (!_closed) {
+        failure.value = '$e';
+        _scheduleRetry();
+      }
       rethrow;
     }
   }
@@ -103,31 +110,59 @@ class WindowClient implements WindowScope {
     Map<String, Object?> data,
   ) => call(method, {'sessionId': id, ...data});
 
+  /// Initial sync; subsequent updates arrive event-driven via push frames.
   void start() {
-    _timer = Timer.periodic(const Duration(milliseconds: 40), (_) => poll());
     unawaited(poll());
   }
 
-  void stop() => _timer?.cancel();
+  void stop() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  void _scheduleRetry() {
+    if (_closed || _retryTimer != null) return;
+    _retryTimer = Timer(const Duration(seconds: 1), () {
+      _retryTimer = null;
+      if (!_closed && failure.value != null) {
+        unawaited(poll());
+      }
+    });
+  }
+
   Future<void> poll() async {
-    if (_closed || _busy) return;
-    _busy = true;
+    if (_closed) return;
+    final existing = _inflightPoll;
+    if (existing != null) {
+      await existing;
+      if (_closed || !_needsFull) return;
+    }
+    final run = _doPoll();
+    _inflightPoll = run;
+    try {
+      await run;
+    } finally {
+      if (identical(_inflightPoll, run)) _inflightPoll = null;
+    }
+  }
+
+  Future<void> _doPoll() async {
     try {
       final force = _needsFull;
       _needsFull = false;
       final result = await call('frame', {'force': force});
       if (_closed || result == null) return;
-      apply(result);
+      apply(result as Map);
       failure.value = null;
-    } catch (e) {
+    } catch (_) {
       _needsFull = true;
-    } finally {
-      _busy = false;
+      _scheduleRetry();
     }
   }
 
   void apply(Map data) {
     if (_closed) return;
+    failure.value = null;
     if (data['documents'] case final Map docs) {
       for (final entry in docs.entries) {
         final name = entry.key as String;
@@ -166,7 +201,7 @@ class WindowClient implements WindowScope {
     if (data['sessions'] case final Map sessions) {
       for (final entry in sessions.entries) {
         final session = tabs.sessionOf(entry.key) as WindowRemoteSession?;
-        session?.apply(entry.value);
+        session?.apply(entry.value as Map);
       }
     }
   }
@@ -183,9 +218,16 @@ class WindowClient implements WindowScope {
         (container.read(tabsProvider.notifier) as _WindowTabs).preferred =
             result;
       }
-      _needsFull = true;
       await poll();
     } catch (_) {} // The connection banner exposes channel errors.
+  }
+
+  @override
+  Future<void> closeThisWindow() async {
+    try {
+      await call('closeWindow', {});
+    } catch (_) {}
+    await closeWindow();
   }
 
   @override
@@ -201,7 +243,8 @@ class WindowClient implements WindowScope {
   void dispose() {
     if (_closed) return;
     _closed = true;
-    _timer?.cancel();
+    _retryTimer?.cancel();
+    _retryTimer = null;
     container.dispose();
     failure.dispose();
   }
@@ -224,7 +267,6 @@ class _WindowDocument implements DocumentStore {
       return false;
     } finally {
       client._pendingDocuments[name] = client._pendingDocuments[name]! - 1;
-      client._needsFull = true;
     }
   }
 }
@@ -359,6 +401,7 @@ class _WindowTabs extends TabsController {
       });
     }
   }
+
   @override
   void duplicate(String id) =>
       unawaited(client.command('duplicate', {'sessionId': id}, activate: true));

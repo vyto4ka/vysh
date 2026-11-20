@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 import 'package:super_clipboard/super_clipboard.dart'
@@ -51,6 +52,48 @@ Future<TabTransfer?> _readTransfer(DropSession session) async {
   return null;
 }
 
+/// Root-level drop observer on each window: tracks pointer entry/exit for
+/// Wayland-safe tear-off and reveals split drop zones for cross-window drags.
+class WindowTabDragScope extends ConsumerWidget {
+  const WindowTabDragScope({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(nativeTabDragProvider)) return child;
+    return DropRegion(
+      formats: const [_tabFormat],
+      hitTestBehavior: HitTestBehavior.translucent,
+      onDropEnter: (event) {
+        if (!event.session.items.any((i) => i.canProvide(_tabFormat))) return;
+        ref.read(tabDragInsideWindowProvider.notifier).set(true);
+        if (ref.read(draggedTabProvider) == null) {
+          ref.read(incomingTabDragProvider.notifier).set(true);
+        }
+      },
+      onDropOver: (event) {
+        if (!event.session.items.any((i) => i.canProvide(_tabFormat))) {
+          return DropOperation.none;
+        }
+        ref.read(tabDragInsideWindowProvider.notifier).set(true);
+        if (ref.read(draggedTabProvider) == null) {
+          ref.read(incomingTabDragProvider.notifier).set(true);
+        }
+        return DropOperation.none;
+      },
+      onDropLeave: (_) {
+        ref.read(tabDragInsideWindowProvider.notifier).set(false);
+        ref.read(incomingTabDragProvider.notifier).set(false);
+      },
+      onDropEnded: (_) {
+        ref.read(incomingTabDragProvider.notifier).set(false);
+      },
+      onPerformDrop: (_) async {},
+      child: child,
+    );
+  }
+}
+
 /// Native dragging receives completion outside the Flutter view as well. A
 /// Flutter-only draggable can lose the mouse-up event beyond a GTK window.
 class SessionTabDrag extends ConsumerStatefulWidget {
@@ -69,6 +112,38 @@ class SessionTabDrag extends ConsumerStatefulWidget {
 
 class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
   Offset? _position;
+  bool _cancelledByEscape = false;
+  bool _listeningEscape = false;
+
+  bool _onEscapeKey(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      _cancelledByEscape = true;
+    }
+    return false;
+  }
+
+  void _startEscapeWatch() {
+    _cancelledByEscape = false;
+    if (!_listeningEscape) {
+      _listeningEscape = true;
+      HardwareKeyboard.instance.addHandler(_onEscapeKey);
+    }
+  }
+
+  void _stopEscapeWatch() {
+    if (_listeningEscape) {
+      _listeningEscape = false;
+      HardwareKeyboard.instance.removeHandler(_onEscapeKey);
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopEscapeWatch();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.enabled) return widget.child;
@@ -117,25 +192,32 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
       dragItemProvider: (request) async {
         final owner = ref.read(detachedWindowsProvider.notifier);
         final dragging = ref.read(draggedTabProvider.notifier);
+        final inside = ref.read(tabDragInsideWindowProvider.notifier);
         final transfer = await owner.beginDrag(widget.tab.id);
         if (!mounted) {
           await owner.finishDrag(transfer);
           return null;
         }
         dragging.select(widget.tab.id);
+        inside.set(true);
+        _startEscapeWatch();
         request.session.dragCompleted.addListener(() {
           final operation = request.session.dragCompleted.value;
           final location = request.session.lastScreenLocation.value;
           if (operation == null) return;
+          final cancelled = _cancelledByEscape;
+          final wasInside = ref.read(tabDragInsideWindowProvider);
+          _stopEscapeWatch();
           dragging.select(null);
+          inside.set(false);
           unawaited(
             owner.finishDrag(
               transfer,
               accepted: operation == DropOperation.move,
             ),
           );
-          if (mounted && operation == DropOperation.none) {
-            unawaited(_tearOff(location));
+          if (mounted && operation == DropOperation.none && !cancelled) {
+            unawaited(_tearOff(location, insideWindow: wasInside));
           }
         });
         return DragItem(localData: transfer.toJson())
@@ -145,10 +227,18 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
     );
   }
 
-  Future<void> _tearOff(Offset? location) async {
-    final point = location ?? await screenRetriever.getCursorScreenPoint();
-    final bounds = await windowManager.getBounds();
-    if (!mounted || bounds.inflate(6).contains(point)) return;
+  Future<void> _tearOff(Offset? location, {required bool insideWindow}) async {
+    if (DesktopEnv.isWayland) {
+      // Wayland does not expose global window/pointer coordinates. Rely on
+      // the root DropRegion enter/leave state instead.
+      if (insideWindow) return;
+    } else {
+      final point = location ?? await screenRetriever.getCursorScreenPoint();
+      final bounds = await windowManager.getBounds();
+      if (!mounted) return;
+      if (insideWindow && bounds.inflate(6).contains(point)) return;
+    }
+    if (!mounted) return;
     await detachSession(context, ref, widget.tab.id);
   }
 }
@@ -211,6 +301,7 @@ class _TabDropTargetState extends ConsumerState<TabDropTarget> {
         if (!await owner.canAcceptDrag(transfer)) return;
         await owner.acceptDrag(transfer);
         if (mounted) {
+          ref.read(incomingTabDragProvider.notifier).set(false);
           widget.onAccept(transfer.id);
           await windowManager.focus();
         }

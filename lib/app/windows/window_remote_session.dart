@@ -10,6 +10,20 @@ import '../terminal/terminal_session.dart';
 import 'terminal_mirror.dart';
 import 'window_protocol.dart';
 
+const _modifierKeys = <TerminalKey>{
+  TerminalKey.shiftLeft,
+  TerminalKey.shiftRight,
+  TerminalKey.controlLeft,
+  TerminalKey.controlRight,
+  TerminalKey.altLeft,
+  TerminalKey.altRight,
+  TerminalKey.metaLeft,
+  TerminalKey.metaRight,
+  TerminalKey.capsLock,
+  TerminalKey.numLock,
+  TerminalKey.scrollLock,
+};
+
 /// Input is encoded by the owning terminal, including bracketed paste, kitty
 /// keyboard modes and application cursor keys. Only rendered cells are mirrored.
 class WindowTerminal extends Terminal {
@@ -17,8 +31,10 @@ class WindowTerminal extends Terminal {
     onOutput = (text) => request('raw', {'text': text}).ignore();
     onResize = (width, height, pixelWidth, pixelHeight) {
       if (!applying) {
+        final seq = ++resizeSeq;
         unawaited(
           request('resize', {
+            'seq': seq,
             'width': width,
             'height': height,
             'pixelWidth': pixelWidth,
@@ -30,6 +46,7 @@ class WindowTerminal extends Terminal {
   }
   final WindowRpc request;
   bool applying = false;
+  int resizeSeq = 0;
 
   @override
   bool keyInput(
@@ -43,6 +60,17 @@ class WindowTerminal extends Terminal {
     TerminalKeyEventType type = TerminalKeyEventType.press,
     String? text,
   }) {
+    // Let standalone modifier keys and empty dead-key events pass through to
+    // the platform TextInput / IME instead of swallowing them.
+    if (_modifierKeys.contains(key)) {
+      return false;
+    }
+    if (key == TerminalKey.none && (text == null || text.isEmpty)) {
+      return false;
+    }
+    if (type == TerminalKeyEventType.release) {
+      return false;
+    }
     unawaited(
       request('key', {
         'key': key.name,
@@ -84,9 +112,10 @@ class WindowRemoteSession extends TerminalSession {
   void apply(Map data) {
     final t = terminal as WindowTerminal;
     if (data['frame'] case final Map frame) {
+      final frameSeq = (frame['resizeSeq'] as int?) ?? 0;
       t.applying = true;
       try {
-        _decoder.apply(frame);
+        _decoder.apply(frame, allowResize: frameSeq >= t.resizeSeq);
       } finally {
         t.applying = false;
       }

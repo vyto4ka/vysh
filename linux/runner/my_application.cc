@@ -108,7 +108,26 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "vysh");
   }
 
-  gtk_window_set_default_size(window, 1280, 720);
+  gint default_width = 1280;
+  gint default_height = 720;
+  if (self->dart_entrypoint_arguments != nullptr &&
+      self->dart_entrypoint_arguments[0] != nullptr &&
+      self->dart_entrypoint_arguments[1] != nullptr &&
+      g_strcmp0(self->dart_entrypoint_arguments[0], "--vysh-session-window") ==
+          0) {
+    const gchar* json = self->dart_entrypoint_arguments[1];
+    const gchar* w_pos = strstr(json, "\"width\":");
+    const gchar* h_pos = strstr(json, "\"height\":");
+    if (w_pos != nullptr) {
+      int w = static_cast<int>(g_ascii_strtod(w_pos + 8, nullptr));
+      if (w >= 640 && w <= 8192) default_width = w;
+    }
+    if (h_pos != nullptr) {
+      int h = static_cast<int>(g_ascii_strtod(h_pos + 9, nullptr));
+      if (h >= 420 && h <= 8192) default_height = h;
+    }
+  }
+  gtk_window_set_default_size(window, default_width, default_height);
 
   // Иконка окна для X11 и панелей задач. На Wayland композитор берёт её
   // из .desktop-файла по APPLICATION_ID (появится вместе с пакетами).

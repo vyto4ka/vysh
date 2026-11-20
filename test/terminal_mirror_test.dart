@@ -82,4 +82,44 @@ void main() {
     TerminalMirrorDecoder(mirror).apply(encoder.capture(full: true));
     sameScreen(owner, mirror);
   });
+
+  test('fast scroll burst preserves final edits of lines pushed into scrollback', () {
+    final owner = Terminal(maxLines: 200)..resize(40, 5);
+    final mirror = Terminal(maxLines: 200);
+    final encoder = TerminalMirrorEncoder(owner);
+    final decoder = TerminalMirrorDecoder(mirror);
+
+    // Line is initially in the viewport with a partial prompt.
+    owner.write('user@host:~\$ ');
+    decoder.apply(encoder.capture());
+    sameScreen(owner, mirror);
+
+    // Between frames, finish editing that line AND push > viewHeight new lines
+    // so the edited line leaves the viewport and lands in scrollback.
+    owner.write('cat big.log\r\n');
+    for (var i = 0; i < 20; i++) {
+      owner.write('output line $i\r\n');
+    }
+    decoder.apply(encoder.capture());
+    sameScreen(owner, mirror);
+    expect(mirror.buffer.lines[0].getText(), contains('cat big.log'));
+  });
+
+  test('incremental updates keep existing BufferLine anchors attached', () {
+    final owner = Terminal(maxLines: 100)..resize(30, 5);
+    final mirror = Terminal(maxLines: 100);
+    final encoder = TerminalMirrorEncoder(owner);
+    final decoder = TerminalMirrorDecoder(mirror);
+
+    owner.write('selected line\r\nnext line\r\n');
+    decoder.apply(encoder.capture());
+    final anchor = mirror.buffer.createAnchor(0, 0);
+    expect(anchor.attached, isTrue);
+
+    owner.write('live output\r\n');
+    decoder.apply(encoder.capture());
+    expect(anchor.attached, isTrue);
+    expect(anchor.y, 0);
+    anchor.dispose();
+  });
 }

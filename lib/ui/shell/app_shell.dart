@@ -20,6 +20,7 @@ import 'session_workspace.dart';
 import '../../app/windows/window_scope.dart';
 import '../widgets/strings_context.dart';
 import 'home_switcher.dart';
+import 'tab_drag.dart';
 import 'tab_strip.dart';
 import 'app_shortcuts.dart';
 import 'ui_state.dart';
@@ -223,12 +224,13 @@ class _AppShellState extends ConsumerState<AppShell> {
         ref.watch(customTitleBarProvider);
     // macOS: окно без заголовка (fullSizeContentView), полоса вкладок сама
     // отступает под светофор - SafeArea сверху не нужен.
+    final content = WindowTabDragScope(
+      child: resizable ? DragToResizeArea(resizeEdgeSize: 6, child: body) : body,
+    );
     return Scaffold(
       body: SafeArea(
         top: !PlatformCapabilities.isMacOS,
-        child: resizable
-            ? DragToResizeArea(resizeEdgeSize: 6, child: body)
-            : body,
+        child: content,
       ),
     );
   }

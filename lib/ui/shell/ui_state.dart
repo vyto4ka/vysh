@@ -101,6 +101,33 @@ class DraggedTab extends Notifier<String?> {
   }
 }
 
+/// True while a session tab dragged from another window hovers over this window.
+final incomingTabDragProvider = NotifierProvider<IncomingTabDrag, bool>(
+  IncomingTabDrag.new,
+);
+
+class IncomingTabDrag extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) {
+    if (ref.mounted && state != value) state = value;
+  }
+}
+
+/// Tracks whether an active tab drag pointer is currently inside this window's
+/// surface (works on Wayland where global window/cursor coordinates are absent).
+final tabDragInsideWindowProvider = NotifierProvider<TabDragInsideWindow, bool>(
+  TabDragInsideWindow.new,
+);
+
+class TabDragInsideWindow extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) {
+    if (ref.mounted && state != value) state = value;
+  }
+}
+
 final workspaceFocusProvider = NotifierProvider<WorkspaceFocus, String?>(
   WorkspaceFocus.new,
 );

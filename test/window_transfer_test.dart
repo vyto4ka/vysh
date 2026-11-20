@@ -253,4 +253,46 @@ void main() {
     expect(await owner.canAcceptDrag(grant), isFalse);
     expect(container.read(tabsProvider).tabs.length, 3);
   });
+
+  test(
+    'closing initial window keeps detached window autonomous and closing detached does not resurrect initial',
+    () async {
+      final wmCalls = <String>[];
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('window_manager'),
+        (call) async {
+          wmCalls.add(call.method);
+          if (call.method == 'getBounds') {
+            return {'x': 10.0, 'y': 10.0, 'width': 1100.0, 'height': 740.0};
+          }
+          if (call.method == 'isMinimized') return false;
+          return null;
+        },
+      );
+      final owner = container.read(detachedWindowsProvider.notifier);
+      await owner.detach('two');
+      final detached = client(0);
+      addTearDown(detached.dispose);
+
+      // Close the initial window: its own tabs ('one', 'three') close,
+      // while detached tab 'two' remains alive and usable.
+      owner.onWindowClose();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(tabsProvider).tabs.map((t) => t.id).toList(),
+        ['two'],
+      );
+      expect(container.read(detachedWindowsProvider).containsKey('two'), isTrue);
+      expect(wmCalls, contains('hide'));
+
+      // Now close the detached window: it closes its own tab and shuts down
+      // without showing the previously closed initial window.
+      wmCalls.clear();
+      await detached.closeThisWindow();
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(tabsProvider).tabs, isEmpty);
+      expect(wmCalls.contains('show'), isFalse);
+      expect(wmCalls, contains('destroy'));
+    },
+  );
 }

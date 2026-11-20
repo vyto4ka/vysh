@@ -1,63 +1,104 @@
-import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vysh/app/windows/window_transport.dart';
 import 'package:vysh/app/windows/window_client.dart';
 import 'package:vysh/app/controllers/tabs_controller.dart';
 import 'window_client_test.dart' as fixture;
 
-class _LoopbackHttp extends HttpOverrides {}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
-    'process RPC preserves terminal frames and authenticates owner-to-window calls',
-    () => HttpOverrides.runWithHttpOverrides(() async {
+    'binary unix-socket RPC preserves terminal frames, supports push and authenticates peers',
+    () async {
       final owner = fixture.Owner();
       owner.terminal.onOutput = owner.input.add;
       owner.terminal.write('process history Привет\r\n');
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() => server.close(force: true));
+
+      final tempDir = await Directory.systemTemp.createTemp('vysh-ipc-test-');
+      addTearDown(() async {
+        if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+      });
+      final sockPath = '${tempDir.path}/w-test.sock';
+      final server = await ServerSocket.bind(
+        InternetAddress(sockPath, type: InternetAddressType.unix),
+        0,
+      );
+      addTearDown(() => server.close());
+
       const token = 'window-test-token';
       const key = 'window-test-key';
-      int? childPort;
-      server.listen((request) async {
-        final data = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
-        expect(data['token'], token);
-        expect(data['windowKey'], key);
-        final method = data['method'] as String;
-        final arguments = Map<String, Object?>.from(data['arguments']);
-        dynamic value;
-        if (method == '_bootstrap') {
-          value = owner.metadata();
-        } else if (method == '_ready') {
-          childPort = arguments['port'] as int;
-        } else {
-          value = await owner.call(method, arguments);
+      BinarySocketPeer? acceptedPeer;
+      final peers = <BinarySocketPeer>[];
+      addTearDown(() async {
+        for (final p in peers) {
+          await p.close();
         }
-        request.response.write(jsonEncode({'value': value}));
-        await request.response.close();
       });
+
+      server.listen((socket) {
+        var authed = false;
+        late final BinarySocketPeer peer;
+        peer = BinarySocketPeer(
+          socket,
+          onRequest: (method, rawArgs) async {
+            final args = rawArgs is Map
+                ? Map<String, Object?>.from(rawArgs)
+                : <String, Object?>{};
+            if (!authed) {
+              if (args['token'] != token || args['windowKey'] != key) {
+                throw PlatformException(code: 'stale_window');
+              }
+              authed = true;
+              acceptedPeer = peer;
+            }
+            if (method == '_bootstrap') return owner.metadata();
+            if (method == '_ready') return null;
+            return owner.call(method, args);
+          },
+        );
+        peers.add(peer);
+      });
+
+      // Wrong token must be rejected before bootstrap.
+      await expectLater(
+        ProcessSessionWindow.connect({
+          'windowKey': key,
+          'token': 'wrong-token',
+          'socketPath': sockPath,
+        }),
+        throwsA(
+          isA<PlatformException>().having((e) => e.code, 'code', 'stale_window'),
+        ),
+      );
+
       final arguments = <String, dynamic>{
         'windowKey': key,
         'token': token,
-        'ownerPort': server.port,
+        'socketPath': sockPath,
       };
       final window = await ProcessSessionWindow.connect(arguments);
-      addTearDown(() => window.server.close(force: true));
+      addTearDown(window.close);
+
       final controls = <String>[];
-      await window.setWindowMethodHandler((call) async {
-        controls.add(call.method);
-        return 'handled';
-      });
-      expect(childPort, window.server.port);
       final client = WindowClient(
         initial: arguments['initial'],
         request: window.requestOwner,
         closeWindow: () async {},
       );
       addTearDown(client.dispose);
-      await client.poll();
+
+      await window.setWindowMethodHandler((call) async {
+        controls.add(call.method);
+        if (call.method == 'push') {
+          client.apply(call.arguments as Map);
+          return null;
+        }
+        return 'handled';
+      });
+
+      // Owner pushes a frame directly over the persistent binary socket.
+      await acceptedPeer!.call('push', owner.frame());
       final session = client.container
           .read(tabsProvider.notifier)
           .sessionOf('first')!;
@@ -65,37 +106,15 @@ void main() {
         session.terminal.buffer.lines[0].getText(),
         contains('process history Привет'),
       );
+
       await client.sessionCall('first', 'text', {
         'text': 'input after transfer',
       });
       expect(owner.input, contains('input after transfer'));
 
-      Future<Map> control(String credential) async {
-        final http = HttpClient()..findProxy = (_) => 'DIRECT';
-        try {
-          final request = await http.postUrl(
-            Uri.parse('http://127.0.0.1:$childPort/'),
-          );
-          request.persistentConnection = false;
-          request.write(
-            jsonEncode({
-              'windowKey': key,
-              'token': credential,
-              'method': 'focus',
-              'arguments': {},
-            }),
-          );
-          final response = await request.close();
-          return jsonDecode(await utf8.decoder.bind(response).join()) as Map;
-        } finally {
-          http.close(force: true);
-        }
-      }
-
-      expect((await control('wrong token'))['error'], 'stale_window');
-      expect(controls, isEmpty);
-      expect((await control(token))['value'], 'handled');
-      expect(controls, ['focus']);
-    }, _LoopbackHttp()),
+      expect(await acceptedPeer!.call('focus'), 'handled');
+      expect(controls, ['push', 'focus']);
+    },
+    skip: !Platform.isLinux && !Platform.isMacOS,
   );
 }

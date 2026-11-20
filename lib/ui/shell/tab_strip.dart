@@ -128,9 +128,22 @@ class _TabStripState extends ConsumerState<TabStrip> {
                       },
                       builder: (context, hover) => Padding(
                         padding: const EdgeInsets.only(right: 4),
-                        child: SessionTabDrag(
-                          tab: tab,
-                          enabled: !external.containsKey(tab.id),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (hover)
+                              Container(
+                                width: 2,
+                                height: 22,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: BoxDecoration(
+                                  color: scheme.primary,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            SessionTabDrag(
+                              tab: tab,
+                              enabled: !external.containsKey(tab.id),
                           child: _SessionTabChip(
                             tab: tab,
                             index: i + 1,
@@ -187,6 +200,8 @@ class _TabStripState extends ConsumerState<TabStrip> {
                                       .returnToTabs(tab.id)
                                 : null,
                           ),
+                            ),
+                          ],
                         ),
                       ),
                     );

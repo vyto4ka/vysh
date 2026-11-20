@@ -28,6 +28,7 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
     final split = ref.watch(splitTabProvider);
     final layout = ref.watch(splitLayoutProvider);
     final dragging = ref.watch(draggedTabProvider);
+    final incomingDrag = ref.watch(incomingTabDragProvider);
     final focused = ref.watch(workspaceFocusProvider);
     final pause = ref.watch(settingsProvider.select((s) => s.pauseHiddenTabs));
     final isRu = AppStrings.of(
@@ -109,12 +110,13 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
         ],
       ),
     );
+    final visibleCount = tabs.tabs.length - external.length;
     Widget dropZone(String label, IconData icon, Axis axis, bool reverse) =>
         Expanded(
           child: TabDropTarget(
             canAccept: (id) =>
-                tabs.tabs.length - external.length > 1 &&
-                !external.containsKey(id),
+                (incomingDrag && visibleCount > 0) ||
+                (visibleCount > 1 && !external.containsKey(id)),
             onAccept: (id) =>
                 splitSession(ref, id, axis: axis, reverse: reverse),
             builder: (context, hover) => Container(
@@ -238,7 +240,8 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace> {
                   ),
                 ),
               ),
-            if (dragging != null && tabs.tabs.length - external.length > 1)
+            if ((dragging != null && visibleCount > 1) ||
+                (incomingDrag && visibleCount > 0))
               Positioned.fill(
                 child: Column(
                   children: [

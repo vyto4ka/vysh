@@ -43,19 +43,25 @@ Future<void> main(List<String> args) async {
         // set of SSH sessions. Only display the main engine's existing session.
         await AppPaths.init();
         await _loadTerminalFont();
+        final childSettings = AppSettings.fromJson(
+          Map<String, Object?>.from(arguments['initial']['settings']),
+        );
+        _configureRenderer(childSettings);
+        final initialTitle = arguments['title'] as String?;
+        final windowTitle = initialTitle == null || initialTitle.isEmpty
+            ? 'vysh'
+            : '$initialTitle — vysh';
         await windowManager.ensureInitialized();
         windowManager.waitUntilReadyToShow(
           appWindowOptions(
-            AppSettings.fromJson(
-              Map<String, Object?>.from(arguments['initial']['settings']),
-            ),
+            childSettings,
             size: Size(
               (arguments['width'] as num).toDouble(),
               (arguments['height'] as num).toDouble(),
             ),
           ),
           () async {
-            await windowManager.setTitle('vysh');
+            await windowManager.setTitle(windowTitle);
             await windowManager.setPosition(
               Offset(
                 (arguments['x'] as num).toDouble(),
@@ -123,21 +129,7 @@ Future<void> main(List<String> args) async {
         ? AppSettings.fromJson(raw)
         : const AppSettings();
 
-    // Движок уже выбран нативным кодом и передан в VYSH_RENDERER - запоминаем
-    // фактический, чтобы настройки могли подсказать «нужен перезапуск».
-    startupRenderer = switch (Platform.environment['VYSH_RENDERER']) {
-      'impeller' => Renderer.impeller,
-      'skia' => Renderer.skia,
-      _ => settings.renderer,
-    };
-    if (startupRenderer == Renderer.skia) {
-      // Кэш текстур Skia по умолчанию растёт до 48 байт на пиксель окна:
-      // для развёрнутого окна на большом мониторе это сотни мегабайт.
-      // Интерфейсу vysh с запасом хватает 64 МБ.
-      SystemChannels.skia
-          .invokeMethod<void>('Skia.setResourceCacheMaxBytes', 64 << 20)
-          .catchError((_) {});
-    }
+    _configureRenderer(settings);
 
     final options = appWindowOptions(settings);
     windowManager.waitUntilReadyToShow(options, () async {
@@ -165,6 +157,21 @@ Future<void> main(List<String> args) async {
       child: const VyshApp(),
     ),
   );
+}
+
+/// Запоминаем фактический рендерер и ограничиваем кэш текстур Skia до 64 МБ
+/// для всех окон (и главного, и вынесенных).
+void _configureRenderer(AppSettings settings) {
+  startupRenderer = switch (Platform.environment['VYSH_RENDERER']) {
+    'impeller' => Renderer.impeller,
+    'skia' => Renderer.skia,
+    _ => settings.renderer,
+  };
+  if (startupRenderer == Renderer.skia) {
+    SystemChannels.skia
+        .invokeMethod<void>('Skia.setResourceCacheMaxBytes', 64 << 20)
+        .catchError((_) {});
+  }
 }
 
 /// Свой шрифт терминала (файл из профиля) нужен до первого кадра: иначе

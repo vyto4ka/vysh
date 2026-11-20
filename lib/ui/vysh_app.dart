@@ -10,6 +10,7 @@ import '../app/settings/terminal_font.dart';
 import '../app/controllers/external_colors_controller.dart';
 import '../app/controllers/monet_colors_provider.dart';
 import '../app/controllers/settings_controller.dart';
+import '../app/controllers/tabs_controller.dart';
 import '../infra/platform/desktop_env.dart';
 import 'shell/app_shell.dart';
 import 'shell/ui_state.dart';
@@ -53,6 +54,20 @@ class VyshApp extends ConsumerWidget {
           custom ? TitleBarStyle.hidden : TitleBarStyle.normal,
           windowButtonVisibility: PlatformCapabilities.isMacOS || !custom,
         );
+      }
+    });
+
+    // Динамический заголовок окна в панели задач и Alt+Tab.
+    ref.listen<String?>(tabsProvider.select((t) => t.activeTab?.title), (
+      _,
+      title,
+    ) {
+      if (PlatformCapabilities.desktopWindow) {
+        windowManager
+            .setTitle(
+              title == null || title.isEmpty ? 'vysh' : '$title — vysh',
+            )
+            .ignore();
       }
     });
 

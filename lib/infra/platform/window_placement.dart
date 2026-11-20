@@ -79,6 +79,13 @@ class WindowPlacement with WindowListener {
     _debounce = Timer(const Duration(milliseconds: 600), _save);
   }
 
+  /// Немедленно сохранить геометрию окна перед закрытием/скрытием.
+  Future<void> flush() async {
+    _debounce?.cancel();
+    _debounce = null;
+    await _save();
+  }
+
   Future<void> _save() async {
     try {
       _maximized = await windowManager.isMaximized();

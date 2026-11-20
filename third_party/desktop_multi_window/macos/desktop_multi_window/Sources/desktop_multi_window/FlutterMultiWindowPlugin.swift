@@ -110,7 +110,9 @@ class MultiWindowManager: NSObject {
         window.contentViewController = flutterViewController
         window.setFrame(NSRect(x: 0, y: 0, width: 800, height: 600), display: true)
 
-        window.orderFront(nil)
+        if !config.hiddenAtLaunch {
+            window.orderFront(nil)
+        }
         window.setIsVisible(!config.hiddenAtLaunch)
 
         FlutterMultiWindowPlugin.onWindowCreatedCallback?(flutterViewController)
