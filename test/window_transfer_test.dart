@@ -131,6 +131,7 @@ void main() {
     container = ProviderContainer(
       overrides: [
         processSessionWindowsProvider.overrideWithValue(false),
+        exitProcessProvider.overrideWithValue((_) {}),
         tabsProvider.overrideWith(_Tabs.new),
         documentStoreProvider.overrideWith((ref, name) => fixture.Store()),
         sessionPromptsProvider.overrideWithValue(fixture.Unused()),

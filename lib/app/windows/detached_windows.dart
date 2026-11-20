@@ -33,6 +33,9 @@ final detachedWindowsProvider =
 /// Linux isolates windows in separate processes to avoid shared EGL teardown.
 final processSessionWindowsProvider = Provider<bool>((_) => Platform.isLinux);
 
+/// Process exit hook (overridable in tests) for Linux hidden-owner shutdown.
+final exitProcessProvider = Provider<void Function(int)>((_) => exit);
+
 class _WindowLease {
   _WindowLease(this.key, this.token);
   final String key, token;
@@ -432,8 +435,11 @@ class DetachedWindows extends Notifier<Map<String, String>>
     try {
       await windowManager.setPreventClose(false);
       await windowManager.destroy();
-    } catch (_) {
-      exit(0);
+    } catch (_) {}
+    // On Linux gtk_window_close() on a hidden window does not always terminate
+    // the GApplication loop; exit cleanly now that sessions and bounds are saved.
+    if (Platform.isLinux) {
+      ref.read(exitProcessProvider)(0);
     }
   }
 
