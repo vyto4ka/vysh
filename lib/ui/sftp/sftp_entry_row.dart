@@ -52,7 +52,8 @@ class SftpEntryRow extends StatelessWidget {
     required this.entry,
     required this.selected,
     required this.onTap,
-    required this.onDoubleTap,
+    this.onDoubleTap,
+    this.onIconTap,
     required this.onSecondary,
     required this.strings,
     this.onSelect,
@@ -64,7 +65,8 @@ class SftpEntryRow extends StatelessWidget {
   final RemoteEntry? entry;
   final bool selected;
   final VoidCallback onTap;
-  final VoidCallback onDoubleTap;
+  final VoidCallback? onDoubleTap;
+  final VoidCallback? onIconTap;
   final void Function(Offset globalPosition) onSecondary;
   final AppStrings strings;
   final ValueChanged<bool>? onSelect;
@@ -78,7 +80,6 @@ class SftpEntryRow extends StatelessWidget {
     final e = entry;
     final dim = scheme.onSurfaceVariant;
     final mobile = DesktopEnv.isMobile;
-    final fastDur = AppMotion.duration(context, AppMotion.durationFast);
 
     final icon = e == null
         ? Icons.subdirectory_arrow_left
@@ -87,6 +88,23 @@ class SftpEntryRow extends StatelessWidget {
         : (e.isLink ? Icons.link : _fileIcon(e.name));
     final iconColor = e == null || e.isDir ? scheme.primary : dim;
     final showCheckIcon = selected && !showSelection;
+    final separateIconTap = e != null && onIconTap != null;
+    final minRowHeight = theme.visualDensity == VisualDensity.compact
+        ? 48.0
+        : 56.0;
+
+    final badge = _EntryIconBadge(
+      icon: showCheckIcon ? Icons.check_circle : icon,
+      iconKey: (showCheckIcon, icon),
+      isDir: e?.isDir == true,
+      selected: selected,
+      iconColor: iconColor,
+      tooltip: separateIconTap
+          ? (selected ? strings.deselectEntry : strings.selectEntry)
+          : null,
+      onTap: enabled && separateIconTap ? onIconTap : null,
+      onSecondary: enabled && separateIconTap ? onSecondary : null,
+    );
 
     return LayoutBuilder(
       builder: (context, box) => Semantics(
@@ -102,7 +120,7 @@ class SftpEntryRow extends StatelessWidget {
             color: Colors.transparent,
             selectedColor: scheme.secondaryContainer,
             onTap: enabled ? onTap : null,
-            // На телефоне без onDoubleTap уходит 300 мс задержка тапа.
+            // Для папок и на телефоне onDoubleTap == null — тап срабатывает мгновенно без 300 мс ожидания.
             onDoubleTap: enabled && !mobile ? onDoubleTap : null,
             onSecondaryTapUp: enabled
                 ? (d) => onSecondary(d.globalPosition)
@@ -113,66 +131,44 @@ class SftpEntryRow extends StatelessWidget {
                     onSecondary(d.globalPosition);
                   }
                 : null,
-            leading: ExpandSection(
-              expanded: showSelection,
-              axis: Axis.horizontal,
-              spring: AppMotion.spatialFast,
-              child: Checkbox(
-                value: selected,
-                onChanged: enabled && onSelect != null
-                    ? (v) => onSelect!(v!)
-                    : null,
-              ),
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ExpandSection(
+                  expanded: showSelection,
+                  axis: Axis.horizontal,
+                  spring: AppMotion.spatialFast,
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: enabled && onSelect != null
+                        ? (v) => onSelect!(v!)
+                        : null,
+                  ),
+                ),
+                if (separateIconTap)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      left: showSelection ? 2 : 10,
+                      right: 4,
+                      top: 4,
+                      bottom: 4,
+                    ),
+                    child: badge,
+                  ),
+              ],
             ),
             child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight:
-                    Theme.of(context).visualDensity == VisualDensity.compact
-                    ? 48
-                    : 56,
-              ),
+              constraints: BoxConstraints(minHeight: minRowHeight),
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                  12,
+                  separateIconTap ? 6 : 12,
                   4,
                   mobile && e != null ? 4 : 12,
                   4,
                 ),
                 child: Row(
                   children: [
-                    AnimatedContainer(
-                      duration: fastDur,
-                      curve: Curves.easeOutCubic,
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: selected || e?.isDir == true
-                            ? scheme.secondaryContainer
-                            : scheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(selected ? 12 : 10),
-                      ),
-                      child: AnimatedSwitcher(
-                        duration: fastDur,
-                        switchInCurve: AppMotion.fastSpringCurve,
-                        switchOutCurve: AppMotion.emphasizedAccelerate,
-                        transitionBuilder: (child, anim) => ScaleTransition(
-                          scale: Tween<double>(
-                            begin: 0.75,
-                            end: 1.0,
-                          ).animate(anim),
-                          child: FadeTransition(opacity: anim, child: child),
-                        ),
-                        child: Icon(
-                          showCheckIcon ? Icons.check_circle : icon,
-                          key: ValueKey((showCheckIcon, icon)),
-                          size: 20,
-                          color: selected || e?.isDir == true
-                              ? scheme.onSecondaryContainer
-                              : iconColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
+                    if (!separateIconTap) ...[badge, const SizedBox(width: 12)],
                     Expanded(
                       child: Text(
                         e?.name ?? '..',
@@ -313,5 +309,98 @@ class SftpEntryRow extends StatelessWidget {
       'pem' || 'crt' || 'key' || 'pub' => Icons.key_outlined,
       _ => Icons.insert_drive_file_outlined,
     };
+  }
+}
+
+class _EntryIconBadge extends StatefulWidget {
+  const _EntryIconBadge({
+    required this.icon,
+    required this.iconKey,
+    required this.isDir,
+    required this.selected,
+    required this.iconColor,
+    this.tooltip,
+    this.onTap,
+    this.onSecondary,
+  });
+
+  final IconData icon;
+  final Object iconKey;
+  final bool isDir;
+  final bool selected;
+  final Color iconColor;
+  final String? tooltip;
+  final VoidCallback? onTap;
+  final void Function(Offset globalPosition)? onSecondary;
+
+  @override
+  State<_EntryIconBadge> createState() => _EntryIconBadgeState();
+}
+
+class _EntryIconBadgeState extends State<_EntryIconBadge> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fastDur = AppMotion.duration(context, AppMotion.durationFast);
+    final interactive = widget.onTap != null;
+
+    Widget box = AnimatedContainer(
+      duration: fastDur,
+      curve: Curves.easeOutCubic,
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: widget.selected || widget.isDir || (_hover && interactive)
+            ? scheme.secondaryContainer
+            : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(widget.selected ? 12 : 10),
+        border: Border.all(
+          color: _hover && interactive
+              ? scheme.primary.withValues(alpha: 0.65)
+              : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: AnimatedSwitcher(
+        duration: fastDur,
+        switchInCurve: AppMotion.fastSpringCurve,
+        switchOutCurve: AppMotion.emphasizedAccelerate,
+        transitionBuilder: (child, anim) => ScaleTransition(
+          scale: Tween<double>(begin: 0.75, end: 1.0).animate(anim),
+          child: FadeTransition(opacity: anim, child: child),
+        ),
+        child: Icon(
+          widget.icon,
+          key: ValueKey(widget.iconKey),
+          size: 20,
+          color: widget.selected || widget.isDir
+              ? scheme.onSecondaryContainer
+              : widget.iconColor,
+        ),
+      ),
+    );
+
+    if (!interactive) return box;
+
+    box = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onSecondaryTapUp: widget.onSecondary == null
+            ? null
+            : (d) => widget.onSecondary!(d.globalPosition),
+        child: Padding(padding: const EdgeInsets.all(2), child: box),
+      ),
+    );
+
+    if (widget.tooltip != null) {
+      box = Tooltip(message: widget.tooltip!, child: box);
+    }
+    return box;
   }
 }

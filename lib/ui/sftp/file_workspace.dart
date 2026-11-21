@@ -823,16 +823,32 @@ class _BrowserState extends ConsumerState<_Browser> {
                                                     toggle: true,
                                                   )
                                                 : null,
+                                            onIconTap: widget.enabled
+                                                ? () => _select(
+                                                    entry,
+                                                    entries,
+                                                    toggle: true,
+                                                  )
+                                                : null,
                                             onTap: () {
                                               if (!widget.enabled) return;
-                                              if (DesktopEnv.isMobile &&
-                                                  entry.isDir) {
+                                              final modHeld =
+                                                  !DesktopEnv.isMobile &&
+                                                  (Modifiers.instance.ctrl ||
+                                                      Modifiers
+                                                          .instance
+                                                          .shift ||
+                                                      (PlatformCapabilities
+                                                              .isMacOS &&
+                                                          HardwareKeyboard
+                                                              .instance
+                                                              .isMetaPressed));
+                                              if (entry.isDir && !modHeld) {
                                                 open();
                                               } else {
                                                 _select(entry, entries);
                                               }
                                             },
-                                            onDoubleTap: open,
                                             onSecondary: (position) {
                                               _menu.currentState
                                                   ?.open(position, [

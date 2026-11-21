@@ -102,6 +102,7 @@ class AppSettings {
     this.catppuccinFlavor = 'mocha',
     this.catppuccinAccent = 'mauve',
     this.serverStats = true,
+    this.followTerminalDirectory = true,
     this.checkForUpdates = true,
     this.updatePromptDays = 3,
   });
@@ -190,6 +191,9 @@ class AppSettings {
   /// Нагрузка сервера в строке состояния терминала.
   final bool serverStats;
 
+  /// Автоматически переходить в проводнике за рабочей папкой оболочки терминала.
+  final bool followTerminalDirectory;
+
   /// Проверять обновления автоматически.
   final bool checkForUpdates;
 
@@ -230,6 +234,7 @@ class AppSettings {
     String? catppuccinFlavor,
     String? catppuccinAccent,
     bool? serverStats,
+    bool? followTerminalDirectory,
     bool? checkForUpdates,
     int? updatePromptDays,
   }) => AppSettings(
@@ -267,6 +272,8 @@ class AppSettings {
     catppuccinFlavor: catppuccinFlavor ?? this.catppuccinFlavor,
     catppuccinAccent: catppuccinAccent ?? this.catppuccinAccent,
     serverStats: serverStats ?? this.serverStats,
+    followTerminalDirectory:
+        followTerminalDirectory ?? this.followTerminalDirectory,
     checkForUpdates: checkForUpdates ?? this.checkForUpdates,
     updatePromptDays: updatePromptDays ?? this.updatePromptDays,
   );
@@ -306,6 +313,7 @@ class AppSettings {
     'catppuccinFlavor': catppuccinFlavor,
     'catppuccinAccent': catppuccinAccent,
     'serverStats': serverStats,
+    'followTerminalDirectory': followTerminalDirectory,
     'checkForUpdates': checkForUpdates,
     'updatePromptDays': updatePromptDays,
   };
@@ -370,6 +378,7 @@ class AppSettings {
     catppuccinFlavor: json.str('catppuccinFlavor') ?? 'mocha',
     catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
     serverStats: json.boolean('serverStats') ?? true,
+    followTerminalDirectory: json.boolean('followTerminalDirectory') ?? true,
     checkForUpdates: json.boolean('checkForUpdates') ?? true,
     updatePromptDays: switch (json.integer('updatePromptDays')) {
       1 => 1,

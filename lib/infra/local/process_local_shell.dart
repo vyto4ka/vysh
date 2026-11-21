@@ -533,6 +533,24 @@ Future<String?> _readDirectory(int pid, bool stopped) async {
   if (stopped) return null;
   try {
     if (Platform.isLinux || Platform.isAndroid) {
+      try {
+        final stat = await File('/proc/$pid/stat').readAsString();
+        final closeParen = stat.lastIndexOf(')');
+        if (closeParen >= 0) {
+          final fields = stat
+              .substring(closeParen + 1)
+              .trim()
+              .split(RegExp(r'\s+'));
+          if (fields.length >= 6) {
+            final tpgid = int.tryParse(fields[5]);
+            if (tpgid != null && tpgid > 0 && tpgid != pid) {
+              try {
+                return await Link('/proc/$tpgid/cwd').target();
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
       return await Link('/proc/$pid/cwd').target();
     }
     if (Platform.isMacOS) {

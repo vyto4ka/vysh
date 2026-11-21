@@ -184,8 +184,7 @@ class DetachedWindows extends Notifier<Map<String, String>>
             .toSet();
         if (!ref.mounted) return;
         for (final lease in _leases.values.toList()) {
-          if (lease.window != null &&
-              !alive.contains(lease.window!.windowId)) {
+          if (lease.window != null && !alive.contains(lease.window!.windowId)) {
             await _closeLease(lease, notifyWindow: false);
           }
         }
@@ -829,7 +828,7 @@ class DetachedWindows extends Notifier<Map<String, String>>
       case 'forgetPassword':
         session.forgetPassword();
       case 'directory':
-        await session.refreshWorkingDirectory();
+        await session.refreshWorkingDirectory(force: args['force'] == true);
         lease.dirty.add(id);
         _schedulePush(lease);
       case 'exec':

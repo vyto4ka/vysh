@@ -271,4 +271,129 @@ void main() {
       await folder.delete(recursive: true);
     }
   });
+
+  test(
+    'remote SSH session tracks shell directory out-of-band on prompt output without stdin writes and yields to OSC 7',
+    () async {
+      final out = StreamController<Uint8List>.broadcast();
+      final stdinWrites = <List<int>>[];
+      var execCalls = 0;
+      var remoteCwd = '/home/admin';
+
+      final remoteShell = _FakeSshShell(out.stream, onWrite: stdinWrites.add);
+      final transport = _FakeSshTransport(
+        remoteShell,
+        onExec: (cmd) async {
+          expect(cmd, remoteShellDirectoryCommand);
+          execCalls++;
+          return '$remoteCwd\n';
+        },
+      );
+      final s = TerminalSession(
+        host: const Host(
+          id: 'ssh1',
+          label: 'srv',
+          address: '10.0.0.1',
+          username: 'admin',
+        ),
+        connector: _FakeSshConnector(transport),
+        prompts: Unused(),
+        secrets: _EmptySecrets(),
+        knownHosts: KnownHosts(Store()),
+        onStatus: (_) {},
+      );
+
+      final seen = <String?>[];
+      s.currentDirectory.addListener(() => seen.add(s.currentDirectory.value));
+
+      try {
+        await s.connect();
+        await s.refreshWorkingDirectory(force: true);
+        expect(s.currentDirectory.value, '/home/admin');
+        expect(execCalls, 1);
+        expect(stdinWrites, isEmpty);
+
+        // Вывод приглашения после cd запускает фоновую проверку через 220 мс.
+        remoteCwd = '/var/log/nginx';
+        out.add(Uint8List.fromList(utf8.encode('admin@srv:/var/log/nginx\$ ')));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(s.currentDirectory.value, '/var/log/nginx');
+        expect(execCalls, 2);
+        expect(stdinWrites, isEmpty);
+
+        // В простое (без нового вывода оболочки) повторный опрос не дёргает exec.
+        await s.refreshWorkingDirectory();
+        expect(execCalls, 2);
+
+        // Если оболочка сама прислала OSC 7, дальнейший вывод обновляет путь
+        // напрямую и больше не вызывает фоновый exec.
+        out.add(
+          Uint8List.fromList(
+            utf8.encode('\x1b]7;file://srv/etc/systemd\x07admin@srv\$ '),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(s.currentDirectory.value, '/etc/systemd');
+        expect(execCalls, 2);
+      } finally {
+        s.dispose();
+        await out.close();
+      }
+    },
+  );
+}
+
+class _FakeSshShell implements SshShell {
+  _FakeSshShell(this.output, {required this.onWrite});
+  @override
+  final Stream<Uint8List> output;
+  final void Function(List<int>) onWrite;
+  @override
+  Future<void> get done => Completer<void>().future;
+  @override
+  void write(Uint8List data) => onWrite(data);
+  @override
+  void resize(int columns, int rows) {}
+  @override
+  void close() {}
+}
+
+class _FakeSshTransport implements SshTransport {
+  _FakeSshTransport(this.shell, {required this.onExec});
+  final SshShell shell;
+  final Future<String> Function(String) onExec;
+  @override
+  Future<void> get done => Completer<void>().future;
+  @override
+  String? get serverVersion => 'SSH-2.0-OpenSSH';
+  @override
+  Future<SshShell> openShell({required int columns, required int rows}) async =>
+      shell;
+  @override
+  Future<String> exec(
+    String command, {
+    Duration timeout = const Duration(seconds: 10),
+  }) => onExec(command);
+  @override
+  Future<SftpSession> openSftp() => throw UnimplementedError();
+  @override
+  Future<void> close() async {}
+}
+
+class _FakeSshConnector implements SshConnector {
+  _FakeSshConnector(this.transport);
+  final SshTransport transport;
+  @override
+  bool isKeyEncrypted(String pem) => false;
+  @override
+  Future<SshTransport> connect(SshConnectRequest r) async => transport;
+}
+
+class _EmptySecrets implements SecretStore {
+  @override
+  Future<String?> read(String key) async => null;
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
 }

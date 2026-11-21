@@ -109,6 +109,8 @@ class SettingsController extends Notifier<AppSettings> {
   void setCatppuccinAccent(String v) =>
       _update(state.copyWith(catppuccinAccent: v));
   void setServerStats(bool v) => _update(state.copyWith(serverStats: v));
+  void setFollowTerminalDirectory(bool v) =>
+      _update(state.copyWith(followTerminalDirectory: v));
   void setTitleBarMode(TitleBarMode v) =>
       _update(state.copyWith(titleBarMode: v));
   void setKeepAliveSeconds(int seconds) =>

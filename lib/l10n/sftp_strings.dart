@@ -8,35 +8,52 @@ extension SftpStrings on AppStrings {
     String a(String k) => f.args[k] ?? '';
     final detail = f.args['detail'];
     return switch (f.code) {
-      SftpFailureCode.noSuchFile => isRu ? 'Нет такого файла или папки' : 'No such file or folder',
-      SftpFailureCode.permissionDenied => isRu ? 'Нет прав доступа' : 'Permission denied',
+      SftpFailureCode.noSuchFile =>
+        isRu ? 'Нет такого файла или папки' : 'No such file or folder',
+      SftpFailureCode.permissionDenied =>
+        isRu ? 'Нет прав доступа' : 'Permission denied',
       SftpFailureCode.notADirectory =>
-        isRu ? '${a('path')} существует и это не папка' : '${a('path')} exists and is not a folder',
-      SftpFailureCode.isDirectory => isRu ? '${a('path')} - это папка' : '${a('path')} is a folder',
-      SftpFailureCode.exists => isRu ? 'Файл уже существует' : 'File already exists',
-      SftpFailureCode.failed => isRu
-          ? 'Операция не выполнена${detail == null ? '' : ': $detail'}'
-          : 'Operation failed${detail == null ? '' : ': $detail'}',
+        isRu
+            ? '${a('path')} существует и это не папка'
+            : '${a('path')} exists and is not a folder',
+      SftpFailureCode.isDirectory =>
+        isRu ? '${a('path')} - это папка' : '${a('path')} is a folder',
+      SftpFailureCode.exists =>
+        isRu ? 'Файл уже существует' : 'File already exists',
+      SftpFailureCode.failed =>
+        isRu
+            ? 'Операция не выполнена${detail == null ? '' : ': $detail'}'
+            : 'Operation failed${detail == null ? '' : ': $detail'}',
       SftpFailureCode.unsupported =>
-        isRu ? 'Сервер не поддерживает эту операцию' : 'The server does not support this operation',
-      SftpFailureCode.noSftpServer => isRu
-          ? 'Сервер не ответил по SFTP. Возможно, на нём нет sftp-server '
-              '(на OpenWrt: opkg install openssh-sftp-server).'
-          : 'The server did not answer over SFTP. It may have no sftp-server '
-              '(on OpenWrt: opkg install openssh-sftp-server).',
-      SftpFailureCode.sftpUnavailable => isRu
-          ? 'Сервер не поддерживает SFTP: ${a('detail')}'
-          : 'The server does not support SFTP: ${a('detail')}',
+        isRu
+            ? 'Сервер не поддерживает эту операцию'
+            : 'The server does not support this operation',
+      SftpFailureCode.noSftpServer =>
+        isRu
+            ? 'Сервер не ответил по SFTP. Возможно, на нём нет sftp-server '
+                  '(на OpenWrt: opkg install openssh-sftp-server).'
+            : 'The server did not answer over SFTP. It may have no sftp-server '
+                  '(on OpenWrt: opkg install openssh-sftp-server).',
+      SftpFailureCode.sftpUnavailable =>
+        isRu
+            ? 'Сервер не поддерживает SFTP: ${a('detail')}'
+            : 'The server does not support SFTP: ${a('detail')}',
       SftpFailureCode.noConnection => noServerConnection,
       SftpFailureCode.connectionClosed =>
-        isRu ? 'Соединение с сервером закрыто' : 'Connection to the server closed',
-      SftpFailureCode.localFile => isRu ? 'Локальный файл: ${a('detail')}' : 'Local file: ${a('detail')}',
-      SftpFailureCode.connection => isRu ? 'Соединение: ${a('detail')}' : 'Connection: ${a('detail')}',
-      SftpFailureCode.stalled => isRu
-          ? 'Сервер перестал присылать данные (${a('seconds')} с без ответа)'
-          : 'The server stopped sending data (no response for ${a('seconds')} s)',
-      SftpFailureCode.other => detail ??
-          (isRu ? 'Ошибка SFTP (${a('code')})' : 'SFTP error (${a('code')})'),
+        isRu
+            ? 'Соединение с сервером закрыто'
+            : 'Connection to the server closed',
+      SftpFailureCode.localFile =>
+        isRu ? 'Локальный файл: ${a('detail')}' : 'Local file: ${a('detail')}',
+      SftpFailureCode.connection =>
+        isRu ? 'Соединение: ${a('detail')}' : 'Connection: ${a('detail')}',
+      SftpFailureCode.stalled =>
+        isRu
+            ? 'Сервер перестал присылать данные (${a('seconds')} с без ответа)'
+            : 'The server stopped sending data (no response for ${a('seconds')} s)',
+      SftpFailureCode.other =>
+        detail ??
+            (isRu ? 'Ошибка SFTP (${a('code')})' : 'SFTP error (${a('code')})'),
     };
   }
 
@@ -44,14 +61,18 @@ extension SftpStrings on AppStrings {
 
   /// 1536 → «1.5 КБ».
   String bytes(num value) {
-    final units = isRu ? const ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'] : const ['B', 'KB', 'MB', 'GB', 'TB'];
+    final units = isRu
+        ? const ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']
+        : const ['B', 'KB', 'MB', 'GB', 'TB'];
     var v = value.toDouble();
     var i = 0;
     while (v >= 1024 && i < units.length - 1) {
       v /= 1024;
       i++;
     }
-    final text = v >= 100 || i == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+    final text = v >= 100 || i == 0
+        ? v.toStringAsFixed(0)
+        : v.toStringAsFixed(1);
     return '$text ${units[i]}';
   }
 
@@ -67,10 +88,13 @@ extension SftpStrings on AppStrings {
 
   String get uploadAction => isRu ? 'Загрузить' : 'Upload';
   String get saveHere => isRu ? 'Сохранить сюда' : 'Save here';
-  String get downloadingToDownloads =>
-      isRu ? 'Скачивание в папку Download' : 'Downloading to the Download folder';
-  String downloadingTo(String dir) => isRu ? 'Скачивание в $dir' : 'Downloading to $dir';
-  String savedOnServer(String name) => isRu ? '«$name» сохранён на сервере' : '«$name» saved on the server';
+  String get downloadingToDownloads => isRu
+      ? 'Скачивание в папку Download'
+      : 'Downloading to the Download folder';
+  String downloadingTo(String dir) =>
+      isRu ? 'Скачивание в $dir' : 'Downloading to $dir';
+  String savedOnServer(String name) =>
+      isRu ? '«$name» сохранён на сервере' : '«$name» saved on the server';
   String get newFolder => isRu ? 'Новая папка' : 'New folder';
   String get folderName => isRu ? 'Имя папки' : 'Folder name';
   String get open => isRu ? 'Открыть' : 'Open';
@@ -83,6 +107,15 @@ extension SftpStrings on AppStrings {
   String get homeFolder => isRu ? 'Домашняя папка' : 'Home folder';
   String get refresh => isRu ? 'Обновить' : 'Refresh';
   String get hiddenFiles => isRu ? 'Скрытые файлы' : 'Hidden files';
+  String get followTerminalDirectoryTitle =>
+      isRu ? 'Следовать папке терминала' : 'Follow terminal directory';
+  String get followTerminalDirectoryDesc => isRu
+      ? 'Автоматически открывать в проводнике текущую рабочую папку оболочки'
+      : 'Automatically open the shell\'s current working directory in files';
+  String get goToTerminalDirectory =>
+      isRu ? 'Перейти в папку терминала' : 'Go to terminal folder';
+  String get selectEntry => isRu ? 'Выбрать' : 'Select';
+  String get deselectEntry => isRu ? 'Снять выделение' : 'Deselect';
   String get tryAgain => isRu ? 'Повторить' : 'Try again';
   String get up => isRu ? 'Вверх' : 'Up';
   String dropToUpload(String dir) =>
@@ -128,17 +161,22 @@ extension SftpStrings on AppStrings {
       : 'The server already has files with these names:';
   String get skip => isRu ? 'Пропустить' : 'Skip';
   String get replace => isRu ? 'Заменить' : 'Replace';
-  List<String> get permissionWho =>
-      isRu ? const ['Владелец', 'Группа', 'Остальные'] : const ['Owner', 'Group', 'Others'];
-  List<String> get permissionWhat =>
-      isRu ? const ['Чтение', 'Запись', 'Выполнение'] : const ['Read', 'Write', 'Execute'];
-  String get octalHint => isRu ? 'Восьмерично (например, 755)' : 'Octal (e.g. 755)';
+  List<String> get permissionWho => isRu
+      ? const ['Владелец', 'Группа', 'Остальные']
+      : const ['Owner', 'Group', 'Others'];
+  List<String> get permissionWhat => isRu
+      ? const ['Чтение', 'Запись', 'Выполнение']
+      : const ['Read', 'Write', 'Execute'];
+  String get octalHint =>
+      isRu ? 'Восьмерично (например, 755)' : 'Octal (e.g. 755)';
   String get apply => isRu ? 'Применить' : 'Apply';
 
   // ─── Очередь передач ─────────────────────────────────────────────
 
-  String transfersActive(int n) => isRu ? 'Передачи: $n в работе' : 'Transfers: $n in progress';
-  String get transfersDone => isRu ? 'Передачи завершены' : 'Transfers finished';
+  String transfersActive(int n) =>
+      isRu ? 'Передачи: $n в работе' : 'Transfers: $n in progress';
+  String get transfersDone =>
+      isRu ? 'Передачи завершены' : 'Transfers finished';
   String transfersFailed(int n) => isRu ? 'ошибок: $n' : 'failed: $n';
   String get cancelAll => isRu ? 'Отменить все' : 'Cancel all';
   String get clearList => isRu ? 'Очистить' : 'Clear';

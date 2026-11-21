@@ -61,7 +61,8 @@ class TerminalSession extends ChangeNotifier {
        _strings = strings ?? (() => AppStrings.forLanguage(AppLanguage.auto)),
        _memPassword = initialPassword,
        terminal = Terminal(maxLines: scrollbackLines) {
-    terminal.onCurrentDirectoryChange = _directoryReport;
+    terminal.onCurrentDirectoryChange = (v) =>
+        _directoryReport(v, fromOsc: true);
   }
 
   /// A display in another engine has no credentials or connection of its own.
@@ -130,19 +131,72 @@ class TerminalSession extends ChangeNotifier {
   final LocalShellLauncher? localShells;
   final bool local;
   final SftpSession? localFiles;
-  final currentDirectory = ValueNotifier<String?>(null);
-  void _directoryReport(String value) {
+  final _currentDirectory = _DirectoryNotifier();
+  ValueNotifier<String?> get currentDirectory => _currentDirectory;
+  bool _oscDirectoryReported = false;
+  bool _remoteDirDirty = true;
+  int _remoteDirFailures = 0;
+  bool _refreshingDir = false;
+  Timer? _dirDebounce;
+
+  void _directoryReport(String value, {bool fromOsc = false}) {
     if (_disposed) return;
     final path = reportedDirectory(value);
-    if (path != null) currentDirectory.value = path;
+    if (path != null) {
+      if (fromOsc) _oscDirectoryReported = true;
+      _currentDirectory.value = path;
+    }
   }
 
-  Future<void> refreshWorkingDirectory() async {
-    final shell = _shell;
-    if (!local || shell is! DirectoryAwareShell) return;
-    final path = await (shell as DirectoryAwareShell).workingDirectory();
-    if (!_disposed && identical(shell, _shell) && path != null) {
-      _directoryReport(path);
+  Future<void> refreshWorkingDirectory({bool force = false}) async {
+    if (_disposed) return;
+    if (local) {
+      final shell = _shell;
+      if (shell is! DirectoryAwareShell) return;
+      final path = await (shell as DirectoryAwareShell).workingDirectory();
+      if (!_disposed && identical(shell, _shell) && path != null) {
+        _directoryReport(path);
+      }
+      return;
+    }
+
+    final transport = _transport;
+    if (transport == null ||
+        _status != SessionStatus.ready ||
+        _oscDirectoryReported ||
+        _remoteDirFailures >= 3 ||
+        _refreshingDir ||
+        (!force && !_remoteDirDirty)) {
+      return;
+    }
+
+    _refreshingDir = true;
+    _remoteDirDirty = false;
+    final gen = _gen;
+    try {
+      final raw = await transport.exec(
+        remoteShellDirectoryCommand,
+        timeout: const Duration(seconds: 4),
+      );
+      if (_disposed || gen != _gen || !identical(_transport, transport)) return;
+      final firstLine = raw
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .firstOrNull;
+      final path = firstLine == null ? null : reportedDirectory(firstLine);
+      if (path != null) {
+        _remoteDirFailures = 0;
+        _currentDirectory.value = path;
+      } else {
+        _remoteDirFailures++;
+      }
+    } catch (_) {
+      if (!_disposed && gen == _gen && identical(_transport, transport)) {
+        _remoteDirFailures++;
+      }
+    } finally {
+      _refreshingDir = false;
     }
   }
 
@@ -382,6 +436,7 @@ class TerminalSession extends ChangeNotifier {
   }
 
   void _attachShell(TerminalShell shell) {
+    _remoteDirDirty = true;
     if (shell is DirectoryAwareShell) {
       final path = (shell as DirectoryAwareShell).initialDirectory;
       if (path != null) _directoryReport(path);
@@ -414,7 +469,17 @@ class TerminalSession extends ChangeNotifier {
     _outputSub = shell.output
         .cast<List<int>>()
         .transform(const Utf8Decoder(allowMalformed: true))
-        .listen(terminal.write);
+        .listen((chunk) {
+          terminal.write(chunk);
+          _remoteDirDirty = true;
+          if (_currentDirectory.watched && !_oscDirectoryReported) {
+            _dirDebounce?.cancel();
+            _dirDebounce = Timer(
+              const Duration(milliseconds: 220),
+              refreshWorkingDirectory,
+            );
+          }
+        });
   }
 
   @override
@@ -428,7 +493,7 @@ class TerminalSession extends ChangeNotifier {
     if (cancel != null && !cancel.isCompleted) cancel.complete();
     _closeLocalEdits();
     _teardown();
-    currentDirectory.dispose();
+    _currentDirectory.dispose();
     super.dispose();
   }
 
@@ -545,7 +610,12 @@ class TerminalSession extends ChangeNotifier {
   }
 
   void _teardown() {
-    if (!_disposed) currentDirectory.value = null;
+    _dirDebounce?.cancel();
+    _dirDebounce = null;
+    _oscDirectoryReported = false;
+    _remoteDirDirty = true;
+    _remoteDirFailures = 0;
+    if (!_disposed) _currentDirectory.value = null;
     final sftp = _sftp;
     _sftp = null;
     sftp?.then((s) => s.close()).catchError((_) {});
@@ -571,6 +641,11 @@ class TerminalSession extends ChangeNotifier {
     _log(text, error: true);
     terminal.write('\r\n\x1b[31m✗ ${text(_strings())}\x1b[0m\r\n');
   }
+}
+
+class _DirectoryNotifier extends ValueNotifier<String?> {
+  _DirectoryNotifier() : super(null);
+  bool get watched => hasListeners;
 }
 
 /// Локальное редактирование файла, привязанное к сессии.

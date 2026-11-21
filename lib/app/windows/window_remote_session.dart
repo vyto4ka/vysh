@@ -162,8 +162,8 @@ class WindowRemoteSession extends TerminalSession {
   }
 
   @override
-  Future<void> refreshWorkingDirectory() async {
-    await request('directory', {});
+  Future<void> refreshWorkingDirectory({bool force = false}) async {
+    await request('directory', {'force': force});
   }
 
   @override

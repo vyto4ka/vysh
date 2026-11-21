@@ -77,12 +77,15 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   bool _hasStorageAccess = true;
   final _selected = <String>{};
   String? _anchor;
-  bool _followTerminal = true;
+  bool? _followOverride;
   String? _lastReported;
   Timer? _directoryTimer;
   bool _pollingDirectory = false;
   TerminalSession? _directorySession;
   int _followGeneration = 0;
+
+  bool get _following =>
+      _followOverride ?? ref.read(settingsProvider).followTerminalDirectory;
 
   String _parentOf(String path) =>
       widget.tab.isLocal ? LocalFiles.parentPath(path) : remoteParent(path);
@@ -106,22 +109,29 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     if (!mounted) return;
     setState(() => _hasStorageAccess = granted);
     if (granted) {
-      _setFollow(false);
       await _dir.home();
     }
   }
 
   void _onTerminalDirectory() {
-    if (!mounted || !_followTerminal || !widget.active) return;
+    if (!mounted) return;
     final path = _directorySession?.currentDirectory.value;
+    if (!_following || !widget.active) {
+      setState(() {});
+      return;
+    }
     if (path == null || path == _lastReported) return;
     _lastReported = path;
-    if (path != _cwd) unawaited(_dir.open(path));
+    if (path != _cwd) {
+      unawaited(_dir.open(path));
+    } else {
+      setState(() {});
+    }
   }
 
-  Future<void> _pollDirectory() async {
+  Future<void> _pollDirectory({bool force = false}) async {
     if (_pollingDirectory ||
-        !_followTerminal ||
+        !_following ||
         !widget.active ||
         widget.tab.status != SessionStatus.ready) {
       return;
@@ -129,7 +139,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     _pollingDirectory = true;
     final generation = _followGeneration;
     try {
-      await _directorySession?.refreshWorkingDirectory();
+      await _directorySession?.refreshWorkingDirectory(force: force);
       if (mounted && generation == _followGeneration) _onTerminalDirectory();
     } finally {
       _pollingDirectory = false;
@@ -171,13 +181,23 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
   void _setFollow(bool value) {
     setState(() {
-      _followTerminal = value;
+      _followOverride = value;
       _followGeneration++;
-      _lastReported = null;
+      if (value) _lastReported = null;
     });
     if (value) {
       _onTerminalDirectory();
-      unawaited(_pollDirectory());
+      unawaited(_pollDirectory(force: true));
+    }
+  }
+
+  void _jumpToTerminalDirectory() {
+    final path = _directorySession?.currentDirectory.value;
+    if (path != null) {
+      _lastReported = path;
+      unawaited(_dir.open(path));
+    } else {
+      unawaited(_pollDirectory(force: true));
     }
   }
 
@@ -199,11 +219,11 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   @override
   void didUpdateWidget(SftpPane old) {
     super.didUpdateWidget(old);
-    if (widget.active && !old.active) unawaited(_pollDirectory());
+    if (widget.active && !old.active) unawaited(_pollDirectory(force: true));
     // После переподключения SFTP-канал новый - перечитываем папку.
     if (widget.tab.status == SessionStatus.ready &&
         old.tab.status != SessionStatus.ready) {
-      _followTerminal || _cwd == null ? _init() : _dir.open(_cwd!);
+      _following || _cwd == null ? _init() : _dir.open(_cwd!);
     }
   }
 
@@ -251,19 +271,26 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   String? get _error => _dir.error == null ? null : _s.errorText(_dir.error!);
 
   Future<void> _init() async {
+    _lastReported = null;
+    if (_following) {
+      if (_directorySession?.currentDirectory.value == null) {
+        await _pollDirectory(force: true);
+        if (!mounted) return;
+      }
+      final termDir = _directorySession?.currentDirectory.value;
+      if (termDir != null) {
+        _lastReported = termDir;
+        await _dir.open(termDir);
+        if (!mounted) return;
+        if (_dir.error == null) return;
+      }
+    }
     await _dir.home();
     if (!mounted) return;
-    _lastReported = null;
     _onTerminalDirectory();
-    unawaited(_pollDirectory());
   }
 
-  Future<void> _open(String path) {
-    _setFollow(
-      false,
-    ); // Explicit navigation takes precedence until follow is re-enabled.
-    return _dir.open(path);
-  }
+  Future<void> _open(String path) => _dir.open(path);
 
   Future<void> _refresh() => _dir.refresh();
 
@@ -412,10 +439,8 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     );
     if (name == null || name.isEmpty || name == e.name) return;
     await _run(
-      () async => (await _sftp()).rename(
-        e.path,
-        _joinPath(_parentOf(e.path), name),
-      ),
+      () async =>
+          (await _sftp()).rename(e.path, _joinPath(_parentOf(e.path), name)),
     );
   }
 
@@ -567,11 +592,9 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   /// Пункты, относящиеся к текущей папке (меню «⋮» и пустое место списка).
   List<Widget> _folderItems() => [
     CheckboxMenuButton(
-      value: _followTerminal,
+      value: _following,
       onChanged: (v) => _setFollow(v!),
-      child: Text(
-        _s.isRu ? 'Следовать папке терминала' : 'Follow terminal directory',
-      ),
+      child: Text(_s.followTerminalDirectoryTitle),
     ),
     if (!widget.tab.isLocal &&
         _directorySession?.currentDirectory.value == null)
@@ -594,14 +617,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
       onPressed: _mkdir,
     ),
     menuDivider(),
-    menuItem(
-      _s.homeFolder,
-      icon: Icons.home_outlined,
-      onPressed: () {
-        _setFollow(false);
-        _dir.home();
-      },
-    ),
+    menuItem(_s.homeFolder, icon: Icons.home_outlined, onPressed: _dir.home),
     menuItem(
       _s.refresh,
       icon: Icons.refresh,
@@ -649,10 +665,27 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(settingsProvider.select((s) => s.language)); // язык для _s
+    ref.watch(
+      settingsProvider.select((s) => (s.language, s.followTerminalDirectory)),
+    );
+    ref.listen<bool>(
+      settingsProvider.select((s) => s.followTerminalDirectory),
+      (prev, next) {
+        setState(() {
+          _followOverride = null;
+          _followGeneration++;
+          if (next) _lastReported = null;
+        });
+        if (next) {
+          _onTerminalDirectory();
+          unawaited(_pollDirectory(force: true));
+        }
+      },
+    );
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final ready = widget.tab.status == SessionStatus.ready;
+    final termDir = _directorySession?.currentDirectory.value;
 
     Widget body;
     if (!ready) {
@@ -675,13 +708,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                   : _dir.open(_dir.requestedPath!),
               child: Text(_s.tryAgain),
             ),
-            TextButton(
-              onPressed: () {
-                _setFollow(false);
-                _dir.home();
-              },
-              child: Text(_s.homeFolder),
-            ),
+            TextButton(onPressed: _dir.home, child: Text(_s.homeFolder)),
           ],
         ),
       );
@@ -713,7 +740,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                         entry: null,
                         selected: false,
                         onTap: () => _open(_parentOf(_cwd ?? '/')),
-                        onDoubleTap: () => _open(_parentOf(_cwd ?? '/')),
                         onSecondary: (_) {},
                         strings: _s,
                       );
@@ -723,7 +749,9 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                         height: 180,
                         child: SftpPlaceholder(
                           icon: Icons.folder_open_outlined,
-                          text: _s.isRu ? 'Папка пуста' : 'This folder is empty',
+                          text: _s.isRu
+                              ? 'Папка пуста'
+                              : 'This folder is empty',
                         ),
                       );
                     }
@@ -736,22 +764,33 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                         entry: e,
                         selected: _selected.contains(e.path),
                         showSelection: mobile && _selected.isNotEmpty,
-                        onSelect:
-                            mobile ? (_) => _select(e, toggle: true) : null,
+                        onSelect: mobile
+                            ? (_) => _select(e, toggle: true)
+                            : null,
+                        onIconTap: () => _select(e, toggle: true),
                         onTap: () {
-                          if (mobile && _selected.isEmpty) {
-                            if (e.isDir) {
+                          if (mobile) {
+                            if (_selected.isNotEmpty) {
+                              _select(e, toggle: true);
+                            } else if (e.isDir) {
                               _open(e.path);
                             } else {
                               _select(e, toggle: true);
                             }
-                          } else if (mobile) {
-                            _select(e, toggle: true);
+                            return;
+                          }
+                          final modHeld =
+                              Modifiers.instance.ctrl ||
+                              Modifiers.instance.shift ||
+                              (PlatformCapabilities.isMacOS &&
+                                  HardwareKeyboard.instance.isMetaPressed);
+                          if (e.isDir && !modHeld) {
+                            _open(e.path);
                           } else {
                             _select(e);
                           }
                         },
-                        onDoubleTap: () => _activate(e),
+                        onDoubleTap: e.isDir ? null : () => _openLocally(e),
                         onSecondary: (pos) => _contextMenu(e, pos),
                         strings: _s,
                       ),
@@ -790,9 +829,23 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                     : null,
                 onRefresh: _refresh,
                 isRu: _s.isRu,
-                trailing: MenuIconButton(
-                  enabled: ready && !_loading && _error == null,
-                  items: _folderItems(),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (ready &&
+                        termDir != null &&
+                        _cwd != null &&
+                        termDir != _cwd)
+                      IconButton(
+                        tooltip: _s.goToTerminalDirectory,
+                        onPressed: _jumpToTerminalDirectory,
+                        icon: const Icon(Icons.my_location_outlined),
+                      ),
+                    MenuIconButton(
+                      enabled: ready && !_loading && _error == null,
+                      items: _folderItems(),
+                    ),
+                  ],
                 ),
               ),
               ExpandSection(

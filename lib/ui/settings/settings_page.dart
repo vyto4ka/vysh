@@ -166,6 +166,13 @@ class SettingsPage extends ConsumerWidget {
                           value: s.rememberTerminalFontSize,
                           onChanged: ctrl.setRememberTerminalFontSize,
                         ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(strings.followTerminalDirectoryTitle),
+                          subtitle: Text(strings.followTerminalDirectoryDesc),
+                          value: s.followTerminalDirectory,
+                          onChanged: ctrl.setFollowTerminalDirectory,
+                        ),
                         // Строка Ctrl/Esc/стрелок над экранной клавиатурой - только телефон.
                         if (isMobile)
                           SwitchListTile(
@@ -423,7 +430,9 @@ class _MemoryUsageState extends State<_MemoryUsage> {
     try {
       mb = (ProcessInfo.currentRss / (1024 * 1024)).round();
     } catch (_) {}
-    final style = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
     return Row(
       children: [
         Icon(Icons.memory, size: 16, color: scheme.onSurfaceVariant),
@@ -462,7 +471,8 @@ class _MacSafeLicensePage extends StatelessWidget {
     final page = LicensePage(
       applicationName: 'vysh',
       applicationVersion: applicationVersion,
-      applicationLegalese: 'GNU GPL v3 or later (GPL-3.0-or-later)\n'
+      applicationLegalese:
+          'GNU GPL v3 or later (GPL-3.0-or-later)\n'
           '© vyto4ka and contributors',
       applicationIcon: Padding(
         padding: const EdgeInsets.all(8),
@@ -470,9 +480,6 @@ class _MacSafeLicensePage extends StatelessWidget {
       ),
     );
     if (!PlatformCapabilities.isMacOS) return page;
-    return Padding(
-      padding: const EdgeInsets.only(top: 46),
-      child: page,
-    );
+    return Padding(padding: const EdgeInsets.only(top: 46), child: page);
   }
 }
