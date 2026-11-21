@@ -15,7 +15,16 @@ void main() {
     );
   });
   tearDown(() async {
-    if (await temp.exists()) await temp.delete(recursive: true);
+    for (var attempt = 0; attempt < 20; attempt++) {
+      if (!await temp.exists()) return;
+      try {
+        await temp.delete(recursive: true);
+        return;
+      } on FileSystemException {
+        if (attempt == 19) rethrow;
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
   });
 
   test('Dart creates a persistent log before a helper is started', () async {

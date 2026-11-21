@@ -495,6 +495,7 @@ $ErrorActionPreference = 'Stop'
 $log = $LogFile
 $script:mutex = $null
 $script:mutexHeld = $false
+try { Set-Location -LiteralPath ([IO.Path]::GetTempPath()) } catch {}
 
 function Log($m) {
   try { "$(Get-Date -Format o)  $m" | Out-File -FilePath $log -Append -Encoding utf8 } catch {}
@@ -617,7 +618,7 @@ if (-not $writable -and -not $isAdmin) {
   ) -join ' '
   if ($NoErrorDialog) { $argLine += ' -NoErrorDialog' }
   try {
-    Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argLine
+    Start-Process -FilePath 'powershell.exe' -Verb RunAs -WorkingDirectory ([IO.Path]::GetTempPath()) -ArgumentList $argLine
     exit 0
   } catch {
     Fail "elevation failed: $_"
@@ -1000,7 +1001,7 @@ class WindowsUpdateHandoff {
         '-Command',
         r'$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:VYSH_UPDATE_SCRIPT, [ref]$tokens, [ref]$errors); if ($errors.Count -gt 0) { $errors | Out-String | Write-Error; exit 1 }',
       ],
-      workingDirectory: staging.path,
+      workingDirectory: Directory.systemTemp.path,
       environment: {'VYSH_UPDATE_SCRIPT': script.path},
     );
     if (validation.exitCode != 0) {
@@ -1057,7 +1058,7 @@ class WindowsUpdateHandoff {
         '-EncodedCommand',
         encoded,
       ],
-      workingDirectory: staging.path,
+      workingDirectory: Directory.systemTemp.path,
       mode: ProcessStartMode.normal,
     );
     // On Windows normal mode uses CREATE_NO_WINDOW and does not terminate
