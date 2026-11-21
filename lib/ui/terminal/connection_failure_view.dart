@@ -13,6 +13,9 @@ import '../../app/terminal/terminal_session.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/net_diag.dart';
 import '../hosts/host_editor.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/smooth_scroll.dart';
 import '../theme/app_theme.dart';
 
 /// Экран неудачного подключения: что случилось, журнал, диагностика сети.
@@ -36,6 +39,7 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
   bool _verbose = false;
   NetDiag? _diag;
   DiagKind? _diagKind;
+  DiagKind? _lastDiagKind;
   final _diagLines = <DiagLine>[];
   StreamSubscription<DiagLine>? _diagSub;
   bool _diagRunning = false;
@@ -56,6 +60,7 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
     setState(() {
       _diag = diag;
       _diagKind = kind;
+      _lastDiagKind = kind;
       _diagLines.clear();
       _diagRunning = true;
     });
@@ -164,6 +169,7 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
     final failure = widget.session.lastFailure;
     final (icon, title, hint) = _describe(failure, strings);
     final entries = widget.session.connLog.where((e) => _verbose || !e.debug).toList();
+    final activeDiag = _diagKind ?? _lastDiagKind;
 
     return Container(
       color: scheme.surface.withValues(alpha: 0.97),
@@ -177,169 +183,181 @@ class _ConnectionFailureViewState extends ConsumerState<ConnectionFailureView> {
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 820),
-              child: ListView(
-                padding: const EdgeInsets.all(28),
-                shrinkWrap: true,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: failure == null && !widget.session.droppedAfterReady
-                              ? scheme.primaryContainer
-                              : scheme.errorContainer,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Icon(icon,
-                            color: failure == null && !widget.session.droppedAfterReady
-                                ? scheme.onPrimaryContainer
-                                : scheme.onErrorContainer,
-                            size: 28),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(title, style: theme.textTheme.headlineSmall),
-                            const SizedBox(height: 2),
-                            Text(_host.displayAddress,
-                                style: monoStyle(context, size: 13, color: scheme.onSurfaceVariant)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (failure != null && failure.kind != SshFailureKind.cancelled)
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: scheme.errorContainer.withValues(alpha: 0.45),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: SelectableText(strings.sshFailure(failure),
-                          style: TextStyle(color: scheme.onErrorContainer, fontWeight: FontWeight.w500)),
-                    ),
-                  const SizedBox(height: 10),
-                  Text(hint, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-                  const SizedBox(height: 20),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: widget.onReconnect,
-                        icon: const Icon(Icons.refresh),
-                        label: Text(DesktopEnv.isDesktop ? '${strings.reconnect}  ⏎' : strings.reconnect),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => _runDiag(DiagKind.ping),
-                        icon: const Icon(Icons.network_ping),
-                        label: Text(strings.isRu ? 'Пинг' : 'Ping'),
-                      ),
-                      if (!DesktopEnv.isMobile)
-                        FilledButton.tonalIcon(
-                          onPressed: () => _runDiag(DiagKind.traceroute),
-                          icon: const Icon(Icons.route_outlined),
-                          label: Text(strings.isRu ? 'Трассировка' : 'Traceroute'),
-                        ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => _runDiag(DiagKind.port),
-                        icon: const Icon(Icons.settings_ethernet),
-                        label: Text(strings.isRu ? 'Порт ${_host.port}' : 'Port ${_host.port}'),
-                      ),
-                      OutlinedButton.icon(
-                          onPressed: () {
-                            final saved = ref
-                                .read(hostsProvider)
-                                .where((h) => h.id == _host.id)
-                                .firstOrNull;
-                            showHostEditor(context, host: saved ?? _host);
-                          },
-                          icon: const Icon(Icons.edit_outlined),
-                          label: Text(strings.isRu ? 'Изменить хост' : 'Edit host'),
-                        ),
-                      TextButton(
-                        onPressed: widget.onDismiss,
-                        child: Text(
-                          DesktopEnv.isDesktop
-                              ? (strings.isRu ? 'Показать терминал  Esc' : 'Show terminal  Esc')
-                              : (strings.isRu ? 'Показать терминал' : 'Show terminal'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_diagKind != null) ...[
-                    const SizedBox(height: 20),
-                    _Panel(
-                      title: switch (_diagKind!) {
-                        DiagKind.ping => strings.isRu ? 'Пинг ${_host.address}' : 'Ping ${_host.address}',
-                        DiagKind.traceroute => strings.isRu ? 'Трассировка до ${_host.address}' : 'Traceroute to ${_host.address}',
-                        DiagKind.port => strings.isRu ? 'Проверка порта ${_host.address}:${_host.port}' : 'Port check ${_host.address}:${_host.port}',
-                      },
-                      trailing: _diagRunning
-                          ? TextButton.icon(
-                              onPressed: _stopDiag,
-                              icon: const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                              label: Text(strings.isRu ? 'Остановить' : 'Stop'),
-                            )
-                          : null,
-                      child: SelectableText(
-                        _diagLines.isEmpty ? (strings.isRu ? 'Запуск…' : 'Running…') : _diagLines.map((l) => _diagText(l, strings)).join('\n'),
-                        style: monoStyle(context, size: 12.5, color: scheme.onSurface),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  _Panel(
-                    title: strings.sessionLog,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+              child: SmoothScroll(
+                builder: (context, controller) => ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.all(28),
+                  shrinkWrap: true,
+                  children: [
+                    Row(
                       children: [
-                        Text(strings.isRu ? 'Подробно' : 'Verbose', style: theme.textTheme.labelMedium),
-                        Switch(
-                          value: _verbose,
-                          onChanged: (v) => setState(() => _verbose = v),
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: failure == null && !widget.session.droppedAfterReady
+                                ? scheme.primaryContainer
+                                : scheme.errorContainer,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Icon(icon,
+                              color: failure == null && !widget.session.droppedAfterReady
+                                  ? scheme.onPrimaryContainer
+                                  : scheme.onErrorContainer,
+                              size: 28),
                         ),
-                        IconButton(
-                          tooltip: strings.isRu ? 'Скопировать журнал' : 'Copy log',
-                          icon: const Icon(Icons.copy, size: 18),
-                          onPressed: () {
-                            Clipboard.setData(ClipboardData(text: _logText(strings)));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(strings.isRu ? 'Журнал скопирован' : 'Log copied')),
-                            );
-                          },
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title, style: theme.textTheme.headlineSmall),
+                              const SizedBox(height: 2),
+                              Text(_host.displayAddress,
+                                  style: monoStyle(context, size: 13, color: scheme.onSurfaceVariant)),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    child: SelectableText.rich(
-                      TextSpan(children: [
-                        for (final e in entries)
-                          TextSpan(
-                            text: '${_two(e.time.hour)}:${_two(e.time.minute)}:${_two(e.time.second)}.'
-                                '${_two(e.time.millisecond, 3)}  ${e.text(strings)}\n',
-                            style: monoStyle(
-                              context,
-                              size: 12,
-                              color: e.error
-                                  ? scheme.error
-                                  : e.debug
-                                      ? scheme.outline
-                                      : scheme.onSurface,
-                            ),
+                    const SizedBox(height: 16),
+                    if (failure != null && failure.kind != SshFailureKind.cancelled)
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: scheme.errorContainer.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: SelectableText(strings.sshFailure(failure),
+                            style: TextStyle(color: scheme.onErrorContainer, fontWeight: FontWeight.w500)),
+                      ),
+                    const SizedBox(height: 10),
+                    Text(hint, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+                    const SizedBox(height: 20),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: widget.onReconnect,
+                          icon: const Icon(Icons.refresh),
+                          label: Text(DesktopEnv.isDesktop ? '${strings.reconnect}  ⏎' : strings.reconnect),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: () => _runDiag(DiagKind.ping),
+                          icon: const Icon(Icons.network_ping),
+                          label: Text(strings.isRu ? 'Пинг' : 'Ping'),
+                        ),
+                        if (!DesktopEnv.isMobile)
+                          FilledButton.tonalIcon(
+                            onPressed: () => _runDiag(DiagKind.traceroute),
+                            icon: const Icon(Icons.route_outlined),
+                            label: Text(strings.isRu ? 'Трассировка' : 'Traceroute'),
                           ),
-                      ]),
+                        FilledButton.tonalIcon(
+                          onPressed: () => _runDiag(DiagKind.port),
+                          icon: const Icon(Icons.settings_ethernet),
+                          label: Text(strings.isRu ? 'Порт ${_host.port}' : 'Port ${_host.port}'),
+                        ),
+                        OutlinedButton.icon(
+                            onPressed: () {
+                              final saved = ref
+                                  .read(hostsProvider)
+                                  .where((h) => h.id == _host.id)
+                                  .firstOrNull;
+                              showHostEditor(context, host: saved ?? _host);
+                            },
+                            icon: const Icon(Icons.edit_outlined),
+                            label: Text(strings.isRu ? 'Изменить хост' : 'Edit host'),
+                          ),
+                        TextButton(
+                          onPressed: widget.onDismiss,
+                          child: Text(
+                            DesktopEnv.isDesktop
+                                ? (strings.isRu ? 'Показать терминал  Esc' : 'Show terminal  Esc')
+                                : (strings.isRu ? 'Показать терминал' : 'Show terminal'),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    ExpandSection(
+                      expanded: _diagKind != null,
+                      child: activeDiag == null
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 20),
+                              child: _Panel(
+                                title: switch (activeDiag) {
+                                  DiagKind.ping => strings.isRu ? 'Пинг ${_host.address}' : 'Ping ${_host.address}',
+                                  DiagKind.traceroute => strings.isRu ? 'Трассировка до ${_host.address}' : 'Traceroute to ${_host.address}',
+                                  DiagKind.port => strings.isRu ? 'Проверка порта ${_host.address}:${_host.port}' : 'Port check ${_host.address}:${_host.port}',
+                                },
+                                trailing: AnimatedSwitcher(
+                                  duration: AppMotion.duration(context, AppMotion.durationFast),
+                                  child: _diagRunning
+                                      ? TextButton.icon(
+                                          key: const ValueKey('stop'),
+                                          onPressed: _stopDiag,
+                                          icon: const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
+                                          label: Text(strings.isRu ? 'Остановить' : 'Stop'),
+                                        )
+                                      : const SizedBox.shrink(key: ValueKey('done')),
+                                ),
+                                child: SelectableText(
+                                  _diagLines.isEmpty ? (strings.isRu ? 'Запуск…' : 'Running…') : _diagLines.map((l) => _diagText(l, strings)).join('\n'),
+                                  style: monoStyle(context, size: 12.5, color: scheme.onSurface),
+                                ),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 20),
+                    _Panel(
+                      title: strings.sessionLog,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(strings.isRu ? 'Подробно' : 'Verbose', style: theme.textTheme.labelMedium),
+                          Switch(
+                            value: _verbose,
+                            onChanged: (v) => setState(() => _verbose = v),
+                          ),
+                          IconButton(
+                            tooltip: strings.isRu ? 'Скопировать журнал' : 'Copy log',
+                            icon: const Icon(Icons.copy, size: 18),
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: _logText(strings)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(strings.isRu ? 'Журнал скопирован' : 'Log copied')),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      child: SelectableText.rich(
+                        TextSpan(children: [
+                          for (final e in entries)
+                            TextSpan(
+                              text: '${_two(e.time.hour)}:${_two(e.time.minute)}:${_two(e.time.second)}.'
+                                  '${_two(e.time.millisecond, 3)}  ${e.text(strings)}\n',
+                              style: monoStyle(
+                                context,
+                                size: 12,
+                                color: e.error
+                                    ? scheme.error
+                                    : e.debug
+                                        ? scheme.outline
+                                        : scheme.onSurface,
+                              ),
+                            ),
+                        ]),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -379,9 +397,12 @@ class _Panel extends StatelessWidget {
           ),
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 320),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-              child: child,
+            child: SmoothScroll(
+              builder: (context, controller) => SingleChildScrollView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                child: child,
+              ),
             ),
           ),
         ],

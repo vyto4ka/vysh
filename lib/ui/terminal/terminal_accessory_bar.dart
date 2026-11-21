@@ -7,6 +7,9 @@ import 'package:xterm2/xterm.dart';
 import '../../app/settings/app_settings.dart';
 import '../../l10n/app_strings.dart';
 import '../../app/terminal/terminal_session.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/smooth_scroll.dart';
 import '../theme/app_theme.dart';
 
 /// Однострочная панель горячих клавиш терминала для мобильных устройств.
@@ -35,6 +38,8 @@ class TerminalAccessoryBar extends StatefulWidget {
 
 class _TerminalAccessoryBarState extends State<TerminalAccessoryBar> {
   bool _isExpanded = false;
+  final _extScroll = ScrollController();
+  final _mainScroll = ScrollController();
 
   @override
   void initState() {
@@ -58,6 +63,8 @@ class _TerminalAccessoryBarState extends State<TerminalAccessoryBar> {
     if (widget.session.onModifiersChanged == _onModifiersChanged) {
       widget.session.onModifiersChanged = null;
     }
+    _extScroll.dispose();
+    _mainScroll.dispose();
     super.dispose();
   }
 
@@ -312,8 +319,10 @@ class _TerminalAccessoryBarState extends State<TerminalAccessoryBar> {
         mainAxisSize: MainAxisSize.min,
         children: [
           // Расширенная панель (скрыта по умолчанию, открывается по кнопке ...)
-          if (_isExpanded)
-            Container(
+          ExpandSection(
+            expanded: _isExpanded,
+            spring: AppMotion.spatialFast,
+            child: Container(
               height: 36,
               decoration: BoxDecoration(
                 color: scheme.surfaceContainer.withValues(alpha: 0.6),
@@ -324,165 +333,177 @@ class _TerminalAccessoryBarState extends State<TerminalAccessoryBar> {
                   ),
                 ),
               ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _KeyChip(
-                      label: 'S-TAB',
-                      semanticLabel: 'Shift+Tab',
-                      onTap: () => _sendKey(TerminalKey.tab, shift: true),
-                    ),
-                    _KeyChip(label: '/', onTap: () => _sendText('/')),
-                    _KeyChip(label: '-', onTap: () => _sendText('-')),
-                    _KeyChip(label: '~', onTap: () => _sendText('~')),
-                    _KeyChip(label: '|', onTap: () => _sendText('|')),
-                    const _Divider(),
-                    _KeyChip(
-                      label: 'HOME',
-                      onTap: () => _sendKey(TerminalKey.home),
-                    ),
-                    _KeyChip(
-                      label: 'END',
-                      onTap: () => _sendKey(TerminalKey.end),
-                    ),
-                    _repeatableChip(
-                      label: 'PGUP',
-                      semanticLabel: 'Page Up',
-                      terminalKey: TerminalKey.pageUp,
-                    ),
-                    _repeatableChip(
-                      label: 'PGDN',
-                      semanticLabel: 'Page Down',
-                      terminalKey: TerminalKey.pageDown,
-                    ),
-                    const _Divider(),
-                    _KeyChip(
-                      label: '^U',
-                      semanticLabel: strings.isRu
-                          ? 'Стереть строку (^U)'
-                          : 'Erase line (^U)',
-                      onTap: () => widget.session.sendCtrlChar('U'),
-                    ),
-                    _repeatableChip(
-                      icon: Icons.backspace_outlined,
-                      semanticLabel: 'Backspace',
-                      terminalKey: TerminalKey.backspace,
-                    ),
-                    _KeyChip(
-                      label: '^D',
-                      semanticLabel: strings.eofExit,
-                      onTap: () => widget.session.sendCtrlChar('D'),
-                    ),
-                    _KeyChip(
-                      label: '^Z',
-                      semanticLabel: strings.isRu
-                          ? 'Фон (SIGTSTP)'
-                          : 'Background (SIGTSTP)',
-                      onTap: () => widget.session.sendCtrlChar('Z'),
-                    ),
-                    if (widget.onToggleFiles != null) ...[
+              child: HorizontalWheelScroll(
+                controller: _extScroll,
+                child: SingleChildScrollView(
+                  controller: _extScroll,
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _KeyChip(
+                        label: 'S-TAB',
+                        semanticLabel: 'Shift+Tab',
+                        onTap: () => _sendKey(TerminalKey.tab, shift: true),
+                      ),
+                      _KeyChip(label: '/', onTap: () => _sendText('/')),
+                      _KeyChip(label: '-', onTap: () => _sendText('-')),
+                      _KeyChip(label: '~', onTap: () => _sendText('~')),
+                      _KeyChip(label: '|', onTap: () => _sendText('|')),
                       const _Divider(),
                       _KeyChip(
-                        icon: widget.filesOpen
-                            ? Icons.terminal_rounded
-                            : Icons.folder_outlined,
-                        label: 'SFTP',
-                        semanticLabel: widget.filesOpen
-                            ? strings.console
-                            : strings.sftpPaneTitle,
-                        active: widget.filesOpen,
-                        onTap: widget.onToggleFiles!,
+                        label: 'HOME',
+                        onTap: () => _sendKey(TerminalKey.home),
                       ),
+                      _KeyChip(
+                        label: 'END',
+                        onTap: () => _sendKey(TerminalKey.end),
+                      ),
+                      _repeatableChip(
+                        label: 'PGUP',
+                        semanticLabel: 'Page Up',
+                        terminalKey: TerminalKey.pageUp,
+                      ),
+                      _repeatableChip(
+                        label: 'PGDN',
+                        semanticLabel: 'Page Down',
+                        terminalKey: TerminalKey.pageDown,
+                      ),
+                      const _Divider(),
+                      _KeyChip(
+                        label: '^U',
+                        semanticLabel: strings.isRu
+                            ? 'Стереть строку (^U)'
+                            : 'Erase line (^U)',
+                        onTap: () => widget.session.sendCtrlChar('U'),
+                      ),
+                      _repeatableChip(
+                        icon: Icons.backspace_outlined,
+                        semanticLabel: 'Backspace',
+                        terminalKey: TerminalKey.backspace,
+                      ),
+                      _KeyChip(
+                        label: '^D',
+                        semanticLabel: strings.eofExit,
+                        onTap: () => widget.session.sendCtrlChar('D'),
+                      ),
+                      _KeyChip(
+                        label: '^Z',
+                        semanticLabel: strings.isRu
+                            ? 'Фон (SIGTSTP)'
+                            : 'Background (SIGTSTP)',
+                        onTap: () => widget.session.sendCtrlChar('Z'),
+                      ),
+                      if (widget.onToggleFiles != null) ...[
+                        const _Divider(),
+                        _KeyChip(
+                          icon: widget.filesOpen
+                              ? Icons.terminal_rounded
+                              : Icons.folder_outlined,
+                          label: 'SFTP',
+                          semanticLabel: widget.filesOpen
+                              ? strings.console
+                              : strings.sftpPaneTitle,
+                          active: widget.filesOpen,
+                          onTap: widget.onToggleFiles!,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
+          ),
 
           // Основная однострочная панель: ESC, TAB, CTRL, ALT, стрелки и переключатель
           SizedBox(
             height: 38,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _KeyChip(
-                    label: 'ESC',
-                    onTap: () => _sendKey(TerminalKey.escape),
-                  ),
-                  _KeyChip(
-                    label: 'TAB',
-                    semanticLabel: 'Tab',
-                    onTap: () => _sendKey(TerminalKey.tab),
-                    onLongPress: () => _sendKey(TerminalKey.tab, shift: true),
-                  ),
-                  _KeyChip(
-                    label: 'CTRL',
-                    active: ctrlActive,
-                    semanticLabel: strings.isRu
-                        ? 'CTRL (нажмите, затем нужную клавишу)'
-                        : 'CTRL (tap, then press key)',
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.session.toggleCtrl();
-                      _refocus();
-                    },
-                    onLongPress: () => _showCtrlMenu(context),
-                  ),
-                  _KeyChip(
-                    label: 'ALT',
-                    active: altActive,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.session.toggleAlt();
-                      _refocus();
-                    },
-                  ),
-                  const _Divider(),
-                  _repeatableChip(
-                    icon: Icons.arrow_upward,
-                    semanticLabel: strings.isRu ? 'Вверх' : 'Up',
-                    terminalKey: TerminalKey.arrowUp,
-                  ),
-                  _repeatableChip(
-                    icon: Icons.arrow_downward,
-                    semanticLabel: strings.isRu ? 'Вниз' : 'Down',
-                    terminalKey: TerminalKey.arrowDown,
-                  ),
-                  _repeatableChip(
-                    icon: Icons.arrow_back,
-                    semanticLabel: strings.isRu ? 'Влево' : 'Left',
-                    terminalKey: TerminalKey.arrowLeft,
-                  ),
-                  _repeatableChip(
-                    icon: Icons.arrow_forward,
-                    semanticLabel: strings.isRu ? 'Вправо' : 'Right',
-                    terminalKey: TerminalKey.arrowRight,
-                  ),
-                  const _Divider(),
-                  // Кнопка переключения расширенной панели
-                  _KeyChip(
-                    icon: _isExpanded ? Icons.expand_more : Icons.more_horiz,
-                    semanticLabel: _isExpanded
-                        ? (strings.isRu ? 'Скрыть панель' : 'Hide panel')
-                        : (strings.isRu
-                              ? 'Расширенная панель (/, Home, PgUp…)'
-                              : 'Expanded panel (/, Home, PgUp…)'),
-                    active: _isExpanded,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _isExpanded = !_isExpanded);
-                      _refocus();
-                    },
-                  ),
-                ],
+            child: HorizontalWheelScroll(
+              controller: _mainScroll,
+              child: SingleChildScrollView(
+                controller: _mainScroll,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _KeyChip(
+                      label: 'ESC',
+                      onTap: () => _sendKey(TerminalKey.escape),
+                    ),
+                    _KeyChip(
+                      label: 'TAB',
+                      semanticLabel: 'Tab',
+                      onTap: () => _sendKey(TerminalKey.tab),
+                      onLongPress: () => _sendKey(TerminalKey.tab, shift: true),
+                    ),
+                    _KeyChip(
+                      label: 'CTRL',
+                      active: ctrlActive,
+                      semanticLabel: strings.isRu
+                          ? 'CTRL (нажмите, затем нужную клавишу)'
+                          : 'CTRL (tap, then press key)',
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        widget.session.toggleCtrl();
+                        _refocus();
+                      },
+                      onLongPress: () => _showCtrlMenu(context),
+                    ),
+                    _KeyChip(
+                      label: 'ALT',
+                      active: altActive,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        widget.session.toggleAlt();
+                        _refocus();
+                      },
+                    ),
+                    const _Divider(),
+                    _repeatableChip(
+                      icon: Icons.arrow_upward,
+                      semanticLabel: strings.isRu ? 'Вверх' : 'Up',
+                      terminalKey: TerminalKey.arrowUp,
+                    ),
+                    _repeatableChip(
+                      icon: Icons.arrow_downward,
+                      semanticLabel: strings.isRu ? 'Вниз' : 'Down',
+                      terminalKey: TerminalKey.arrowDown,
+                    ),
+                    _repeatableChip(
+                      icon: Icons.arrow_back,
+                      semanticLabel: strings.isRu ? 'Влево' : 'Left',
+                      terminalKey: TerminalKey.arrowLeft,
+                    ),
+                    _repeatableChip(
+                      icon: Icons.arrow_forward,
+                      semanticLabel: strings.isRu ? 'Вправо' : 'Right',
+                      terminalKey: TerminalKey.arrowRight,
+                    ),
+                    const _Divider(),
+                    // Кнопка переключения расширенной панели
+                    _KeyChip(
+                      icon: _isExpanded ? Icons.expand_more : Icons.more_horiz,
+                      semanticLabel: _isExpanded
+                          ? (strings.isRu ? 'Скрыть панель' : 'Hide panel')
+                          : (strings.isRu
+                                ? 'Расширенная панель (/, Home, PgUp…)'
+                                : 'Expanded panel (/, Home, PgUp…)'),
+                      active: _isExpanded,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _isExpanded = !_isExpanded);
+                        _refocus();
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -530,6 +551,7 @@ class _KeyChipState extends State<_KeyChip> {
   Timer? _delayTimer;
   Timer? _repeatTimer;
   bool _repeated = false;
+  bool _pressed = false;
   _LatchedMods? _latchedMods;
 
   void _startHold() {
@@ -584,6 +606,7 @@ class _KeyChipState extends State<_KeyChip> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final reduced = AppMotion.reduced(context);
 
     final bg = widget.active
         ? scheme.primary
@@ -592,45 +615,65 @@ class _KeyChipState extends State<_KeyChip> {
     final borderColor = widget.active
         ? scheme.primary
         : scheme.outlineVariant.withValues(alpha: 0.4);
+    final radius = BorderRadius.circular(widget.active ? 9 : 6);
 
-    Widget content = Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTapDown: widget.repeatable ? (_) => _startHold() : null,
-        onTapUp: widget.repeatable ? (_) => _stopHold() : null,
-        onTapCancel: widget.repeatable ? () => _stopHold() : null,
-        onTap: () {
-          if (widget.repeatable) {
-            final wasRepeated = _repeated;
-            _stopHold();
-            _repeated = false;
-            if (wasRepeated) return;
-          }
-          widget.onTap();
-        },
-        onLongPress: widget.repeatable ? null : widget.onLongPress,
-        borderRadius: BorderRadius.circular(6),
-        splashColor: scheme.primary.withValues(alpha: 0.2),
-        child: Container(
-          constraints: const BoxConstraints(minWidth: 32),
-          height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: borderColor, width: 0.8),
+    Widget content = Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) {
+        if (!_pressed) setState(() => _pressed = true);
+      },
+      onPointerUp: (_) {
+        if (_pressed) setState(() => _pressed = false);
+      },
+      onPointerCancel: (_) {
+        if (_pressed) setState(() => _pressed = false);
+      },
+      child: AnimatedScale(
+        scale: (_pressed && !reduced) ? 0.93 : 1.0,
+        duration: reduced ? Duration.zero : const Duration(milliseconds: 110),
+        curve: Curves.easeOutCubic,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTapDown: widget.repeatable ? (_) => _startHold() : null,
+            onTapUp: widget.repeatable ? (_) => _stopHold() : null,
+            onTapCancel: widget.repeatable ? () => _stopHold() : null,
+            onTap: () {
+              if (widget.repeatable) {
+                final wasRepeated = _repeated;
+                _stopHold();
+                _repeated = false;
+                if (wasRepeated) return;
+              }
+              widget.onTap();
+            },
+            onLongPress: widget.repeatable ? null : widget.onLongPress,
+            borderRadius: radius,
+            splashColor: scheme.primary.withValues(alpha: 0.2),
+            child: AnimatedContainer(
+              duration: AppMotion.duration(context, AppMotion.durationFast),
+              curve: AppMotion.fastSpringCurve,
+              constraints: const BoxConstraints(minWidth: 32),
+              height: 32,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: radius,
+                border: Border.all(color: borderColor, width: 0.8),
+              ),
+              child: widget.icon != null
+                  ? Icon(widget.icon, size: 15, color: fg)
+                  : Text(
+                      widget.label!,
+                      style: monoStyle(
+                        context,
+                        size: 11.5,
+                        color: fg,
+                      ).copyWith(fontWeight: FontWeight.bold),
+                    ),
+            ),
           ),
-          child: widget.icon != null
-              ? Icon(widget.icon, size: 15, color: fg)
-              : Text(
-                  widget.label!,
-                  style: monoStyle(
-                    context,
-                    size: 11.5,
-                    color: fg,
-                  ).copyWith(fontWeight: FontWeight.bold),
-                ),
         ),
       ),
     );

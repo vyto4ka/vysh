@@ -7,6 +7,8 @@ import '../../app/controllers/hosts_controller.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../app/controllers/tabs_controller.dart';
 import '../../infra/platform/desktop_env.dart';
+import '../motion/app_motion.dart';
+import '../motion/pressable_surface.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
@@ -72,89 +74,116 @@ class HostCard extends ConsumerWidget {
     final accent = Color(host.color);
     final lang = ref.watch(settingsProvider.select((s) => s.language));
     final strings = AppStrings.of(context, lang);
+    final fast = AppMotion.duration(context, AppMotion.durationFast);
 
     return ContextMenuArea(
       child: Builder(
-        builder: (areaContext) => Card(
-          color: selected ? scheme.secondaryContainer : null,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(
-              color: selected ? scheme.primary : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: InkWell(
-            onTap: () => _onTap(ref),
-            // На телефоне Ctrl нет - выбор долгим нажатием. На ПК долгое
-            // нажатие мышью срабатывало вместо клика, там оно выключено.
-            onLongPress: DesktopEnv.isMobile ? onToggleSelect : null,
-            onSecondaryTapUp: (d) => ContextMenuArea.of(
-              areaContext,
-            )?.open(d.globalPosition, _items(context, ref, strings)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? scheme.primary
-                          : accent.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(selected ? 22 : 14),
+        builder: (areaContext) => PressableSurface(
+          selected: selected,
+          borderRadius: BorderRadius.circular(16),
+          selectedBorderRadius: BorderRadius.circular(20),
+          color: scheme.surfaceContainerLow,
+          selectedColor: scheme.secondaryContainer,
+          side: BorderSide.none,
+          selectedSide: BorderSide(color: scheme.primary, width: 2),
+          pressScale: 0.02,
+          onTap: () => _onTap(ref),
+          // На телефоне Ctrl нет - выбор долгим нажатием. На ПК долгое
+          // нажатие мышью срабатывало вместо клика, там оно выключено.
+          onLongPress: DesktopEnv.isMobile ? onToggleSelect : null,
+          onSecondaryTapUp: (d) => ContextMenuArea.of(
+            areaContext,
+          )?.open(d.globalPosition, _items(context, ref, strings)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: fast,
+                  curve: AppMotion.fastSpringCurve,
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? scheme.primary
+                        : accent.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(selected ? 22 : 14),
+                  ),
+                  child: AnimatedSwitcher(
+                    duration: fast,
+                    switchInCurve: AppMotion.emphasizedDecelerate,
+                    transitionBuilder: (child, anim) => ScaleTransition(
+                      scale: anim,
+                      child: FadeTransition(opacity: anim, child: child),
                     ),
                     child: selected
-                        ? Icon(Icons.check_rounded, color: scheme.onPrimary, size: 24)
-                        : Icon(Icons.dns_rounded, color: accent, size: 22),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          host.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          host.displayAddress,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: monoStyle(
-                            context,
-                            size: 12,
-                            color: scheme.onSurfaceVariant,
+                        ? Icon(
+                            Icons.check_rounded,
+                            key: const ValueKey('check'),
+                            color: scheme.onPrimary,
+                            size: 24,
+                          )
+                        : Icon(
+                            Icons.dns_rounded,
+                            key: const ValueKey('dns'),
+                            color: accent,
+                            size: 22,
                           ),
-                        ),
-                      ],
-                    ),
                   ),
-                  if (ref.watch(
-                    settingsProvider.select((s) => s.pingHosts),
-                  )) ...[
-                    const SizedBox(width: 8),
-                    _Reachability(host: host, strings: strings),
-                  ],
-                  const SizedBox(width: 4),
-                  if (selecting)
-                    Checkbox(
-                      value: selected,
-                      onChanged: (_) => onToggleSelect?.call(),
-                    )
-                  else
-                    MenuIconButton(
-                      tooltip: strings.actions,
-                      items: _items(context, ref, strings),
-                    ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        host.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        host.displayAddress,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: monoStyle(
+                          context,
+                          size: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (ref.watch(
+                  settingsProvider.select((s) => s.pingHosts),
+                )) ...[
+                  const SizedBox(width: 8),
+                  _Reachability(host: host, strings: strings),
                 ],
-              ),
+                const SizedBox(width: 4),
+                AnimatedSwitcher(
+                  duration: fast,
+                  switchInCurve: AppMotion.emphasizedDecelerate,
+                  transitionBuilder: (child, anim) => ScaleTransition(
+                    scale: Tween<double>(begin: 0.75, end: 1.0).animate(anim),
+                    child: FadeTransition(opacity: anim, child: child),
+                  ),
+                  child: selecting
+                      ? Checkbox(
+                          key: const ValueKey('checkbox'),
+                          value: selected,
+                          onChanged: (_) => onToggleSelect?.call(),
+                        )
+                      : MenuIconButton(
+                          key: const ValueKey('menu'),
+                          tooltip: strings.actions,
+                          items: _items(context, ref, strings),
+                        ),
+                ),
+              ],
             ),
           ),
         ),
@@ -230,45 +259,64 @@ class _Reachability extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final ping = ref.watch(reachabilityProvider((host.address, host.port)));
+    final fast = AppMotion.duration(context, AppMotion.durationFast);
 
-    return ping.when(
-      loading: () => const SizedBox(
-        width: 14,
-        height: 14,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
-      error: (_, _) => const SizedBox.shrink(),
-      data: (r) {
-        final ms = r.ms;
-        return Tooltip(
-        message: ms == null
-            ? (strings.isRu
-                  ? 'Порт ${host.port} не отвечает${r.error == null ? '' : '\n${r.error}'}'
-                  : 'Port ${host.port} is unreachable${r.error == null ? '' : '\n${r.error}'}')
-            : (strings.isRu
-                  ? 'Порт ${host.port} доступен за $ms мс'
-                  : 'Port ${host.port} reachable in ${ms}ms'),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: (ms == null ? scheme.error : Colors.green).withValues(
-              alpha: 0.14,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            ms == null
-                ? (strings.isRu ? 'нет' : 'down')
-                : (strings.isRu ? '$ms мс' : '${ms}ms'),
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: ms == null ? scheme.error : Colors.green.shade600,
-            ),
+    return AnimatedSize(
+      duration: fast,
+      curve: AppMotion.fastSpringCurve,
+      child: AnimatedSwitcher(
+        duration: fast,
+        transitionBuilder: (child, anim) => FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.85, end: 1.0).animate(anim),
+            child: child,
           ),
         ),
-      );
-      },
+        child: ping.when(
+          loading: () => const SizedBox(
+            key: ValueKey('loading'),
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          error: (_, _) => const SizedBox.shrink(key: ValueKey('error')),
+          data: (r) {
+            final ms = r.ms;
+            return Tooltip(
+              key: ValueKey('ping-$ms'),
+              message: ms == null
+                  ? (strings.isRu
+                        ? 'Порт ${host.port} не отвечает${r.error == null ? '' : '\n${r.error}'}'
+                        : 'Port ${host.port} is unreachable${r.error == null ? '' : '\n${r.error}'}')
+                  : (strings.isRu
+                        ? 'Порт ${host.port} доступен за $ms мс'
+                        : 'Port ${host.port} reachable in ${ms}ms'),
+              child: AnimatedContainer(
+                duration: fast,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (ms == null ? scheme.error : Colors.green).withValues(
+                    alpha: 0.14,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  ms == null
+                      ? (strings.isRu ? 'нет' : 'down')
+                      : (strings.isRu ? '$ms мс' : '${ms}ms'),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: ms == null ? scheme.error : Colors.green.shade600,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }

@@ -5,6 +5,9 @@ import '../../app/controllers/transfer_queue.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/smooth_scroll.dart';
 
 /// Список передач вкладки внизу SFTP-панели.
 class TransfersView extends ConsumerStatefulWidget {
@@ -18,19 +21,30 @@ class TransfersView extends ConsumerStatefulWidget {
 
 class _TransfersViewState extends ConsumerState<TransfersView> {
   bool _expanded = false;
+  List<Transfer> _lastAll = const [];
   String get tabId => widget.tabId;
+
   @override
   Widget build(BuildContext context) {
     final all = ref
         .watch(transferQueueProvider)
         .where((t) => t.tabId == tabId)
         .toList();
+    if (all.isNotEmpty) _lastAll = all;
+
     final s = AppStrings.of(
       context,
       ref.watch(settingsProvider.select((s) => s.language)),
     );
-    if (all.isEmpty) return const SizedBox.shrink();
+    final effective = all.isNotEmpty ? all : _lastAll;
 
+    return ExpandSection(
+      expanded: all.isNotEmpty,
+      child: effective.isEmpty ? const SizedBox.shrink() : _buildBar(context, effective, s),
+    );
+  }
+
+  Widget _buildBar(BuildContext context, List<Transfer> all, AppStrings s) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final queue = ref.read(transferQueueProvider.notifier);
@@ -61,8 +75,14 @@ class _TransfersViewState extends ConsumerState<TransfersView> {
                       ? (s.isRu ? 'Свернуть передачи' : 'Collapse transfers')
                       : (s.isRu ? 'Показать передачи' : 'Show transfers'),
                   onPressed: () => setState(() => _expanded = !_expanded),
-                  icon: Icon(
-                    _expanded ? Icons.expand_more : Icons.chevron_right,
+                  icon: AnimatedRotation(
+                    turns: _expanded ? 0.25 : 0.0,
+                    duration: AppMotion.duration(
+                      context,
+                      AppMotion.durationDefault,
+                    ),
+                    curve: AppMotion.spatialCurve,
+                    child: const Icon(Icons.chevron_right),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -106,19 +126,27 @@ class _TransfersViewState extends ConsumerState<TransfersView> {
               ],
             ),
           ),
-          if (_expanded)
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: const EdgeInsets.only(bottom: 6),
-                itemCount: shown.length,
-                itemBuilder: (context, i) => _TransferRow(
-                  t: shown[i],
-                  onCancel: () => queue.cancel(shown[i].id),
-                  strings: s,
+          Flexible(
+            child: ExpandSection(
+              expanded: _expanded,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 168),
+                child: SmoothScroll(
+                  builder: (context, controller) => ListView.builder(
+                    controller: controller,
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(bottom: 6),
+                    itemCount: shown.length,
+                    itemBuilder: (context, i) => _TransferRow(
+                      t: shown[i],
+                      onCancel: () => queue.cancel(shown[i].id),
+                      strings: s,
+                    ),
+                  ),
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
@@ -141,6 +169,7 @@ class _TransferRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final small = TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant);
     final up = t.direction == TransferDirection.upload;
+    final fastDur = AppMotion.duration(context, AppMotion.durationFast);
 
     final String info = switch (t.status) {
       TransferStatus.queued => strings.queued,
@@ -160,6 +189,7 @@ class _TransferRow extends StatelessWidget {
 
     final Widget trailing = switch (t.status) {
       TransferStatus.queued || TransferStatus.running => IconButton(
+        key: const ValueKey('cancel'),
         tooltip: strings.cancel,
         iconSize: 16,
         visualDensity: VisualDensity.compact,
@@ -167,6 +197,7 @@ class _TransferRow extends StatelessWidget {
         icon: const Icon(Icons.close),
       ),
       TransferStatus.done => IconButton(
+        key: const ValueKey('done'),
         tooltip: up ? strings.done : strings.showInFolder,
         iconSize: 16,
         visualDensity: VisualDensity.compact,
@@ -179,11 +210,17 @@ class _TransferRow extends StatelessWidget {
         ),
       ),
       TransferStatus.failed => Padding(
+        key: const ValueKey('failed'),
         padding: const EdgeInsets.all(8),
         child: Icon(Icons.error_outline, size: 16, color: scheme.error),
       ),
-      TransferStatus.cancelled => const SizedBox(width: 32),
+      TransferStatus.cancelled => const SizedBox(
+        key: ValueKey('cancelled'),
+        width: 32,
+      ),
     };
+
+    final progress = t.progress;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
@@ -205,15 +242,32 @@ class _TransferRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 12.5),
                 ),
-                if (t.status == TransferStatus.running)
-                  Padding(
+                ExpandSection(
+                  expanded: t.status == TransferStatus.running,
+                  spring: AppMotion.spatialFast,
+                  child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: LinearProgressIndicator(
-                      value: t.progress,
-                      minHeight: 3,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+                    child: progress == null
+                        ? LinearProgressIndicator(
+                            minHeight: 3,
+                            borderRadius: BorderRadius.circular(2),
+                          )
+                        : TweenAnimationBuilder<double>(
+                            tween: Tween<double>(end: progress.clamp(0.0, 1.0)),
+                            duration: AppMotion.duration(
+                              context,
+                              const Duration(milliseconds: 150),
+                            ),
+                            curve: Curves.easeOut,
+                            builder: (context, val, _) =>
+                                LinearProgressIndicator(
+                                  value: val,
+                                  minHeight: 3,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                          ),
                   ),
+                ),
                 Text(
                   info,
                   maxLines: 1,
@@ -225,7 +279,7 @@ class _TransferRow extends StatelessWidget {
               ],
             ),
           ),
-          trailing,
+          AnimatedSwitcher(duration: fastDur, child: trailing),
         ],
       ),
     );

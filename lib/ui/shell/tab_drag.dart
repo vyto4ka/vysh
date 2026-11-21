@@ -148,10 +148,22 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
   Widget build(BuildContext context) {
     if (!widget.enabled) return widget.child;
     if (!ref.watch(nativeTabDragProvider)) {
+      final scheme = Theme.of(context).colorScheme;
       final feedback = Material(
+        elevation: 6,
+        color: scheme.secondaryContainer,
+        shadowColor: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(widget.tab.title),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Text(
+            widget.tab.title,
+            style: TextStyle(
+              color: scheme.onSecondaryContainer,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
         ),
       );
       void onDragStarted() =>

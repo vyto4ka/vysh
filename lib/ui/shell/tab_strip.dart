@@ -1,8 +1,15 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/pressable_surface.dart';
+import '../motion/smooth_scroll.dart';
 import '../widgets/strings_context.dart';
 import '../../l10n/app_strings.dart';
 import '../../domain/models/session_tab.dart';
@@ -29,9 +36,12 @@ class TabStrip extends ConsumerStatefulWidget {
 }
 
 class _TabStripState extends ConsumerState<TabStrip> {
-  final _scroll = ScrollController();
+  final _scroll = SmoothScrollController();
   final _tabKeys = <String, GlobalKey>{};
+  final _seenIds = <String>{};
+  bool _initializedSeen = false;
   String? _lastFocus;
+
   @override
   void dispose() {
     _scroll.dispose();
@@ -47,6 +57,14 @@ class _TabStripState extends ConsumerState<TabStrip> {
     final visibleTabs = state.tabs
         .where((tab) => !external.containsKey(tab.id))
         .toList();
+    if (!_initializedSeen) {
+      _initializedSeen = true;
+      for (final t in visibleTabs) {
+        _seenIds.add(t.id);
+      }
+    }
+    _seenIds.removeWhere((id) => !visibleTabs.any((t) => t.id == id));
+
     final split = ref.watch(splitTabProvider);
     final focused = ref.watch(workspaceFocusProvider);
     final splitVisible =
@@ -66,7 +84,11 @@ class _TabStripState extends ConsumerState<TabStrip> {
         if (mounted && target != null) {
           Scrollable.ensureVisible(
             target,
-            duration: const Duration(milliseconds: 160),
+            duration: AppMotion.duration(
+              context,
+              const Duration(milliseconds: 220),
+            ),
+            curve: AppMotion.emphasized,
             alignment: .5,
           );
         }
@@ -90,31 +112,15 @@ class _TabStripState extends ConsumerState<TabStrip> {
           ),
           const SizedBox(width: 4),
           Flexible(
-            child: Listener(
-              onPointerSignal: (event) {
-                if (event is PointerScrollEvent &&
-                    event.scrollDelta.dy != 0 &&
-                    _scroll.hasClients &&
-                    _scroll.position.maxScrollExtent > 0) {
-                  GestureBinding.instance.pointerSignalResolver.register(
-                    event,
-                    (_) {
-                      _scroll.jumpTo(
-                        (_scroll.offset + event.scrollDelta.dy).clamp(
-                          0,
-                          _scroll.position.maxScrollExtent,
-                        ),
-                      );
-                    },
-                  );
-                }
-              },
+            child: HorizontalWheelScroll(
+              controller: _scroll,
               child: SingleChildScrollView(
                 controller: _scroll,
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: List.generate(visibleTabs.length, (i) {
                     final tab = visibleTabs[i];
+                    final isNew = _seenIds.add(tab.id);
                     return TabDropTarget(
                       key: _tabKeys.putIfAbsent(tab.id, () => GlobalKey()),
                       canAccept: (id) => id != tab.id,
@@ -126,31 +132,37 @@ class _TabStripState extends ConsumerState<TabStrip> {
                         );
                         if (from >= 0 && to >= 0) ctrl.move(from, to);
                       },
-                      builder: (context, hover) => Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (hover)
-                              Container(
-                                width: 2,
-                                height: 22,
-                                margin: const EdgeInsets.only(right: 4),
-                                decoration: BoxDecoration(
-                                  color: scheme.primary,
-                                  borderRadius: BorderRadius.circular(2),
+                      builder: (context, hover) => _TabEntrance(
+                        animateIn: isNew,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ExpandSection(
+                                expanded: hover,
+                                axis: Axis.horizontal,
+                                spring: AppMotion.spatialFast,
+                                child: Container(
+                                  width: 3,
+                                  height: 22,
+                                  margin: const EdgeInsets.only(right: 5),
+                                  decoration: BoxDecoration(
+                                    color: scheme.primary,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
                                 ),
                               ),
-                            SessionTabDrag(
-                              tab: tab,
-                              enabled: !external.containsKey(tab.id),
-                          child: _SessionTabChip(
-                            tab: tab,
-                            index: i + 1,
-                            selected:
-                                !state.isHome &&
-                                focusId == tab.id &&
-                                !external.containsKey(tab.id),
+                              SessionTabDrag(
+                                tab: tab,
+                                enabled: !external.containsKey(tab.id),
+                                child: _SessionTabChip(
+                                  tab: tab,
+                                  index: i + 1,
+                                  selected:
+                                      !state.isHome &&
+                                      focusId == tab.id &&
+                                      !external.containsKey(tab.id),
                             beside:
                                 splitVisible &&
                                 (tab.id == split ||
@@ -199,9 +211,10 @@ class _TabStripState extends ConsumerState<TabStrip> {
                                       .read(detachedWindowsProvider.notifier)
                                       .returnToTabs(tab.id)
                                 : null,
+                                ),
+                              ),
+                            ],
                           ),
-                            ),
-                          ],
                         ),
                       ),
                     );
@@ -210,8 +223,11 @@ class _TabStripState extends ConsumerState<TabStrip> {
               ),
             ),
           ),
-          if (!state.isHome)
-            MenuIconButton(
+          ExpandSection(
+            expanded: !state.isHome,
+            axis: Axis.horizontal,
+            spring: AppMotion.spatialFast,
+            child: MenuIconButton(
               isSelected: splitVisible,
               tooltip: strings.isRu
                   ? 'Компоновка и действия сессии'
@@ -279,6 +295,7 @@ class _TabStripState extends ConsumerState<TabStrip> {
                 ),
               ],
             ),
+          ),
           IconButton(
             tooltip: strings.isRu ? 'Файлы: две панели' : 'Files: two panes',
             icon: const Icon(Icons.folder_copy_outlined),
@@ -563,18 +580,27 @@ class _SessionTabChipState extends State<_SessionTabChip> {
                           style: TextStyle(color: fg, fontSize: 13),
                         ),
                       ),
-                      if (widget.beside) ...[
-                        const SizedBox(width: 6),
-                        Tooltip(
-                          message: widget.strings.isRu
-                              ? 'В рабочей области'
-                              : 'Visible in workspace',
-                          child: Icon(widget.placement, size: 14, color: fg),
+                      ExpandSection(
+                        expanded: widget.beside,
+                        axis: Axis.horizontal,
+                        spring: AppMotion.spatialFast,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Tooltip(
+                            message: widget.strings.isRu
+                                ? 'В рабочей области'
+                                : 'Visible in workspace',
+                            child: Icon(widget.placement, size: 14, color: fg),
+                          ),
                         ),
-                      ],
+                      ),
                       const SizedBox(width: 2),
                       AnimatedOpacity(
-                        duration: const Duration(milliseconds: 120),
+                        duration: AppMotion.duration(
+                          context,
+                          const Duration(milliseconds: 140),
+                        ),
+                        curve: Curves.easeOut,
                         opacity:
                             _hover || widget.selected || DesktopEnv.isMobile
                             ? 1
@@ -613,6 +639,66 @@ class _SessionTabChipState extends State<_SessionTabChip> {
   }
 }
 
+class _TabEntrance extends StatefulWidget {
+  const _TabEntrance({required this.animateIn, required this.child});
+
+  final bool animateIn;
+  final Widget child;
+
+  @override
+  State<_TabEntrance> createState() => _TabEntranceState();
+}
+
+class _TabEntranceState extends State<_TabEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController.unbounded(
+    vsync: this,
+    value: widget.animateIn ? 0 : 1,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animateIn) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        AppMotion.springTo(
+          _ctrl,
+          1,
+          spring: AppMotion.spatialFast,
+          instant: AppMotion.reduced(context),
+        );
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        if (!_ctrl.isAnimating && _ctrl.value == 1) return child!;
+        final width = math.max(0.0, _ctrl.value);
+        final opacity = _ctrl.value.clamp(0.0, 1.0);
+        return ClipRect(
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            widthFactor: width,
+            child: Opacity(opacity: opacity, child: child),
+          ),
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
 class _TabSurface extends StatelessWidget {
   const _TabSurface({
     required this.selected,
@@ -627,40 +713,100 @@ class _TabSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
-      height: DesktopEnv.isMobile ? 48 : 32,
-      decoration: BoxDecoration(
-        color: selected ? scheme.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-      ),
+    final h = DesktopEnv.isMobile ? 48.0 : 32.0;
+    return SizedBox(
+      height: h,
       child: Semantics(
         selected: selected,
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Center(widthFactor: 1, child: child),
+        child: PressableSurface(
+          selected: selected,
+          borderRadius: BorderRadius.circular(h / 2),
+          selectedBorderRadius: BorderRadius.circular(
+            DesktopEnv.isMobile ? 16 : 11,
           ),
+          color: Colors.transparent,
+          selectedColor: scheme.secondaryContainer,
+          pressScale: 0.03,
+          onTap: onTap,
+          child: Center(widthFactor: 1, child: child),
         ),
       ),
     );
   }
 }
 
-class _StatusDot extends StatelessWidget {
+class _StatusDot extends StatefulWidget {
   const _StatusDot({required this.status});
 
   final SessionStatus status;
 
   @override
+  State<_StatusDot> createState() => _StatusDotState();
+}
+
+class _StatusDotState extends State<_StatusDot>
+    with TickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1050),
+  );
+  late final AnimationController _pop = AnimationController.unbounded(
+    vsync: this,
+    value: 1,
+  );
+  late final AppLifecycleListener _lifecycle = AppLifecycleListener(
+    onStateChange: (_) => _syncPulse(),
+  );
+  ValueListenable<TickerModeData>? _ticking;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _ticking?.removeListener(_syncPulse);
+    _ticking = TickerMode.getValuesNotifier(context)..addListener(_syncPulse);
+    _syncPulse();
+  }
+
+  @override
+  void didUpdateWidget(covariant _StatusDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.status != widget.status) {
+      _syncPulse();
+      if ((widget.status == SessionStatus.ready ||
+              widget.status == SessionStatus.lost) &&
+          !AppMotion.reduced(context)) {
+        _pop.value = 1.45;
+        AppMotion.springTo(_pop, 1, spring: AppMotion.spatialFast);
+      }
+    }
+  }
+
+  void _syncPulse() {
+    final shouldPulse =
+        widget.status == SessionStatus.connecting &&
+        AppMotion.allowInfiniteAnimations &&
+        !AppMotion.reduced(context) &&
+        AppMotion.onScreen(_ticking);
+    if (shouldPulse) {
+      if (!_pulse.isAnimating) _pulse.repeat(reverse: true);
+    } else {
+      if (_pulse.isAnimating) _pulse.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticking?.removeListener(_syncPulse);
+    _lifecycle.dispose();
+    _pulse.dispose();
+    _pop.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final (color, tip) = switch (status) {
+    final (color, tip) = switch (widget.status) {
       SessionStatus.connecting => (
         scheme.tertiary,
         context.strings.statusConnecting,
@@ -677,11 +823,31 @@ class _StatusDot extends StatelessWidget {
     };
     return Tooltip(
       message: tip,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_pulse, _pop]),
+        builder: (context, child) {
+          final pulseScale = _pulse.isAnimating
+              ? 0.80 + 0.36 * Curves.easeInOutSine.transform(_pulse.value)
+              : 1.0;
+          final pulseAlpha = _pulse.isAnimating
+              ? 0.55 + 0.45 * Curves.easeInOutSine.transform(_pulse.value)
+              : 1.0;
+          final scale = pulseScale * _pop.value.clamp(0.5, 1.8);
+          return Transform.scale(
+            scale: scale,
+            child: Opacity(opacity: pulseAlpha, child: child),
+          );
+        },
+        child: AnimatedContainer(
+          duration: AppMotion.duration(
+            context,
+            const Duration(milliseconds: 220),
+          ),
+          curve: Curves.easeOut,
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
       ),
     );
   }

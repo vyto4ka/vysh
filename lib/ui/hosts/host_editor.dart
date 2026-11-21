@@ -17,6 +17,11 @@ import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../infra/storage/app_paths.dart';
+import '../motion/app_motion.dart';
+import '../motion/expressive_segments.dart';
+import '../motion/layered_switcher.dart';
+import '../motion/pressable_surface.dart';
+import '../motion/smooth_scroll.dart';
 import '../theme/app_theme.dart';
 import '../widgets/strings_context.dart';
 import 'host_form.dart';
@@ -29,24 +34,40 @@ Future<void> showHostEditor(
   Host? host,
   bool duplicate = false,
 }) {
+  final reduced = AppMotion.reduced(context);
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: context.strings.close,
-    barrierColor: Colors.black.withValues(alpha: 0.32),
-    transitionDuration: const Duration(milliseconds: 260),
+    barrierColor: Colors.black.withValues(alpha: 0.36),
+    transitionDuration: reduced
+        ? Duration.zero
+        : const Duration(milliseconds: 320),
     pageBuilder: (context, _, _) => Align(
       alignment: Alignment.centerRight,
       child: _HostEditorSheet(host: host, duplicate: duplicate),
     ),
     transitionBuilder: (context, anim, _, child) {
-      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-      return SlideTransition(
-        position: Tween(
-          begin: const Offset(1, 0),
-          end: Offset.zero,
-        ).animate(curved),
-        child: child,
+      if (reduced) return child;
+      final slide = CurvedAnimation(
+        parent: anim,
+        curve: AppMotion.spatialCurve,
+        reverseCurve: AppMotion.emphasizedAccelerate,
+      );
+      final fade = CurvedAnimation(
+        parent: anim,
+        curve: const Interval(0.0, 0.55, curve: Curves.easeOut),
+        reverseCurve: const Interval(0.45, 1.0, curve: Curves.easeIn),
+      );
+      return FadeTransition(
+        opacity: fade,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(1, 0),
+            end: Offset.zero,
+          ).animate(slide),
+          child: child,
+        ),
       );
     },
   );
@@ -67,6 +88,7 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
   late final HostForm _form;
   bool _hasSavedPassword = false;
   bool _saving = false;
+  int _shakeTrigger = 0;
 
   bool get _isEdit => widget.host != null && !widget.duplicate;
 
@@ -133,7 +155,10 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
 
   Future<void> _save({bool connect = false}) async {
     if (_saving) return;
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      setState(() => _shakeTrigger++);
+      return;
+    }
     final host = _form.toHost(
       id: _isEdit ? widget.host!.id : newId(),
       lastConnectedAt: _isEdit ? widget.host!.lastConnectedAt : null,
@@ -236,7 +261,11 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
           width: fullWidth ? width : 460,
           height: double.infinity,
           child: AnimatedPadding(
-            duration: const Duration(milliseconds: 100),
+            duration: AppMotion.duration(
+              context,
+              const Duration(milliseconds: 160),
+            ),
+            curve: Curves.easeOutCubic,
             padding: EdgeInsets.only(bottom: bottomInset),
             child: SafeArea(
               bottom: bottomInset == 0,
@@ -249,9 +278,13 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                       padding: const EdgeInsets.fromLTRB(24, 28, 12, 8),
                       child: Row(
                         children: [
-                          Expanded(child: Text(title, style: theme.textTheme.titleLarge)),
+                          Expanded(
+                            child: Text(title, style: theme.textTheme.titleLarge),
+                          ),
                           IconButton(
-                            tooltip: DesktopEnv.isDesktop ? '${strings.close} (Esc)' : strings.close,
+                            tooltip: DesktopEnv.isDesktop
+                                ? '${strings.close} (Esc)'
+                                : strings.close,
                             onPressed: () => Navigator.of(context).pop(),
                             icon: const Icon(Icons.close),
                           ),
@@ -261,20 +294,38 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
                     Expanded(
                       child: ListenableBuilder(
                         listenable: _form,
-                        builder: (context, _) => ListView(
-                          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-                          children: [
-                            _ConnectionSection(form: _form, strings: strings, autofocus: !_isEdit),
-                            _AuthSection(
-                              form: _form,
-                              strings: strings,
-                              hasSavedPassword: _hasSavedPassword,
-                              onPickKey: _pickKey,
+                        builder: (context, _) => ScrollEdgeFade(
+                          top: 18,
+                          bottom: 16,
+                          child: SmoothScroll(
+                            builder: (context, controller) => ListView(
+                              controller: controller,
+                              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                              children: [
+                                ShakeBox(
+                                  trigger: _shakeTrigger,
+                                  child: _ConnectionSection(
+                                    form: _form,
+                                    strings: strings,
+                                    autofocus: !_isEdit,
+                                  ),
+                                ),
+                                _AuthSection(
+                                  form: _form,
+                                  strings: strings,
+                                  hasSavedPassword: _hasSavedPassword,
+                                  onPickKey: _pickKey,
+                                ),
+                                _ListSection(
+                                  form: _form,
+                                  strings: strings,
+                                  groups: groups,
+                                ),
+                                const SizedBox(height: 16),
+                                _KeepAliveSection(form: _form, strings: strings),
+                              ],
                             ),
-                            _ListSection(form: _form, strings: strings, groups: groups),
-                            const SizedBox(height: 16),
-                            _KeepAliveSection(form: _form, strings: strings),
-                          ],
+                          ),
                         ),
                       ),
                     ),

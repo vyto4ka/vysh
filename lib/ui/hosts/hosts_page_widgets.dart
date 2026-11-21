@@ -1,7 +1,7 @@
 part of 'hosts_page.dart';
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.strings, required this.onAdd});
+  const _EmptyState({super.key, required this.strings, required this.onAdd});
 
   final AppStrings strings;
   final VoidCallback onAdd;
@@ -34,8 +34,9 @@ class _EmptyState extends StatelessWidget {
             child: Text(
               strings.noHostsDesc,
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -52,6 +53,7 @@ class _EmptyState extends StatelessWidget {
 
 class _NoResults extends StatelessWidget {
   const _NoResults({
+    super.key,
     required this.query,
     required this.quick,
     required this.strings,
@@ -77,29 +79,42 @@ class _NoResults extends StatelessWidget {
               strings.isRu
                   ? 'Ничего не найдено по «$query»'
                   : 'No results for "$query"',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-            if (quick != null) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () => onQuick(quick!),
-                icon: const Icon(Icons.bolt),
-                label: Text(
-                  strings.isRu
-                      ? 'Подключиться к ${quick!.displayAddress}'
-                      : 'Connect to ${quick!.displayAddress}',
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                strings.isRu
-                    ? 'Enter - подключиться без сохранения'
-                    : 'Enter to connect without saving',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline),
-              ),
-            ],
+            ExpandSection(
+              expanded: quick != null,
+              alignment: Alignment.topCenter,
+              child: quick == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () => onQuick(quick!),
+                            icon: const Icon(Icons.bolt),
+                            label: Text(
+                              strings.isRu
+                                  ? 'Подключиться к ${quick!.displayAddress}'
+                                  : 'Connect to ${quick!.displayAddress}',
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            strings.isRu
+                                ? 'Enter - подключиться без сохранения'
+                                : 'Enter to connect without saving',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
           ],
         ),
       ),
@@ -107,12 +122,69 @@ class _NoResults extends StatelessWidget {
   }
 }
 
-/// Заголовок группы: название, число хостов и действия над всей группой.
+/// Пружинная обёртка над [SliverGrid] группы хостов.
+class _CollapsibleGroupSliver extends StatefulWidget {
+  const _CollapsibleGroupSliver({
+    super.key,
+    required this.collapsed,
+    required this.sliver,
+  });
+
+  final bool collapsed;
+  final Widget sliver;
+
+  @override
+  State<_CollapsibleGroupSliver> createState() =>
+      _CollapsibleGroupSliverState();
+}
+
+class _CollapsibleGroupSliverState extends State<_CollapsibleGroupSliver>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _open = AnimationController.unbounded(
+    vsync: this,
+    value: widget.collapsed ? 0 : 1,
+  );
+
+  @override
+  void didUpdateWidget(covariant _CollapsibleGroupSliver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.collapsed == widget.collapsed) return;
+    AppMotion.springTo(
+      _open,
+      widget.collapsed ? 0 : 1,
+      spring: AppMotion.fold,
+      instant: AppMotion.reduced(context),
+    );
+  }
+
+  @override
+  void dispose() {
+    _open.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _open,
+      builder: (context, _) {
+        if (!_open.isAnimating && !widget.collapsed && _open.value == 1) {
+          return widget.sliver;
+        }
+        return SliverReveal(factor: _open.value, sliver: widget.sliver);
+      },
+    );
+  }
+}
+
+/// Заголовок группы: сворачивание, название, число хостов и действия над группой.
 class _GroupHeader extends StatelessWidget {
   const _GroupHeader({
     required this.name,
     required this.hosts,
     required this.selected,
+    required this.collapsed,
+    required this.onToggleFold,
     required this.onConnectAll,
     required this.onSelectAll,
     required this.onDeleteAll,
@@ -121,6 +193,8 @@ class _GroupHeader extends StatelessWidget {
   final String name;
   final List<Host> hosts;
   final Set<String> selected;
+  final bool collapsed;
+  final VoidCallback onToggleFold;
   final VoidCallback onConnectAll;
   final VoidCallback onSelectAll;
   final VoidCallback onDeleteAll;
@@ -130,28 +204,61 @@ class _GroupHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final all = hosts.every((h) => selected.contains(h.id));
+    final fast = AppMotion.duration(context, AppMotion.durationFast);
+
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 6),
       child: Row(
         children: [
           Flexible(
-            child: Text(
-              name,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleSmall?.copyWith(color: scheme.primary),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '${hosts.length}',
-              style: theme.textTheme.labelSmall
-                  ?.copyWith(color: scheme.onSurfaceVariant),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onToggleFold,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedRotation(
+                      turns: collapsed ? -0.25 : 0,
+                      duration: fast,
+                      curve: AppMotion.emphasized,
+                      child: Icon(
+                        Icons.expand_more_rounded,
+                        size: 20,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        name,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${hosts.length}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 4),
@@ -163,7 +270,9 @@ class _GroupHeader extends StatelessWidget {
             onPressed: onConnectAll,
           ),
           IconButton(
-            tooltip: all ? context.strings.deselectGroup : context.strings.selectGroup,
+            tooltip: all
+                ? context.strings.deselectGroup
+                : context.strings.selectGroup,
             visualDensity: VisualDensity.compact,
             iconSize: 18,
             icon: Icon(all ? Icons.check_box : Icons.check_box_outline_blank),
@@ -178,7 +287,9 @@ class _GroupHeader extends StatelessWidget {
                 onPressed: onConnectAll,
               ),
               menuItem(
-                all ? context.strings.deselectAll : context.strings.selectAllInGroup,
+                all
+                    ? context.strings.deselectAll
+                    : context.strings.selectAllInGroup,
                 icon: Icons.check_box_outlined,
                 onPressed: onSelectAll,
               ),
@@ -242,12 +353,23 @@ class _SelectionBar extends StatelessWidget {
                 child: Row(
                   children: [
                     Flexible(
-                      child: Text(
-                        context.strings.selectedCount(count),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: scheme.onSecondaryContainer,
+                      child: AnimatedSwitcher(
+                        duration: AppMotion.duration(
+                          context,
+                          AppMotion.durationFast,
+                        ),
+                        transitionBuilder: (child, anim) => FadeTransition(
+                          opacity: anim,
+                          child: child,
+                        ),
+                        child: Text(
+                          context.strings.selectedCount(count),
+                          key: ValueKey(count),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: scheme.onSecondaryContainer,
+                          ),
                         ),
                       ),
                     ),

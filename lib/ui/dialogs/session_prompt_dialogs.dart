@@ -5,6 +5,7 @@ import '../../domain/models/host.dart';
 import '../../domain/ports/session_prompts.dart';
 import '../../domain/ports/ssh_transport.dart';
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
 import '../theme/app_theme.dart';
 import '../widgets/strings_context.dart';
 
@@ -188,6 +189,17 @@ class _SecretDialogState extends State<_SecretDialog> {
   final _text = TextEditingController();
   bool _remember = true;
   bool _obscure = true;
+  int _shake = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.error != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _shake = 1);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -196,7 +208,9 @@ class _SecretDialogState extends State<_SecretDialog> {
   }
 
   void _submit() => Navigator.pop<SecretAnswer>(
-      context, (value: _text.text, remember: widget.canRemember && _remember));
+    context,
+    (value: _text.text, remember: widget.canRemember && _remember),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -211,26 +225,39 @@ class _SecretDialogState extends State<_SecretDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.subtitle,
-                  style: monoStyle(context, size: 13, color: theme.colorScheme.onSurfaceVariant)),
+              Text(
+                widget.subtitle,
+                style: monoStyle(
+                  context,
+                  size: 13,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
               const SizedBox(height: 16),
-              TextField(
-                controller: _text,
-                autofocus: true,
-                obscureText: _obscure,
-                onSubmitted: (_) => _submit(),
-                decoration: InputDecoration(
-                  labelText: widget.label,
-                  errorText: widget.error,
-                  filled: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  suffixIcon: IconButton(
-                    tooltip: _obscure ? context.strings.show : context.strings.hide,
-                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () => setState(() => _obscure = !_obscure),
+              ShakeBox(
+                trigger: _shake,
+                child: TextField(
+                  controller: _text,
+                  autofocus: true,
+                  obscureText: _obscure,
+                  onSubmitted: (_) => _submit(),
+                  decoration: InputDecoration(
+                    labelText: widget.label,
+                    errorText: widget.error,
+                    filled: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    suffixIcon: IconButton(
+                      tooltip: _obscure
+                          ? context.strings.show
+                          : context.strings.hide,
+                      icon: Icon(
+                        _obscure ? Icons.visibility : Icons.visibility_off,
+                      ),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
                   ),
                 ),
               ),
@@ -249,7 +276,10 @@ class _SecretDialogState extends State<_SecretDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.strings.cancel)),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.strings.cancel),
+        ),
         FilledButton(onPressed: _submit, child: Text(context.strings.connect)),
       ],
     );

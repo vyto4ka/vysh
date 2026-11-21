@@ -6,6 +6,9 @@ import '../../app/controllers/update_controller.dart';
 import '../../infra/update/update_service.dart';
 import '../../l10n/app_strings.dart';
 import '../dialogs/update_dialog.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/layered_switcher.dart';
 import '../widgets/strings_context.dart';
 import 'setting_row.dart';
 
@@ -41,8 +44,9 @@ class _UpdateSectionState extends ConsumerState<UpdateSection> {
             ctrl.setCheckForUpdates(v);
           },
         ),
-        if (s.checkForUpdates)
-          SettingRow(
+        ExpandSection(
+          expanded: s.checkForUpdates,
+          child: SettingRow(
             label: strings.updatePromptFrequency,
             child: SettingChoice<int>(
               value: s.updatePromptDays,
@@ -54,6 +58,7 @@ class _UpdateSectionState extends ConsumerState<UpdateSection> {
               onChanged: ctrl.setUpdatePromptDays,
             ),
           ),
+        ),
         const SizedBox(height: 4),
         _UpdateStatusLine(
           info: update.value ?? _manualInfo,
@@ -126,46 +131,59 @@ class _UpdateStatusLine extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final current = info;
+    final fastDur = AppMotion.duration(context, AppMotion.durationFast);
+
+    final statusText = current != null
+        ? 'vysh ${current.displayLatestVersion} · ${current.formattedSize}'
+        : loading
+        ? strings.updateCheck
+        : hasError
+        ? strings.updateCheckFailed
+        : autoCheckEnabled
+        ? strings.updateLatest
+        : '';
 
     return Row(
       children: [
-        if (current != null) ...[
-          Badge(
-            smallSize: 8,
-            backgroundColor: scheme.primary,
+        ExpandSection(
+          expanded: current != null,
+          axis: Axis.horizontal,
+          spring: AppMotion.spatialFast,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Badge(smallSize: 8, backgroundColor: scheme.primary),
           ),
-          const SizedBox(width: 8),
-        ],
+        ),
         Expanded(
-          child: Text(
-            current != null
-                ? 'vysh ${current.displayLatestVersion} · ${current.formattedSize}'
-                : loading
-                    ? strings.updateCheck
+          child: FadeSlideSwitcher(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              statusText,
+              key: ValueKey(statusText),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: current != null
+                    ? scheme.onSurface
                     : hasError
-                        ? strings.updateCheckFailed
-                        : autoCheckEnabled
-                            ? strings.updateLatest
-                            : '',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: current != null
-                  ? scheme.onSurface
-                  : hasError
-                      ? scheme.error
-                      : scheme.onSurfaceVariant,
+                    ? scheme.error
+                    : scheme.onSurfaceVariant,
+              ),
             ),
           ),
         ),
-        if (current != null)
-          FilledButton.tonal(
-            onPressed: () => onUpdate(current),
-            child: Text(strings.updateNow),
-          )
-        else
-          TextButton(
-            onPressed: loading ? null : onCheck,
-            child: Text(strings.updateCheck),
-          ),
+        AnimatedSwitcher(
+          duration: fastDur,
+          child: current != null
+              ? FilledButton.tonal(
+                  key: const ValueKey('update'),
+                  onPressed: () => onUpdate(current),
+                  child: Text(strings.updateNow),
+                )
+              : TextButton(
+                  key: const ValueKey('check'),
+                  onPressed: loading ? null : onCheck,
+                  child: Text(strings.updateCheck),
+                ),
+        ),
       ],
     );
   }

@@ -6,6 +6,9 @@ import '../../l10n/app_strings.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/pressable_surface.dart';
 import 'setting_row.dart';
 import '../terminal/clipboard_shortcut.dart';
 import 'package:flutter/services.dart';
@@ -140,48 +143,57 @@ class ClipboardSection extends ConsumerWidget {
             ),
           ),
         ),
-        if (!s.customClipboard)
-          SwitchListTile(
+        ExpandSection(
+          expanded: !s.customClipboard,
+          child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
             // Переключатель только про Ctrl+V: ⌘V на macOS вставляет всегда.
             title: Text(isRu ? 'Ctrl+V тоже вставляет' : 'Ctrl+V pastes too'),
             value: s.ctrlVPaste,
             onChanged: ctrl.setCtrlVPaste,
           ),
-        if (s.customClipboard) ...[
-          for (final copy in [true, false])
-            ListTile(
-              title: Text(
-                copy
-                    ? (isRu ? 'Копирование' : 'Copy')
-                    : (isRu ? 'Вставка' : 'Paste'),
+        ),
+        ExpandSection(
+          expanded: s.customClipboard,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final copy in [true, false])
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    copy
+                        ? (isRu ? 'Копирование' : 'Copy')
+                        : (isRu ? 'Вставка' : 'Paste'),
+                  ),
+                  trailing: Text(copy ? s.copyShortcut : s.pasteShortcut),
+                  onTap: () async {
+                    final shortcut = await _recordShortcut(
+                      context,
+                      isRu,
+                      copy ? s.pasteShortcut : s.copyShortcut,
+                    );
+                    if (shortcut != null) {
+                      ctrl.setClipboardShortcut(copy: copy, shortcut: shortcut);
+                    }
+                  },
+                ),
+              TextButton(
+                onPressed: () {
+                  ctrl.setClipboardShortcut(
+                    copy: true,
+                    shortcut: mac ? 'meta+C' : 'ctrl+shift+C',
+                  );
+                  ctrl.setClipboardShortcut(
+                    copy: false,
+                    shortcut: mac ? 'meta+V' : 'ctrl+shift+V',
+                  );
+                },
+                child: Text(isRu ? 'Сбросить сочетания' : 'Reset shortcuts'),
               ),
-              trailing: Text(copy ? s.copyShortcut : s.pasteShortcut),
-              onTap: () async {
-                final shortcut = await _recordShortcut(
-                  context,
-                  isRu,
-                  copy ? s.pasteShortcut : s.copyShortcut,
-                );
-                if (shortcut != null) {
-                  ctrl.setClipboardShortcut(copy: copy, shortcut: shortcut);
-                }
-              },
-            ),
-          TextButton(
-            onPressed: () {
-              ctrl.setClipboardShortcut(
-                copy: true,
-                shortcut: mac ? 'meta+C' : 'ctrl+shift+C',
-              );
-              ctrl.setClipboardShortcut(
-                copy: false,
-                shortcut: mac ? 'meta+V' : 'ctrl+shift+V',
-              );
-            },
-            child: Text(isRu ? 'Сбросить сочетания' : 'Reset shortcuts'),
+            ],
           ),
-        ],
+        ),
         confirm,
       ],
     );
@@ -226,87 +238,95 @@ class _StyleCard extends StatelessWidget {
         ? scheme.onSecondaryContainer
         : scheme.onSurfaceVariant;
 
-    return Material(
-      color: selected
-          ? scheme.secondaryContainer
-          : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: selected ? scheme.primary : Colors.transparent,
-          width: 2,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 10, 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    icon,
-                    size: 20,
-                    color: selected ? scheme.primary : muted,
+    return PressableSurface(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      pressScale: 0.018,
+      selected: selected,
+      borderRadius: BorderRadius.circular(16),
+      selectedBorderRadius: BorderRadius.circular(20),
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      selectedColor: scheme.secondaryContainer,
+      side: BorderSide.none,
+      selectedSide: BorderSide(color: scheme.primary, width: 2),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: selected ? scheme.primary : muted,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(color: fg),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: theme.textTheme.titleSmall?.copyWith(color: fg),
-                    ),
+                ),
+                AnimatedSwitcher(
+                  duration: AppMotion.duration(
+                    context,
+                    AppMotion.durationFast,
                   ),
-                  Icon(
+                  switchInCurve: AppMotion.fastSpringCurve,
+                  transitionBuilder: (child, anim) => ScaleTransition(
+                    scale: Tween<double>(begin: 0.75, end: 1.0).animate(anim),
+                    child: FadeTransition(opacity: anim, child: child),
+                  ),
+                  child: Icon(
                     selected
                         ? Icons.check_circle
                         : Icons.radio_button_unchecked,
+                    key: ValueKey(selected),
                     size: 20,
                     color: selected ? scheme.primary : scheme.outline,
                   ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              _KeyRow(
-                icon: Icons.content_copy,
-                tooltip: copyTooltip,
-                keys: copyKeys,
-                muted: muted,
-              ),
-              const SizedBox(height: 6),
-              _KeyRow(
-                icon: Icons.content_paste,
-                tooltip: pasteTooltip,
-                keys: pasteKeys,
-                muted: muted,
-              ),
-              const SizedBox(height: 4),
-              if (showRmb)
-                InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: () => onRmb(!rmbValue),
-                  child: Row(
-                    children: [
-                      Checkbox(
-                        value: rmbValue,
-                        visualDensity: VisualDensity.compact,
-                        onChanged: (v) => onRmb(v ?? false),
-                      ),
-                      Expanded(
-                        child: Text(
-                          rmbLabel,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: fg,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
-            ],
-          ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _KeyRow(
+              icon: Icons.content_copy,
+              tooltip: copyTooltip,
+              keys: copyKeys,
+              muted: muted,
+            ),
+            const SizedBox(height: 6),
+            _KeyRow(
+              icon: Icons.content_paste,
+              tooltip: pasteTooltip,
+              keys: pasteKeys,
+              muted: muted,
+            ),
+            const SizedBox(height: 4),
+            if (showRmb)
+              InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => onRmb(!rmbValue),
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: rmbValue,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: (v) => onRmb(v ?? false),
+                    ),
+                    Expanded(
+                      child: Text(
+                        rmbLabel,
+                        style: theme.textTheme.bodyMedium?.copyWith(color: fg),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );

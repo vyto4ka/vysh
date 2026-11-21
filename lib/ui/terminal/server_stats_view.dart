@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_strings.dart';
 import '../../domain/services/server_stats.dart';
 import '../../app/terminal/terminal_session.dart';
+import '../motion/app_motion.dart';
 
 /// Нагрузка сервера в строке состояния: CPU, память, диск, сеть, аптайм.
 /// Опрашивает сервер, только пока вкладка на экране и окно не свёрнуто.
@@ -107,72 +108,98 @@ class _ServerStatsViewState extends State<ServerStatsView> {
     );
     final dim = base?.copyWith(color: scheme.outline);
     final s = _stats;
+    final fadeDur = AppMotion.duration(context, AppMotion.durationDefault);
 
+    Widget content;
     if (s == null) {
       final text = _unsupported ? widget.fallback : null;
-      return text == null
-          ? const SizedBox.shrink()
-          : Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: dim);
-    }
+      content = text == null
+          ? const SizedBox.shrink(key: ValueKey('loading'))
+          : Text(
+              text,
+              key: const ValueKey('fallback'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: dim,
+            );
+    } else {
+      final ru = widget.ru;
+      final strings = AppStrings(isRu: ru);
+      String pct(double v) => '${(v * 100).round()}%';
+      Color load(double v) => v >= 0.9
+          ? scheme.error
+          : (v >= 0.75 ? scheme.tertiary : scheme.onSurfaceVariant);
 
-    final ru = widget.ru;
-    final strings = AppStrings(isRu: ru);
-    String pct(double v) => '${(v * 100).round()}%';
-    Color load(double v) => v >= 0.9
-        ? scheme.error
-        : (v >= 0.75 ? scheme.tertiary : scheme.onSurfaceVariant);
-
-    Widget item(IconData icon, String text, {Color? color, String? tip}) {
-      final w = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: color ?? scheme.outline),
-          const SizedBox(width: 4),
-          Text(text, style: base?.copyWith(color: color)),
-        ],
-      );
-      return Padding(
-        padding: const EdgeInsets.only(right: 14),
-        child: tip == null ? w : Tooltip(message: tip, child: w),
-      );
-    }
-
-    String rate(double? v) =>
-        v == null ? '…' : '${strings.bytes(v)}/${ru ? 'с' : 's'}';
-
-    return ClipRect(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const NeverScrollableScrollPhysics(),
-        child: Row(
+      Widget item(IconData icon, String text, {Color? color, String? tip}) {
+        final effectiveStyle = (base ?? const TextStyle()).copyWith(
+          color: color ?? scheme.onSurfaceVariant,
+        );
+        final w = Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            item(
-              Icons.speed_rounded,
-              s.cpu == null ? 'CPU …' : 'CPU ${pct(s.cpu!)}',
-              color: s.cpu == null ? null : load(s.cpu!),
-            ),
-            item(
-              Icons.memory_rounded,
-              '${ru ? 'ОЗУ' : 'RAM'} ${strings.bytes(s.memUsed)} / ${strings.bytes(s.memTotal)}',
-              color: load(s.mem),
-            ),
-            if (s.disk != null)
-              item(
-                Icons.storage_rounded,
-                '${ru ? 'Диск' : 'Disk'} ${pct(s.disk!)}',
-                color: load(s.disk!),
-                tip: '/  ${strings.bytes(s.diskUsed!)} / ${strings.bytes(s.diskTotal!)}',
-              ),
-            item(Icons.arrow_downward_rounded, rate(s.rxPerSec)),
-            item(Icons.arrow_upward_rounded, rate(s.txPerSec)),
-            item(
-              Icons.schedule_rounded,
-              strings.uptime(s.uptime),
-              tip: ru ? 'Аптайм' : 'Uptime',
+            Icon(icon, size: 13, color: color ?? scheme.outline),
+            const SizedBox(width: 4),
+            AnimatedDefaultTextStyle(
+              duration: fadeDur,
+              style: effectiveStyle,
+              child: Text(text),
             ),
           ],
+        );
+        return Padding(
+          padding: const EdgeInsets.only(right: 14),
+          child: tip == null ? w : Tooltip(message: tip, child: w),
+        );
+      }
+
+      String rate(double? v) =>
+          v == null ? '…' : '${strings.bytes(v)}/${ru ? 'с' : 's'}';
+
+      content = ClipRect(
+        key: const ValueKey('metrics'),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const NeverScrollableScrollPhysics(),
+          child: Row(
+            children: [
+              item(
+                Icons.speed_rounded,
+                s.cpu == null ? 'CPU …' : 'CPU ${pct(s.cpu!)}',
+                color: s.cpu == null ? null : load(s.cpu!),
+              ),
+              item(
+                Icons.memory_rounded,
+                '${ru ? 'ОЗУ' : 'RAM'} ${strings.bytes(s.memUsed)} / ${strings.bytes(s.memTotal)}',
+                color: load(s.mem),
+              ),
+              if (s.disk != null)
+                item(
+                  Icons.storage_rounded,
+                  '${ru ? 'Диск' : 'Disk'} ${pct(s.disk!)}',
+                  color: load(s.disk!),
+                  tip:
+                      '/  ${strings.bytes(s.diskUsed!)} / ${strings.bytes(s.diskTotal!)}',
+                ),
+              item(Icons.arrow_downward_rounded, rate(s.rxPerSec)),
+              item(Icons.arrow_upward_rounded, rate(s.txPerSec)),
+              item(
+                Icons.schedule_rounded,
+                strings.uptime(s.uptime),
+                tip: ru ? 'Аптайм' : 'Uptime',
+              ),
+            ],
+          ),
         ),
+      );
+    }
+
+    return AnimatedSwitcher(
+      duration: fadeDur,
+      layoutBuilder: (currentChild, previousChildren) => Stack(
+        alignment: AlignmentDirectional.centerStart,
+        children: [...previousChildren, ?currentChild],
       ),
+      child: content,
     );
   }
 }

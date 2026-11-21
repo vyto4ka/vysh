@@ -13,7 +13,7 @@ import '../../infra/update/update_service.dart';
 /// Установка обновления: скачать с проверкой SHA-256, применить, перезапустить.
 ///
 /// * Windows portable zip: распаковка и подмена файлов PS-скриптом после
-///   выхода приложения, затем перезапуск (как в keqdroid).
+///   выхода приложения, затем перезапуск.
 /// * Linux tar.gz: то же через sh-скрипт с `cp -a --remove-destination`.
 /// * Android: системный установщик APK; macOS: монтирование DMG.
 /// * Установщики Linux (deb/rpm/AppImage): открыть ссылку в браузере.
@@ -344,7 +344,7 @@ class UpdateInstallException implements Exception {
 // ── Windows: portable zip ──
 
 /// Подмена файлов запущенного приложения PowerShell-скриптом: дождаться
-/// выхода, robocopy с повторами, перезапуск. Как в keqdroid, но для vysh.
+/// выхода, скопировать файлы через robocopy с повторами и перезапустить.
 class WindowsZipUpdate {
   WindowsZipUpdate._();
 

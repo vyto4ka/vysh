@@ -5,6 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/layered_switcher.dart';
+import '../motion/sliver_reveal.dart';
+import '../motion/smooth_scroll.dart';
 import '../widgets/strings_context.dart';
 import '../../domain/models/host.dart';
 import '../../app/controllers/hosts_controller.dart';
@@ -31,12 +36,16 @@ class _HostsPageState extends ConsumerState<HostsPage> {
   Timer? _pingTimer;
   DateTime _lastPing = DateTime.now();
 
+  /// Свёрнутые группы хостов.
+  final _collapsedGroups = <String>{};
+
   /// Хосты видны: открыта главная и окно не свёрнуто
   /// (или в настройках разрешено проверять и в фоне).
   bool get _visible {
     if (!ref.read(settingsProvider).pingOnlyVisible) return true;
     final life = WidgetsBinding.instance.lifecycleState;
-    final shown = life == null ||
+    final shown =
+        life == null ||
         life == AppLifecycleState.resumed ||
         life == AppLifecycleState.inactive;
     return shown && ref.read(tabsProvider).isHome;
@@ -50,7 +59,9 @@ class _HostsPageState extends ConsumerState<HostsPage> {
 
   /// Вернулись на главную после перерыва - обновим сразу, не дожидаясь таймера.
   void _pingIfStale() {
-    final every = Duration(seconds: ref.read(settingsProvider).pingIntervalSec);
+    final every = Duration(
+      seconds: ref.read(settingsProvider).pingIntervalSec,
+    );
     if (DateTime.now().difference(_lastPing) >= every) _ping();
   }
 
@@ -67,6 +78,15 @@ class _HostsPageState extends ConsumerState<HostsPage> {
       if (!_selected.remove(id)) _selected.add(id);
     });
     if (_selected.isNotEmpty) _keysFocus.requestFocus();
+  }
+
+  void _toggleGroupFold(String groupKey) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (!_collapsedGroups.remove(groupKey)) {
+        _collapsedGroups.add(groupKey);
+      }
+    });
   }
 
   void _clearSelection() => setState(_selected.clear);
@@ -130,9 +150,7 @@ class _HostsPageState extends ConsumerState<HostsPage> {
     _clearSelection();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.strings.hostsDeleted(hosts.length)),
-        ),
+        SnackBar(content: Text(context.strings.hostsDeleted(hosts.length))),
       );
     }
   }
@@ -143,9 +161,11 @@ class _HostsPageState extends ConsumerState<HostsPage> {
     _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_visible) _pingIfStale();
     });
-    _life = AppLifecycleListener(onShow: () {
-      if (_visible) _pingIfStale();
-    });
+    _life = AppLifecycleListener(
+      onShow: () {
+        if (_visible) _pingIfStale();
+      },
+    );
   }
 
   @override
@@ -197,21 +217,26 @@ class _HostsPageState extends ConsumerState<HostsPage> {
         return a.toLowerCase().compareTo(b.toLowerCase());
       });
     for (final list in groups.values) {
-      list.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      list.sort(
+        (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+      );
     }
     // Хосты могли удалить или изменить - берём только живые.
     final selectedHosts = hosts.where((h) => _selected.contains(h.id)).toList();
     final selecting = selectedHosts.isNotEmpty;
 
-    final isCompact = MediaQuery.sizeOf(context).width < 600 || DesktopEnv.isMobile;
+    final isCompact =
+        MediaQuery.sizeOf(context).width < 600 || DesktopEnv.isMobile;
     final localSupported = ref.watch(localShellLauncherProvider).supported;
+    final showHeaders = groupNames.length > 1 || groupNames.any((g) => g.isNotEmpty);
 
     return CallbackShortcuts(
       bindings: {
         if (selecting)
           const SingleActivator(LogicalKeyboardKey.escape): _clearSelection,
         if (selecting)
-          const SingleActivator(LogicalKeyboardKey.delete): () => _deleteMany(selectedHosts),
+          const SingleActivator(LogicalKeyboardKey.delete): () =>
+              _deleteMany(selectedHosts),
       },
       child: Focus(
         focusNode: _keysFocus,
@@ -225,14 +250,19 @@ class _HostsPageState extends ConsumerState<HostsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
+              FadeSlideSwitcher(
+                offset: const Offset(0, -0.08),
+                alignment: Alignment.centerLeft,
                 child: selecting
                     ? _SelectionBar(
                         key: const ValueKey('sel'),
                         count: selectedHosts.length,
-                        allSelected: filtered.every((h) => _selected.contains(h.id)),
-                        onSelectAll: () => setState(() => _selected.addAll(filtered.map((h) => h.id))),
+                        allSelected: filtered.every(
+                          (h) => _selected.contains(h.id),
+                        ),
+                        onSelectAll: () => setState(
+                          () => _selected.addAll(filtered.map((h) => h.id)),
+                        ),
                         onClear: _clearSelection,
                         onConnect: () => _connectMany(selectedHosts),
                         onDelete: () => _deleteMany(selectedHosts),
@@ -250,27 +280,52 @@ class _HostsPageState extends ConsumerState<HostsPage> {
                                   ),
                                   child: SearchBar(
                                     controller: _search,
-                                    focusNode: ref.watch(hostSearchFocusProvider),
+                                    focusNode: ref.watch(
+                                      hostSearchFocusProvider,
+                                    ),
                                     hintText: isCompact
                                         ? strings.searchHostsHintMobile
                                         : strings.searchHostsHintDesktop,
                                     elevation: const WidgetStatePropertyAll(0),
-                                    constraints: const BoxConstraints(minHeight: 44),
+                                    constraints: const BoxConstraints(
+                                      minHeight: 44,
+                                    ),
                                     leading: const Icon(Icons.search),
                                     trailing: [
-                                      if (_query.isNotEmpty)
-                                        IconButton(
-                                          icon: const Icon(Icons.close),
-                                          onPressed: () {
-                                            _search.clear();
-                                            setState(() => _query = '');
-                                          },
+                                      AnimatedSwitcher(
+                                        duration: AppMotion.duration(
+                                          context,
+                                          AppMotion.durationFast,
                                         ),
+                                        transitionBuilder: (child, anim) =>
+                                            ScaleTransition(
+                                              scale: anim,
+                                              child: FadeTransition(
+                                                opacity: anim,
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: _query.isNotEmpty
+                                            ? IconButton(
+                                                key: const ValueKey('clear'),
+                                                icon: const Icon(Icons.close),
+                                                onPressed: () {
+                                                  _search.clear();
+                                                  setState(() => _query = '');
+                                                },
+                                              )
+                                            : const SizedBox.shrink(
+                                                key: ValueKey('empty'),
+                                              ),
+                                      ),
                                     ],
-                                    onChanged: (v) => setState(() => _query = v.trim()),
+                                    onChanged: (v) =>
+                                        setState(() => _query = v.trim()),
                                     onSubmitted: (_) {
                                       if (filtered.length == 1) {
-                                        ref.read(tabsProvider.notifier).openHost(filtered.first);
+                                        ref
+                                            .read(tabsProvider.notifier)
+                                            .openHost(filtered.first);
                                       } else if (quick != null) {
                                         _connectQuick(quick);
                                       }
@@ -283,13 +338,17 @@ class _HostsPageState extends ConsumerState<HostsPage> {
                             if (localSupported) ...[
                               if (isCompact)
                                 IconButton.outlined(
-                                  onPressed: () => ref.read(tabsProvider.notifier).openLocal(),
+                                  onPressed: () => ref
+                                      .read(tabsProvider.notifier)
+                                      .openLocal(),
                                   tooltip: strings.localTerminal,
                                   icon: const Icon(Icons.terminal),
                                 )
                               else
                                 OutlinedButton.icon(
-                                  onPressed: () => ref.read(tabsProvider.notifier).openLocal(),
+                                  onPressed: () => ref
+                                      .read(tabsProvider.notifier)
+                                      .openLocal(),
                                   icon: const Icon(Icons.terminal),
                                   label: Text(strings.localTerminal),
                                 ),
@@ -313,61 +372,106 @@ class _HostsPageState extends ConsumerState<HostsPage> {
               ),
               SizedBox(height: isCompact ? 14 : 20),
               Expanded(
-                child: hosts.isEmpty
-                    ? _EmptyState(strings: strings, onAdd: () => showHostEditor(context))
-                    : filtered.isEmpty
-                        ? _NoResults(
-                            query: _query,
-                            quick: quick,
-                            strings: strings,
-                            onQuick: _connectQuick,
-                          )
-                        : CustomScrollView(
-                            slivers: [
-                              for (final g in groupNames) ...[
-                                if (groupNames.length > 1 || g.isNotEmpty)
-                                  SliverToBoxAdapter(
-                                    child: _GroupHeader(
-                                      name: g.isEmpty ? strings.noGroup : g,
-                                      hosts: groups[g]!,
-                                      selected: _selected,
-                                      onConnectAll: () => _connectMany(groups[g]!),
-                                      onSelectAll: () => setState(() {
-                                        final ids = groups[g]!.map((h) => h.id);
-                                        if (groups[g]!.every((h) => _selected.contains(h.id))) {
-                                          _selected.removeAll(ids);
-                                        } else {
-                                          _selected.addAll(ids);
-                                        }
-                                        if (_selected.isNotEmpty) _keysFocus.requestFocus();
-                                      }),
-                                      onDeleteAll: () => _deleteMany(groups[g]!),
+                child: FadeSlideSwitcher(
+                  alignment: Alignment.topCenter,
+                  offset: const Offset(0, 0.02),
+                  child: hosts.isEmpty
+                      ? _EmptyState(
+                          key: const ValueKey('empty-hosts'),
+                          strings: strings,
+                          onAdd: () => showHostEditor(context),
+                        )
+                      : filtered.isEmpty
+                      ? _NoResults(
+                          key: const ValueKey('no-results'),
+                          query: _query,
+                          quick: quick,
+                          strings: strings,
+                          onQuick: _connectQuick,
+                        )
+                      : KeyedSubtree(
+                          key: const ValueKey('hosts-grid'),
+                          child: ScrollEdgeFade(
+                            top: 20,
+                            bottom: 16,
+                            child: SmoothScroll(
+                              builder: (context, controller) => CustomScrollView(
+                                controller: controller,
+                                slivers: [
+                                  for (final g in groupNames) ...[
+                                    if (showHeaders)
+                                      SliverToBoxAdapter(
+                                        child: _GroupHeader(
+                                          name: g.isEmpty ? strings.noGroup : g,
+                                          hosts: groups[g]!,
+                                          selected: _selected,
+                                          collapsed:
+                                              _query.isEmpty &&
+                                              _collapsedGroups.contains(g),
+                                          onToggleFold: () =>
+                                              _toggleGroupFold(g),
+                                          onConnectAll: () =>
+                                              _connectMany(groups[g]!),
+                                          onSelectAll: () => setState(() {
+                                            final ids = groups[g]!.map(
+                                              (h) => h.id,
+                                            );
+                                            if (groups[g]!.every(
+                                              (h) => _selected.contains(h.id),
+                                            )) {
+                                              _selected.removeAll(ids);
+                                            } else {
+                                              _selected.addAll(ids);
+                                            }
+                                            if (_selected.isNotEmpty) {
+                                              _keysFocus.requestFocus();
+                                            }
+                                          }),
+                                          onDeleteAll: () =>
+                                              _deleteMany(groups[g]!),
+                                        ),
+                                      ),
+                                    _CollapsibleGroupSliver(
+                                      key: ValueKey('group-sliver-$g'),
+                                      collapsed:
+                                          showHeaders &&
+                                          _query.isEmpty &&
+                                          _collapsedGroups.contains(g),
+                                      sliver: SliverGrid(
+                                        gridDelegate:
+                                            SliverGridDelegateWithMaxCrossAxisExtent(
+                                              maxCrossAxisExtent: isCompact
+                                                  ? 600
+                                                  : 380,
+                                              mainAxisExtent: 84,
+                                              crossAxisSpacing: 12,
+                                              mainAxisSpacing: 10,
+                                            ),
+                                        delegate: SliverChildBuilderDelegate((
+                                          context,
+                                          i,
+                                        ) {
+                                          final h = groups[g]![i];
+                                          return HostCard(
+                                            key: ValueKey(h.id),
+                                            host: h,
+                                            selected: _selected.contains(h.id),
+                                            selecting: selecting,
+                                            onToggleSelect: () => _toggle(h.id),
+                                          );
+                                        }, childCount: groups[g]!.length),
+                                      ),
                                     ),
-                                  ),
-                                SliverGrid(
-                                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                                    maxCrossAxisExtent: isCompact ? 600 : 380,
-                                    mainAxisExtent: 84,
-                                    crossAxisSpacing: 12,
-                                    mainAxisSpacing: 10,
-                                  ),
-                                  delegate: SliverChildBuilderDelegate(
-                                    (context, i) {
-                                      final h = groups[g]![i];
-                                      return HostCard(
-                                        host: h,
-                                        selected: _selected.contains(h.id),
-                                        selecting: selecting,
-                                        onToggleSelect: () => _toggle(h.id),
-                                      );
-                                    },
-                                    childCount: groups[g]!.length,
-                                  ),
-                                ),
-                                const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                              ],
-                            ],
+                                    const SliverToBoxAdapter(
+                                      child: SizedBox(height: 20),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
+                        ),
+                ),
               ),
             ],
           ),

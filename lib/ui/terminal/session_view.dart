@@ -18,6 +18,9 @@ import '../../infra/platform/local_files.dart';
 import '../../app/terminal/terminal_session.dart';
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/layered_switcher.dart';
 import '../sftp/sftp_pane.dart';
 import '../shell/ui_state.dart';
 import '../shell/app_shortcuts.dart';
@@ -75,6 +78,8 @@ abstract class _SessionViewBase extends ConsumerState<SessionView> {
 
   double _paneWidth = 420;
   bool _sftpInitialized = false;
+  bool _sftpAnimating = false;
+  bool _sftpHandleHover = false;
 
   bool _failureDismissed = false;
   bool _showLogManually = false;
@@ -292,7 +297,7 @@ class _SessionViewState extends _SessionViewBase
           },
           child: TerminalView(
             session.terminal,
-            autoResize: widget.resizeEnabled,
+            autoResize: widget.resizeEnabled && !_sftpAnimating,
             key: _terminalViewKey,
             scrollController: _scrollController,
             controller: _controller,
@@ -377,21 +382,41 @@ class _SessionViewState extends _SessionViewBase
           key: _terminalStackKey,
           children: [
             Positioned.fill(child: terminalView),
-            if (showFailure)
-              Positioned.fill(
-                child: ConnectionFailureView(
-                  session: session,
-                  onReconnect: _reconnect,
-                  onDismiss: () {
-                    setState(() {
-                      _failureDismissed = true;
-                      _showLogManually = false;
-                    });
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !showFailure,
+                child: AnimatedSwitcher(
+                  duration: AppMotion.duration(
+                    context,
+                    AppMotion.durationDefault,
+                  ),
+                  switchInCurve: AppMotion.emphasizedDecelerate,
+                  switchOutCurve: AppMotion.emphasizedAccelerate,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.98, end: 1.0).animate(anim),
+                      child: child,
+                    ),
+                  ),
+                  child: showFailure
+                      ? ConnectionFailureView(
+                          key: const ValueKey('failure'),
+                          session: session,
+                          onReconnect: _reconnect,
+                          onDismiss: () {
+                            setState(() {
+                              _failureDismissed = true;
+                              _showLogManually = false;
+                            });
 
-                    _focus.requestFocus();
-                  },
+                            _focus.requestFocus();
+                          },
+                        )
+                      : const SizedBox.shrink(key: ValueKey('no-failure')),
                 ),
               ),
+            ),
             if (_selectionMenuPosition != null)
               SelectionMenu(
                 position: _selectionMenuPosition!,
@@ -444,14 +469,21 @@ class _SessionViewState extends _SessionViewBase
       children: [
         SizedBox(
           height: 2,
-          child: widget.tab.status == SessionStatus.connecting
-              ? const LinearProgressIndicator(minHeight: 2)
-              : null,
+          child: AnimatedSwitcher(
+            duration: AppMotion.duration(context, AppMotion.durationFast),
+            child: widget.tab.status == SessionStatus.connecting
+                ? const LinearProgressIndicator(
+                    key: ValueKey('connecting'),
+                    minHeight: 2,
+                  )
+                : const SizedBox.shrink(key: ValueKey('idle')),
+          ),
         ),
         Expanded(
           child: isCompact
-              ? IndexedStack(
+              ? LayeredSwitcher(
                   index: paneOpen ? 1 : 0,
+                  pauseHidden: false,
                   children: [
                     terminalArea,
                     _sftpInitialized
@@ -466,42 +498,82 @@ class _SessionViewState extends _SessionViewBase
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(child: terminalArea),
-                    if (paneOpen) ...[
-                      MouseRegion(
-                        cursor: SystemMouseCursors.resizeColumn,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onHorizontalDragUpdate: (details) {
-                            setState(() {
-                              final max =
-                                  MediaQuery.sizeOf(context).width * 0.7;
+                    ExpandSection(
+                      expanded: paneOpen,
+                      axis: Axis.horizontal,
+                      alignment: AlignmentDirectional.centerEnd,
+                      keepAlive: _sftpInitialized,
+                      onAnimatingChanged: (animating) {
+                        if (mounted && _sftpAnimating != animating) {
+                          setState(() => _sftpAnimating = animating);
+                        }
+                      },
+                      child: _sftpInitialized
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                MouseRegion(
+                                  cursor: SystemMouseCursors.resizeColumn,
+                                  onEnter: (_) =>
+                                      setState(() => _sftpHandleHover = true),
+                                  onExit: (_) =>
+                                      setState(() => _sftpHandleHover = false),
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onHorizontalDragUpdate: (details) {
+                                      setState(() {
+                                        final max =
+                                            MediaQuery.sizeOf(context).width *
+                                            0.7;
 
-                              _paneWidth = (_paneWidth - details.delta.dx)
-                                  .clamp(260, max < 260 ? 260 : max)
-                                  .toDouble();
-                            });
-                          },
-                          child: Container(
-                            width: 5,
-                            color: scheme.outlineVariant.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: _paneWidth,
-                        child: SftpPane(tab: widget.tab, active: widget.active),
-                      ),
-                    ],
+                                        _paneWidth =
+                                            (_paneWidth - details.delta.dx)
+                                                .clamp(
+                                                  260,
+                                                  max < 260 ? 260 : max,
+                                                )
+                                                .toDouble();
+                                      });
+                                    },
+                                    child: AnimatedContainer(
+                                      duration: AppMotion.duration(
+                                        context,
+                                        AppMotion.durationFast,
+                                      ),
+                                      width: 5,
+                                      color: _sftpHandleHover
+                                          ? scheme.primary.withValues(
+                                              alpha: 0.55,
+                                            )
+                                          : scheme.outlineVariant.withValues(
+                                              alpha: 0.5,
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: _paneWidth,
+                                  child: SftpPane(
+                                    tab: widget.tab,
+                                    active: widget.active && paneOpen,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
+                    ),
                   ],
                 ),
         ),
-        if (DesktopEnv.isMobile &&
-            settings.showAccessoryBar &&
-            (!isCompact || !paneOpen))
-          TerminalAccessoryBar(
-            session: session,
-            focusNode: _focus,
-            language: settings.language,
+        if (DesktopEnv.isMobile)
+          ExpandSection(
+            expanded: settings.showAccessoryBar && (!isCompact || !paneOpen),
+            child: TerminalAccessoryBar(
+              session: session,
+              focusNode: _focus,
+              language: settings.language,
+            ),
           ),
         _StatusBar(
           tab: widget.tab,

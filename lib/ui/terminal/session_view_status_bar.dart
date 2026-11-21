@@ -71,31 +71,61 @@ class _StatusBar extends StatelessWidget {
                 const SizedBox(width: 12),
                 Tooltip(
                   message: [location, ?serverVersion].join('\n'),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (tab.status != SessionStatus.ready) ...[
-                        Icon(Icons.info_outline, size: 14, color: statusColor),
-                        const SizedBox(width: 6),
-                      ],
-                      Text(status, style: style),
-                    ],
+                  child: AnimatedSize(
+                    duration: AppMotion.duration(
+                      context,
+                      AppMotion.durationFast,
+                    ),
+                    curve: AppMotion.spatialCurve,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: AnimatedSwitcher(
+                      duration: AppMotion.duration(
+                        context,
+                        AppMotion.durationFast,
+                      ),
+                      child: Row(
+                        key: ValueKey(tab.status),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (tab.status != SessionStatus.ready) ...[
+                            Icon(
+                              Icons.info_outline,
+                              size: 14,
+                              color: statusColor,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(status, style: style),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child:
-                      showMetrics &&
-                          !tab.isLocal &&
-                          showStats &&
-                          tab.status == SessionStatus.ready
-                      ? ServerStatsView(
-                          session: session,
-                          active: active,
-                          ru: strings.isRussian,
-                          fallback: serverVersion,
-                        )
-                      : const SizedBox.shrink(),
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.duration(
+                      context,
+                      AppMotion.durationDefault,
+                    ),
+                    layoutBuilder: (currentChild, previousChildren) => Stack(
+                      alignment: AlignmentDirectional.centerStart,
+                      children: [...previousChildren, ?currentChild],
+                    ),
+                    child:
+                        showMetrics &&
+                            !tab.isLocal &&
+                            showStats &&
+                            tab.status == SessionStatus.ready
+                        ? ServerStatsView(
+                            key: const ValueKey('stats'),
+                            session: session,
+                            active: active,
+                            ru: strings.isRussian,
+                            fallback: serverVersion,
+                          )
+                        : const SizedBox.shrink(key: ValueKey('no-stats')),
+                  ),
                 ),
                 if (!tab.isLocal && showMetrics)
                   IconButton(
@@ -123,13 +153,18 @@ class _StatusBar extends StatelessWidget {
                     icon: const Icon(Icons.folder_outlined),
                     onPressed: onToggleFiles,
                   ),
-                if (tab.status == SessionStatus.lost ||
-                    tab.status == SessionStatus.closed)
-                  IconButton(
+                ExpandSection(
+                  expanded:
+                      tab.status == SessionStatus.lost ||
+                      tab.status == SessionStatus.closed,
+                  axis: Axis.horizontal,
+                  spring: AppMotion.spatialFast,
+                  child: IconButton(
                     tooltip: strings.reconnect,
                     onPressed: onReconnect,
                     icon: const Icon(Icons.refresh),
                   ),
+                ),
               ],
             ),
           ),

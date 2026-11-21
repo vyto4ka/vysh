@@ -4,14 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/controllers/settings_controller.dart';
 import '../../infra/update/update_installer.dart';
 import '../../infra/update/update_service.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/smooth_scroll.dart';
 import '../widgets/strings_context.dart';
 
 /// Окно «Доступно обновление»: версии, размер, что нового, прогресс
 /// скачивания и применение. Скачивание с проверкой SHA-256; установка
 /// на Windows и Linux перезапускает приложение.
-///
-/// Спроектировано по образцу keqdroid, адаптировано под vysh:
-/// Markdown-заметки не рендерятся (пакета нет) - текст заметок как есть.
 Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) async {
   await showDialog<void>(
     context: context,
@@ -53,12 +53,17 @@ String sanitizeReleaseNotes(String raw) {
   text = text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
   text = text.replaceAll(RegExp(r'</?p>', caseSensitive: false), '\n');
   text = text.replaceAll(
-      RegExp(r'</?(details|summary)>', caseSensitive: false), '');
+    RegExp(r'</?(details|summary)>', caseSensitive: false),
+    '',
+  );
   text = text.replaceAll(RegExp(r'<h([1-6])>', caseSensitive: false), '\n');
   text = text.replaceAll(RegExp(r'</h[1-6]>', caseSensitive: false), '\n');
   // Разметку бейджей-кнопок загрузки выкидываем: список файлов ниже
   // на странице релиза и так есть, а внутри диалога они бесполезны.
-  text = text.replaceAll(RegExp(r'^\s*\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)\s*$', multiLine: true), '');
+  text = text.replaceAll(
+    RegExp(r'^\s*\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)\s*$', multiLine: true),
+    '',
+  );
   text = text.replaceAll(RegExp(r'<[^>]+>'), '');
   text = text
       .replaceAll('&amp;', '&')
@@ -89,6 +94,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   bool _applying = false;
   double _progress = 0;
   String? _error;
+  String? _lastError;
 
   @override
   Widget build(BuildContext context) {
@@ -97,8 +103,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final s = context.strings;
     final info = widget.info;
     final notes = info.releaseNotes;
-    final cleanNotes =
-        notes != null && notes.isNotEmpty ? sanitizeReleaseNotes(notes) : null;
+    final cleanNotes = notes != null && notes.isNotEmpty
+        ? sanitizeReleaseNotes(notes)
+        : null;
+    if (_error != null) _lastError = _error;
+    final displayError = _error ?? _lastError;
 
     return AlertDialog(
       icon: Icon(Icons.system_update_rounded, color: scheme.primary, size: 32),
@@ -117,8 +126,9 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               const SizedBox(height: 4),
               Text(
                 s.updateSize(info.formattedSize),
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: scheme.onSurfaceVariant),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
               if (cleanNotes != null && cleanNotes.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -130,42 +140,71 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                     color: scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: SingleChildScrollView(
-                    child: SelectableText(
-                      cleanNotes,
-                      style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
+                  child: SmoothScroll(
+                    builder: (context, controller) => SingleChildScrollView(
+                      controller: controller,
+                      child: SelectableText(
+                        cleanNotes,
+                        style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
+                      ),
                     ),
                   ),
                 ),
               ],
-              if (_downloading) ...[
-                const SizedBox(height: 16),
-                LinearProgressIndicator(
-                  value: _applying || _progress <= 0 ? null : _progress,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _statusLabel(context),
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant),
-                ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: scheme.errorContainer,
-                    borderRadius: BorderRadius.circular(10),
+              ExpandSection(
+                expanded: _downloading,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _applying || _progress <= 0
+                          ? const LinearProgressIndicator()
+                          : TweenAnimationBuilder<double>(
+                              tween: Tween<double>(
+                                end: _progress.clamp(0.0, 1.0),
+                              ),
+                              duration: AppMotion.duration(
+                                context,
+                                const Duration(milliseconds: 140),
+                              ),
+                              curve: Curves.easeOut,
+                              builder: (context, val, _) =>
+                                  LinearProgressIndicator(value: val),
+                            ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _statusLabel(context),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Text(
-                    _error!,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: scheme.onErrorContainer),
-                  ),
                 ),
-              ],
+              ),
+              ExpandSection(
+                expanded: _error != null,
+                child: displayError == null
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: scheme.errorContainer,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            displayError,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
             ],
           ),
         ),

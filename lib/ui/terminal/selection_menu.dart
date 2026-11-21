@@ -1,9 +1,12 @@
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
 
 /// Что именно будет вставлено в терминал.
 class PastePlan {
@@ -91,8 +94,46 @@ class SelectionMenu extends StatefulWidget {
   State<SelectionMenu> createState() => _SelectionMenuState();
 }
 
-class _SelectionMenuState extends State<SelectionMenu> {
+class _SelectionMenuState extends State<SelectionMenu>
+    with TickerProviderStateMixin {
   bool _expanded = false;
+  late final AnimationController _enter = AnimationController.unbounded(
+    vsync: this,
+  );
+  late final AnimationController _expandCtrl = AnimationController.unbounded(
+    vsync: this,
+  );
+  bool _enterStarted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_enterStarted) {
+      _enterStarted = true;
+      if (AppMotion.reduced(context)) {
+        _enter.value = 1;
+      } else {
+        AppMotion.springTo(_enter, 1, spring: AppMotion.spatialFast);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _enter.dispose();
+    _expandCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleExpanded() {
+    setState(() => _expanded = !_expanded);
+    AppMotion.springTo(
+      _expandCtrl,
+      _expanded ? 1 : 0,
+      spring: AppMotion.spatialDefault,
+      instant: AppMotion.reduced(context),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,156 +155,178 @@ class _SelectionMenuState extends State<SelectionMenu> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxMenuWidth = math.max(0.0, constraints.maxWidth - 20);
-        final menuWidth = math.min(_expanded ? 320.0 : 300.0, maxMenuWidth);
-        final halfWidth = menuWidth / 2;
 
-        var left = widget.position.dx - halfWidth;
-        final maxLeft = math.max(10.0, constraints.maxWidth - menuWidth - 10);
-        left = left.clamp(10.0, maxLeft).toDouble();
+        return AnimatedBuilder(
+          animation: Listenable.merge([_enter, _expandCtrl]),
+          builder: (context, menuContent) {
+            final expandT = _expandCtrl.value.clamp(0.0, 1.0);
+            final menuWidth = math.min(
+              lerpDouble(300.0, 320.0, expandT)!,
+              maxMenuWidth,
+            );
+            final halfWidth = menuWidth / 2;
 
-        final estimatedHeight = _expanded ? 210.0 : 110.0;
-        final top = (widget.position.dy - estimatedHeight - 8)
-            .clamp(
+            var left = widget.position.dx - halfWidth;
+            final maxLeft = math.max(
               10.0,
-              math.max(10.0, constraints.maxHeight - estimatedHeight - 10),
-            )
-            .toDouble();
+              constraints.maxWidth - menuWidth - 10,
+            );
+            left = left.clamp(10.0, maxLeft).toDouble();
 
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onDismiss,
-                child: const SizedBox.expand(),
-              ),
-            ),
-            Positioned(
-              left: left,
-              top: top,
-              child: Material(
-                elevation: 10,
-                shadowColor: Colors.black.withValues(alpha: 0.6),
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(16),
-                clipBehavior: Clip.antiAlias,
-                child: Container(
+            final estimatedHeight = lerpDouble(110.0, 210.0, expandT)!;
+            final top = (widget.position.dy - estimatedHeight - 8)
+                .clamp(
+                  10.0,
+                  math.max(10.0, constraints.maxHeight - estimatedHeight - 10),
+                )
+                .toDouble();
+
+            final enterT = _enter.value;
+            final scale = lerpDouble(0.90, 1.0, enterT)!;
+            final opacity = enterT.clamp(0.0, 1.0);
+
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onDismiss,
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                Positioned(
+                  left: left,
+                  top: top,
                   width: menuWidth,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: scheme.outlineVariant.withValues(alpha: 0.4),
-                      width: 1,
+                  child: Opacity(
+                    opacity: opacity,
+                    child: Transform.scale(
+                      scale: scale,
+                      alignment: Alignment.bottomCenter,
+                      child: menuContent,
                     ),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
+                ),
+              ],
+            );
+          },
+          child: Material(
+            elevation: 10,
+            shadowColor: Colors.black.withValues(alpha: 0.6),
+            color: surfaceColor,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.4),
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHigh.withValues(alpha: 0.8),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: scheme.outlineVariant.withValues(alpha: 0.25),
                         ),
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHigh.withValues(
-                            alpha: 0.8,
-                          ),
-                          border: Border(
-                            bottom: BorderSide(
-                              color: scheme.outlineVariant.withValues(
-                                alpha: 0.25,
-                              ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          hasValidSelection
+                              ? Icons.text_fields_rounded
+                              : Icons.terminal_rounded,
+                          size: 15,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            hasValidSelection
+                                ? '${strings.selectedText} '
+                                      '(${strings.charCount(widget.selectedCharCount)})'
+                                : strings.terminal,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              hasValidSelection
-                                  ? Icons.text_fields_rounded
-                                  : Icons.terminal_rounded,
-                              size: 15,
+                        InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: widget.onDismiss,
+                          child: Padding(
+                            padding: const EdgeInsets.all(3),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16,
                               color: scheme.onSurfaceVariant,
                             ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                hasValidSelection
-                                    ? '${strings.selectedText} '
-                                          '(${strings.charCount(widget.selectedCharCount)})'
-                                    : strings.terminal,
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: scheme.onSurface,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: widget.onDismiss,
-                              child: Padding(
-                                padding: const EdgeInsets.all(3),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  size: 16,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 4,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.copy_rounded,
+                            label: strings.copy,
+                            onTap: widget.onCopy,
+                          ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Expanded(
-                              child: _ActionButton(
-                                icon: Icons.copy_rounded,
-                                label: strings.copy,
-                                onTap: widget.onCopy,
-                              ),
-                            ),
-                            Expanded(
-                              child: _ActionButton(
-                                icon: Icons.paste_rounded,
-                                label: strings.paste,
-                                onTap: widget.onPaste,
-                              ),
-                            ),
-                            Expanded(
-                              child: _ActionButton(
-                                icon: Icons.content_cut_rounded,
-                                label: strings.cut,
-                                onTap: widget.onCut,
-                              ),
-                            ),
-                            Expanded(
-                              child: _ActionButton(
-                                icon: _expanded
-                                    ? Icons.expand_less_rounded
-                                    : Icons.more_horiz_rounded,
-                                label: strings.more,
-                                onTap: () {
-                                  setState(() {
-                                    _expanded = !_expanded;
-                                  });
-                                },
-                              ),
-                            ),
-                          ],
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.paste_rounded,
+                            label: strings.paste,
+                            onTap: widget.onPaste,
+                          ),
                         ),
-                      ),
-
-                      if (_expanded) ...[
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.content_cut_rounded,
+                            label: strings.cut,
+                            onTap: widget.onCut,
+                          ),
+                        ),
+                        Expanded(
+                          child: _ActionButton(
+                            icon: _expanded
+                                ? Icons.expand_less_rounded
+                                : Icons.more_horiz_rounded,
+                            label: strings.more,
+                            onTap: _toggleExpanded,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ExpandSection(
+                    expanded: _expanded,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Divider(
                           height: 1,
                           color: scheme.outlineVariant.withValues(alpha: 0.25),
@@ -319,12 +382,12 @@ class _SelectionMenuState extends State<SelectionMenu> {
                           ),
                         ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
-          ],
+          ),
         );
       },
     );

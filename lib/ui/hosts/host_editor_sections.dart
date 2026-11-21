@@ -118,42 +118,39 @@ class _AuthSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _SectionTitle(strings.authMethod),
-        SizedBox(
-          width: double.infinity,
-          child: SegmentedButton<AuthMethod>(
-          showSelectedIcon: false,
-          style: const ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
+        ExpressiveSegments<AuthMethod>(
+          expand: true,
           segments: [
-            ButtonSegment(
+            ExpressiveSegment(
               value: AuthMethod.password,
-              label: Text(strings.authPassword),
-              icon: const Icon(Icons.password),
+              label: strings.authPassword,
+              icon: Icons.password,
             ),
-            ButtonSegment(
+            ExpressiveSegment(
               value: AuthMethod.key,
-              label: Text(strings.authKey),
-              icon: const Icon(Icons.key),
+              label: strings.authKey,
+              icon: Icons.key,
             ),
             if (!PlatformCapabilities.sharedDownloads ||
                 form.auth == AuthMethod.agent)
-              ButtonSegment(
+              ExpressiveSegment(
                 value: AuthMethod.agent,
-                label: Text(strings.authAuto),
-                icon: const Icon(Icons.auto_awesome),
+                label: strings.authAuto,
+                icon: Icons.auto_awesome,
               ),
           ],
-          selected: {form.auth},
-          onSelectionChanged: (s) => form.auth = s.first,
-          ),
+          selected: form.auth,
+          onChanged: (v) => form.auth = v,
         ),
         const SizedBox(height: 12),
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
+          duration: AppMotion.duration(context, const Duration(milliseconds: 300)),
+          curve: AppMotion.spatialCurve,
           alignment: Alignment.topCenter,
-          child: _fields(),
+          child: FadeSlideSwitcher(
+            alignment: Alignment.topCenter,
+            child: _fields(),
+          ),
         ),
       ],
     );
@@ -255,14 +252,21 @@ class _ListSection extends StatelessWidget {
         Row(
           children: [
             // Живой предпросмотр значка, как он будет выглядеть в списке.
-            Container(
+            AnimatedContainer(
+              duration: AppMotion.duration(context, AppMotion.durationFast),
+              curve: Curves.easeOutCubic,
               width: 40,
               height: 40,
               decoration: BoxDecoration(
                 color: Color(form.color).withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.dns_rounded, color: Color(form.color), size: 20),
+              child: TweenAnimationBuilder<Color?>(
+                tween: ColorTween(end: Color(form.color)),
+                duration: AppMotion.duration(context, AppMotion.durationFast),
+                builder: (context, color, _) =>
+                    Icon(Icons.dns_rounded, color: color, size: 20),
+              ),
             ),
             const SizedBox(width: 12),
             Text(strings.cardColor, style: theme.textTheme.bodyLarge),

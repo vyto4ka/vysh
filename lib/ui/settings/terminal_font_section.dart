@@ -10,6 +10,7 @@ import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/font_files.dart' show FontFiles;
 import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
 import '../widgets/strings_context.dart';
 import 'setting_row.dart';
 
@@ -30,6 +31,7 @@ class TerminalFontSection extends ConsumerWidget {
     final strings = context.strings;
     final scheme = Theme.of(context).colorScheme;
     final userFonts = ref.watch(userFontsProvider);
+    final fastDur = AppMotion.duration(context, AppMotion.durationFast);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -44,32 +46,46 @@ class TerminalFontSection extends ConsumerWidget {
               children: [
                 const _FontPicker(),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    for (final f in userFonts)
-                      InputChip(
-                        label: Text(f.family),
-                        avatar: const Icon(Icons.insert_drive_file_outlined, size: 18),
-                        deleteButtonTooltipMessage: strings.removeFont,
-                        onDeleted: () => ref.read(userFontsProvider.notifier).remove(f),
-                        onPressed: () => ref.read(userFontsProvider.notifier).select(f),
-                      ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.add, size: 18),
-                      label: Text(strings.addFont),
-                      onPressed: () => _addFont(context, ref),
-                    ),
-                    if (PlatformCapabilities.openLinks)
+                AnimatedSize(
+                  duration: fastDur,
+                  curve: AppMotion.spatialCurve,
+                  alignment: AlignmentDirectional.topStart,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      for (final f in userFonts)
+                        InputChip(
+                          key: ValueKey(f.fileName),
+                          label: Text(f.family),
+                          selected:
+                              s.terminalFont == TerminalFont.file(f.fileName),
+                          avatar: const Icon(
+                            Icons.insert_drive_file_outlined,
+                            size: 18,
+                          ),
+                          deleteButtonTooltipMessage: strings.removeFont,
+                          onDeleted: () =>
+                              ref.read(userFontsProvider.notifier).remove(f),
+                          onPressed: () =>
+                              ref.read(userFontsProvider.notifier).select(f),
+                        ),
                       TextButton.icon(
-                        icon: const Icon(Icons.open_in_new, size: 18),
-                        label: Text(strings.nerdFontsLink),
-                        onPressed: () =>
-                            LocalFiles.openUrl(_nerdFontsUrl).catchError((_) {}),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: Text(strings.addFont),
+                        onPressed: () => _addFont(context, ref),
                       ),
-                  ],
+                      if (PlatformCapabilities.openLinks)
+                        TextButton.icon(
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                          label: Text(strings.nerdFontsLink),
+                          onPressed: () => LocalFiles.openUrl(
+                            _nerdFontsUrl,
+                          ).catchError((_) {}),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -100,25 +116,38 @@ class TerminalFontSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            _previewText,
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.fade,
-            style: TextStyle(
-              fontFamily: TerminalFont.familyOf(s.terminalFont),
-              fontFamilyFallback: TerminalFont.fallbackOf(s.terminalFont),
-              fontSize: s.terminalFontSize,
-              height: s.terminalLineHeight,
-              color: scheme.onSurface,
-              // Как в терминале: без лигатур.
-              fontFeatures: const [FontFeature.disable('liga'), FontFeature.disable('calt')],
+        AnimatedSize(
+          duration: fastDur,
+          curve: AppMotion.spatialCurve,
+          alignment: AlignmentDirectional.centerStart,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: AnimatedDefaultTextStyle(
+              duration: fastDur,
+              curve: Curves.easeOutCubic,
+              style: TextStyle(
+                fontFamily: TerminalFont.familyOf(s.terminalFont),
+                fontFamilyFallback: TerminalFont.fallbackOf(s.terminalFont),
+                fontSize: s.terminalFontSize,
+                height: s.terminalLineHeight,
+                color: scheme.onSurface,
+                // Как в терминале: без лигатур.
+                fontFeatures: const [
+                  FontFeature.disable('liga'),
+                  FontFeature.disable('calt'),
+                ],
+              ),
+              child: const Text(
+                _previewText,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade,
+              ),
             ),
           ),
         ),

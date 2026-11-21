@@ -18,6 +18,8 @@ import '../hosts/hosts_page.dart';
 import '../settings/settings_page.dart';
 import 'session_workspace.dart';
 import '../../app/windows/window_scope.dart';
+import '../motion/expand_section.dart';
+import '../motion/layered_switcher.dart';
 import '../widgets/strings_context.dart';
 import 'home_switcher.dart';
 import 'tab_drag.dart';
@@ -194,25 +196,28 @@ class _AppShellState extends ConsumerState<AppShell> {
         if (window != null)
           ValueListenableBuilder<String?>(
             valueListenable: window.failure,
-            builder: (context, error, _) => error == null
-                ? const SizedBox.shrink()
-                : MaterialBanner(
-                    content: Text(
-                      context.strings.isRu
-                          ? 'Не удалось связаться с владельцем сессий: $error'
-                          : 'Could not contact the session owner: $error',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => window.returnToMain(),
-                        child: Text(
-                          context.strings.isRu
-                              ? 'Вернуть в главное окно'
-                              : 'Return to main window',
-                        ),
+            builder: (context, error, _) => ExpandSection(
+              expanded: error != null,
+              child: error == null
+                  ? const SizedBox.shrink()
+                  : MaterialBanner(
+                      content: Text(
+                        context.strings.isRu
+                            ? 'Не удалось связаться с владельцем сессий: $error'
+                            : 'Could not contact the session owner: $error',
                       ),
-                    ],
-                  ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => window.returnToMain(),
+                          child: Text(
+                            context.strings.isRu
+                                ? 'Вернуть в главное окно'
+                                : 'Return to main window',
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
           ),
         Expanded(child: const SessionWorkspace(home: _HomeView())),
       ],
@@ -254,22 +259,14 @@ class _HomeView extends ConsumerWidget {
             child: HomeTabs(),
           ),
           Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              switchInCurve: Curves.easeOutCubic,
-              transitionBuilder: (child, anim) => FadeTransition(
-                opacity: anim,
-                child: SlideTransition(
-                  position: Tween(
-                    begin: const Offset(0, 0.015),
-                    end: Offset.zero,
-                  ).animate(anim),
-                  child: child,
-                ),
-              ),
-              child: section == 0
-                  ? const HostsPage(key: ValueKey('hosts'))
-                  : const SettingsPage(key: ValueKey('settings')),
+            child: LayeredSwitcher(
+              index: section,
+              axis: Axis.horizontal,
+              shift: 28,
+              children: const [
+                HostsPage(key: ValueKey('hosts')),
+                SettingsPage(key: ValueKey('settings')),
+              ],
             ),
           ),
         ],

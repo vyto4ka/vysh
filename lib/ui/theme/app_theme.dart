@@ -1,7 +1,9 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 import '../../app/settings/terminal_font.dart';
 import '../../infra/platform/desktop_env.dart';
+import '../motion/app_motion.dart';
 
 /// Предустановленные акцентные цвета (seed для Material You);
 /// названия - AppStrings.accentNames в том же порядке.
@@ -29,6 +31,54 @@ const hostColors = <int>[
   0xFF5F6368,
 ];
 
+class _ExpressivePageTransitionsBuilder extends PageTransitionsBuilder {
+  const _ExpressivePageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (AppMotion.reduced(context)) return child;
+    final curvedIn = CurvedAnimation(
+      parent: animation,
+      curve: AppMotion.emphasizedDecelerate,
+      reverseCurve: AppMotion.emphasizedAccelerate,
+    );
+    final fade = CurvedAnimation(
+      parent: animation,
+      curve: const Interval(0.0, 0.65, curve: Curves.easeOut),
+      reverseCurve: const Interval(0.35, 1.0, curve: Curves.easeIn),
+    );
+    final secondaryCurved = CurvedAnimation(
+      parent: secondaryAnimation,
+      curve: AppMotion.emphasized,
+    );
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: Offset.zero,
+        end: const Offset(-0.025, 0),
+      ).animate(secondaryCurved),
+      child: FadeTransition(
+        opacity: fade,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.035, 0),
+            end: Offset.zero,
+          ).animate(curvedIn),
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.985, end: 1.0).animate(curvedIn),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 ThemeData buildTheme({
   required Color seed,
   required Brightness brightness,
@@ -48,6 +98,15 @@ ThemeData buildTheme({
     brightness: brightness,
     visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
     scaffoldBackgroundColor: scheme.surface,
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: _ExpressivePageTransitionsBuilder(),
+        TargetPlatform.linux: _ExpressivePageTransitionsBuilder(),
+        TargetPlatform.windows: _ExpressivePageTransitionsBuilder(),
+      },
+    ),
     appBarTheme: AppBarThemeData(
       backgroundColor: scheme.surfaceContainer,
       foregroundColor: scheme.onSurface,
@@ -55,6 +114,22 @@ ThemeData buildTheme({
       elevation: 0,
       scrolledUnderElevation: 0,
     ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: scheme.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: scheme.surfaceContainerLow,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+    ),
+    // ignore: deprecated_member_use
+    progressIndicatorTheme: const ProgressIndicatorThemeData(year2023: false),
+    // ignore: deprecated_member_use
+    sliderTheme: const SliderThemeData(year2023: false),
     popupMenuTheme: PopupMenuThemeData(
       color: scheme.surfaceContainerLow,
       surfaceTintColor: Colors.transparent,
@@ -95,6 +170,7 @@ ThemeData buildTheme({
     // На телефоне ширина экрана меньше 420 - там обычная плашка.
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       width: DesktopEnv.isMobile ? null : 420,
     ),
     // Меню: скруглённый контейнер с внутренним отступом,

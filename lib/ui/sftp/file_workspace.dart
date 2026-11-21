@@ -14,6 +14,11 @@ import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/expressive_segments.dart';
+import '../motion/layered_switcher.dart';
+import '../motion/smooth_scroll.dart';
 import '../shell/ui_state.dart';
 import 'transfers_view.dart';
 import 'file_path_bar.dart';
@@ -33,12 +38,42 @@ class FileWorkspace extends ConsumerStatefulWidget {
   ConsumerState<FileWorkspace> createState() => _FileWorkspaceState();
 }
 
-class _FileWorkspaceState extends ConsumerState<FileWorkspace> {
+class _FileWorkspaceState extends ConsumerState<FileWorkspace>
+    with SingleTickerProviderStateMixin {
   final _left = GlobalKey<_BrowserState>();
   final _right = GlobalKey<_BrowserState>();
   bool _busy = false;
   bool _rightVisible = false;
   double _ratio = .5;
+  bool _splitterHover = false;
+  late final AnimationController _ratioAnim = AnimationController.unbounded(
+    vsync: this,
+    value: .5,
+  )..addListener(_onRatioTick);
+
+  void _onRatioTick() {
+    if (_ratioAnim.isAnimating && mounted) {
+      setState(() => _ratio = _ratioAnim.value.clamp(.3, .7));
+    }
+  }
+
+  void _resetRatio() {
+    if (AppMotion.reduced(context)) {
+      setState(() => _ratio = .5);
+      return;
+    }
+    _ratioAnim.value = _ratio;
+    AppMotion.springTo(_ratioAnim, .5).whenComplete(() {
+      if (mounted) setState(() => _ratio = .5);
+    });
+  }
+
+  @override
+  void dispose() {
+    _ratioAnim.dispose();
+    super.dispose();
+  }
+
   void _changed() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() {});
@@ -125,6 +160,7 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace> {
         .tabs
         .where((t) => !t.isLocal && t.status == SessionStatus.ready)
         .toList();
+    final scheme = Theme.of(context).colorScheme;
     final macTop =
         PlatformCapabilities.isMacOS && ref.watch(customTitleBarProvider)
         ? 40.0
@@ -135,129 +171,155 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace> {
         appBar: AppBar(
           title: Text(isRu ? 'Файлы' : 'Files'),
           actions: [
-            if (_busy)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    semanticsLabel: isRu
-                        ? 'Передача файлов'
-                        : 'Transferring files',
-                  ),
-                ),
-              ),
+            AnimatedSwitcher(
+              duration: AppMotion.duration(context, AppMotion.durationFast),
+              child: _busy
+                  ? Padding(
+                      key: const ValueKey('busy'),
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          semanticsLabel: isRu
+                              ? 'Передача файлов'
+                              : 'Transferring files',
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('idle')),
+            ),
           ],
         ),
         body: SafeArea(
           top: false,
           child: Column(
-        children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, box) {
-                final wide = box.maxWidth >= 840;
-                Widget browser(bool right) => _Browser(
-                  key: right ? _right : _left,
-                  tabs: tabs,
-                  initial: right ? (tabs.firstOrNull?.id ?? '') : '',
-                  isRu: isRu,
-                  enabled: !_busy,
-                  onChanged: _changed,
-                  onCopy: _canCopy(!right) ? () => _copy(!right) : null,
-                  copyLabel: wide
-                      ? (right
-                            ? (isRu ? 'Копировать влево' : 'Copy to left')
-                            : (isRu ? 'Копировать вправо' : 'Copy to right'))
-                      : (isRu ? 'В другую панель' : 'Copy to other pane'),
-                  copyIcon: wide
-                      ? (right ? Icons.arrow_back : Icons.arrow_forward)
-                      : Icons.copy_outlined,
-                  destination:
-                      (right ? _left : _right).currentState?.directory.cwd,
-                );
-                if (!wide) {
-                  return Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                        child: SegmentedButton<bool>(
-                          segments: [
-                            ButtonSegment(
-                              value: false,
-                              label: Text(isRu ? 'Левая панель' : 'Left pane'),
-                              icon: const Icon(Icons.folder_outlined),
-                            ),
-                            ButtonSegment(
-                              value: true,
-                              label: Text(
-                                isRu ? 'Правая панель' : 'Right pane',
-                              ),
-                              icon: const Icon(Icons.folder_outlined),
-                            ),
-                          ],
-                          selected: {_rightVisible},
-                          onSelectionChanged: (v) =>
-                              setState(() => _rightVisible = v.single),
-                        ),
-                      ),
-                      Expanded(
-                        child: IndexedStack(
-                          index: _rightVisible ? 1 : 0,
-                          children: [browser(false), browser(true)],
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                final available = box.maxWidth - 12;
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: LayoutBuilder(
-                    builder: (context, inner) {
-                      final width = inner.maxWidth - 12;
-                      return Row(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, box) {
+                    final wide = box.maxWidth >= 840;
+                    Widget browser(bool right) => _Browser(
+                      key: right ? _right : _left,
+                      tabs: tabs,
+                      initial: right ? (tabs.firstOrNull?.id ?? '') : '',
+                      isRu: isRu,
+                      enabled: !_busy,
+                      onChanged: _changed,
+                      onCopy: _canCopy(!right) ? () => _copy(!right) : null,
+                      copyLabel: wide
+                          ? (right
+                                ? (isRu ? 'Копировать влево' : 'Copy to left')
+                                : (isRu
+                                      ? 'Копировать вправо'
+                                      : 'Copy to right'))
+                          : (isRu ? 'В другую панель' : 'Copy to other pane'),
+                      copyIcon: wide
+                          ? (right ? Icons.arrow_back : Icons.arrow_forward)
+                          : Icons.copy_outlined,
+                      destination:
+                          (right ? _left : _right).currentState?.directory.cwd,
+                    );
+                    if (!wide) {
+                      return Column(
                         children: [
-                          SizedBox(
-                            width: width * _ratio,
-                            child: browser(false),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            child: ExpressiveSegments<bool>(
+                              expand: true,
+                              segments: [
+                                ExpressiveSegment(
+                                  value: false,
+                                  label: isRu ? 'Левая панель' : 'Left pane',
+                                  icon: Icons.folder_outlined,
+                                ),
+                                ExpressiveSegment(
+                                  value: true,
+                                  label: isRu ? 'Правая панель' : 'Right pane',
+                                  icon: Icons.folder_outlined,
+                                ),
+                              ],
+                              selected: _rightVisible,
+                              onChanged: (v) =>
+                                  setState(() => _rightVisible = v),
+                            ),
                           ),
-                          MouseRegion(
-                            cursor: SystemMouseCursors.resizeColumn,
-                            child: GestureDetector(
-                              onHorizontalDragUpdate: (d) => setState(
-                                () => _ratio = (_ratio + d.delta.dx / available)
-                                    .clamp(.3, .7),
+                          Expanded(
+                            child: LayeredSwitcher(
+                              index: _rightVisible ? 1 : 0,
+                              children: [browser(false), browser(true)],
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                    final available = box.maxWidth - 12;
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: LayoutBuilder(
+                        builder: (context, inner) {
+                          final width = inner.maxWidth - 12;
+                          return Row(
+                            children: [
+                              SizedBox(
+                                width: width * _ratio,
+                                child: browser(false),
                               ),
-                              onDoubleTap: () => setState(() => _ratio = .5),
-                              child: SizedBox(
-                                width: 12,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.drag_indicator,
-                                    size: 12,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.outline,
+                              MouseRegion(
+                                cursor: SystemMouseCursors.resizeColumn,
+                                onEnter: (_) =>
+                                    setState(() => _splitterHover = true),
+                                onExit: (_) =>
+                                    setState(() => _splitterHover = false),
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onHorizontalDragUpdate: (d) {
+                                    _ratioAnim.stop();
+                                    setState(
+                                      () => _ratio =
+                                          (_ratio + d.delta.dx / available)
+                                              .clamp(.3, .7),
+                                    );
+                                  },
+                                  onDoubleTap: _resetRatio,
+                                  child: SizedBox(
+                                    width: 12,
+                                    child: Center(
+                                      child: AnimatedContainer(
+                                        duration: AppMotion.duration(
+                                          context,
+                                          AppMotion.durationFast,
+                                        ),
+                                        width: 4,
+                                        height: _splitterHover ? 44 : 28,
+                                        decoration: BoxDecoration(
+                                          color: _splitterHover
+                                              ? scheme.primary.withValues(
+                                                  alpha: 0.65,
+                                                )
+                                              : scheme.outlineVariant,
+                                          borderRadius: BorderRadius.circular(
+                                            2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
-                          Expanded(child: browser(true)),
-                        ],
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
+                              Expanded(child: browser(true)),
+                            ],
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const TransfersView(tabId: 'file-workspace'),
+            ],
           ),
-          const TransfersView(tabId: 'file-workspace'),
-        ],
-      ),
         ),
       ),
     );
@@ -581,10 +643,12 @@ class _BrowserState extends ConsumerState<_Browser> {
                 directory.refresh();
               },
             ),
-            if (PlatformCapabilities.sharedDownloads &&
-                isLocal &&
-                !_hasStorageAccess)
-              Padding(
+            ExpandSection(
+              expanded:
+                  PlatformCapabilities.sharedDownloads &&
+                  isLocal &&
+                  !_hasStorageAccess,
+              child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
                 child: Material(
                   color: scheme.secondaryContainer,
@@ -621,9 +685,18 @@ class _BrowserState extends ConsumerState<_Browser> {
                   ),
                 ),
               ),
+            ),
             SizedBox(
               height: 2,
-              child: directory.loading ? const LinearProgressIndicator() : null,
+              child: AnimatedSwitcher(
+                duration: AppMotion.duration(context, AppMotion.durationFast),
+                child: directory.loading
+                    ? const LinearProgressIndicator(
+                        key: ValueKey('loading'),
+                        minHeight: 2,
+                      )
+                    : const SizedBox.shrink(key: ValueKey('idle')),
+              ),
             ),
             Expanded(
               child: Padding(
@@ -632,62 +705,56 @@ class _BrowserState extends ConsumerState<_Browser> {
                   color: scheme.surface,
                   borderRadius: BorderRadius.circular(16),
                   clipBehavior: Clip.antiAlias,
-                  child: directory.error != null
-                      ? SftpPlaceholder(
-                          icon: Icons.error_outline,
-                          text: strings.errorText(directory.error!),
-                          action: Wrap(
-                            alignment: WrapAlignment.center,
-                            children: [
-                              if (PlatformCapabilities.sharedDownloads &&
-                                  isLocal &&
-                                  !_hasStorageAccess)
-                                FilledButton.tonal(
-                                  onPressed: _requestStorageAccess,
-                                  child: Text(
-                                    widget.isRu
-                                        ? 'Разрешить доступ'
-                                        : 'Allow access',
+                  child: FadeSlideSwitcher(
+                    scaleBegin: 0.99,
+                    offset: const Offset(0, 0.02),
+                    child: directory.error != null
+                        ? SftpPlaceholder(
+                            key: ValueKey('error:${directory.requestedPath}'),
+                            icon: Icons.error_outline,
+                            text: strings.errorText(directory.error!),
+                            action: Wrap(
+                              alignment: WrapAlignment.center,
+                              children: [
+                                if (PlatformCapabilities.sharedDownloads &&
+                                    isLocal &&
+                                    !_hasStorageAccess)
+                                  FilledButton.tonal(
+                                    onPressed: _requestStorageAccess,
+                                    child: Text(
+                                      widget.isRu
+                                          ? 'Разрешить доступ'
+                                          : 'Allow access',
+                                    ),
                                   ),
+                                TextButton(
+                                  onPressed: () => directory.refresh(),
+                                  child: Text(strings.tryAgain),
                                 ),
-                              TextButton(
-                                onPressed: () => directory.refresh(),
-                                child: Text(strings.tryAgain),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  _clear();
-                                  directory.home();
-                                },
-                                child: Text(strings.homeFolder),
-                              ),
-                            ],
-                          ),
-                        )
-                      : !directory.loading && entries.isEmpty
-                      ? SftpPlaceholder(
-                          icon: Icons.folder_open_outlined,
-                          text: widget.isRu
-                              ? 'Папка пуста'
-                              : 'This folder is empty',
-                        )
-                      : CallbackShortcuts(
-                          bindings: {
-                            const SingleActivator(
-                              LogicalKeyboardKey.keyA,
-                              control: true,
-                            ): () {
-                              setState(
-                                () => _selected.addAll(
-                                  entries.map((e) => e.path),
+                                TextButton(
+                                  onPressed: () {
+                                    _clear();
+                                    directory.home();
+                                  },
+                                  child: Text(strings.homeFolder),
                                 ),
-                              );
-                              widget.onChanged();
-                            },
-                            if (PlatformCapabilities.isMacOS)
+                              ],
+                            ),
+                          )
+                        : !directory.loading && entries.isEmpty
+                        ? SftpPlaceholder(
+                            key: const ValueKey('empty'),
+                            icon: Icons.folder_open_outlined,
+                            text: widget.isRu
+                                ? 'Папка пуста'
+                                : 'This folder is empty',
+                          )
+                        : CallbackShortcuts(
+                            key: const ValueKey('list'),
+                            bindings: {
                               const SingleActivator(
                                 LogicalKeyboardKey.keyA,
-                                meta: true,
+                                control: true,
                               ): () {
                                 setState(
                                   () => _selected.addAll(
@@ -696,93 +763,130 @@ class _BrowserState extends ConsumerState<_Browser> {
                                 );
                                 widget.onChanged();
                               },
-                            const SingleActivator(LogicalKeyboardKey.escape):
-                                _clear,
-                            const SingleActivator(LogicalKeyboardKey.enter): () {
-                              final selected = selection;
-                              if (widget.enabled &&
-                                  selected.length == 1 &&
-                                  selected.single.isDir) {
-                                _open(selected.single.path);
-                              }
-                            },
-                          },
-                          child: Focus(
-                            child: ListView.builder(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              itemCount: entries.length,
-                              itemBuilder: (context, i) {
-                                final entry = entries[i];
-                                void open() {
-                                  if (widget.enabled && entry.isDir) {
-                                    _open(entry.path);
-                                  }
+                              if (PlatformCapabilities.isMacOS)
+                                const SingleActivator(
+                                  LogicalKeyboardKey.keyA,
+                                  meta: true,
+                                ): () {
+                                  setState(
+                                    () => _selected.addAll(
+                                      entries.map((e) => e.path),
+                                    ),
+                                  );
+                                  widget.onChanged();
+                                },
+                              const SingleActivator(LogicalKeyboardKey.escape):
+                                  _clear,
+                              const SingleActivator(
+                                LogicalKeyboardKey.enter,
+                              ): () {
+                                final selected = selection;
+                                if (widget.enabled &&
+                                    selected.length == 1 &&
+                                    selected.single.isDir) {
+                                  _open(selected.single.path);
                                 }
-
-                                return SftpEntryRow(
-                                  entry: entry,
-                                  enabled: widget.enabled,
-                                  showSelection: true,
-                                  selected: _selected.contains(entry.path),
-                                  strings: strings,
-                                  onSelect: widget.enabled
-                                      ? (_) => _select(
-                                          entry,
-                                          entries,
-                                          toggle: true,
-                                        )
-                                      : null,
-                                  onTap: () {
-                                    if (!widget.enabled) return;
-                                    if (DesktopEnv.isMobile && entry.isDir) {
-                                      open();
-                                    } else {
-                                      _select(entry, entries);
-                                    }
-                                  },
-                                  onDoubleTap: open,
-                                  onSecondary: (position) {
-                                    _menu.currentState?.open(position, [
-                                      if (entry.isDir)
-                                        menuItem(
-                                          widget.isRu
-                                              ? 'Открыть папку'
-                                              : 'Open folder',
-                                          icon: Icons.folder_open,
-                                          onPressed: open,
-                                        ),
-                                      menuItem(
-                                        widget.isRu ? 'Выбрать' : 'Select',
-                                        icon: Icons.check_box_outlined,
-                                        onPressed: widget.enabled
-                                            ? () => _select(
-                                                entry,
-                                                entries,
-                                                toggle: true,
-                                              )
-                                            : null,
-                                      ),
-                                      menuItem(
-                                        widget.isRu
-                                            ? 'Копировать путь'
-                                            : 'Copy path',
-                                        icon: Icons.content_copy,
-                                        onPressed: () => Clipboard.setData(
-                                          ClipboardData(text: entry.path),
-                                        ),
-                                      ),
-                                    ]);
-                                  },
-                                );
                               },
+                            },
+                            child: Focus(
+                              child: ScrollEdgeFade(
+                                top: 18,
+                                bottom: 14,
+                                child: SmoothScroll(
+                                  builder: (context, controller) =>
+                                      ListView.builder(
+                                        controller: controller,
+                                        padding: const EdgeInsets.only(
+                                          bottom: 8,
+                                        ),
+                                        itemCount: entries.length,
+                                        itemBuilder: (context, i) {
+                                          final entry = entries[i];
+                                          void open() {
+                                            if (widget.enabled && entry.isDir) {
+                                              _open(entry.path);
+                                            }
+                                          }
+
+                                          return SftpEntryRow(
+                                            entry: entry,
+                                            enabled: widget.enabled,
+                                            showSelection: true,
+                                            selected: _selected.contains(
+                                              entry.path,
+                                            ),
+                                            strings: strings,
+                                            onSelect: widget.enabled
+                                                ? (_) => _select(
+                                                    entry,
+                                                    entries,
+                                                    toggle: true,
+                                                  )
+                                                : null,
+                                            onTap: () {
+                                              if (!widget.enabled) return;
+                                              if (DesktopEnv.isMobile &&
+                                                  entry.isDir) {
+                                                open();
+                                              } else {
+                                                _select(entry, entries);
+                                              }
+                                            },
+                                            onDoubleTap: open,
+                                            onSecondary: (position) {
+                                              _menu.currentState
+                                                  ?.open(position, [
+                                                    if (entry.isDir)
+                                                      menuItem(
+                                                        widget.isRu
+                                                            ? 'Открыть папку'
+                                                            : 'Open folder',
+                                                        icon: Icons.folder_open,
+                                                        onPressed: open,
+                                                      ),
+                                                    menuItem(
+                                                      widget.isRu
+                                                          ? 'Выбрать'
+                                                          : 'Select',
+                                                      icon: Icons
+                                                          .check_box_outlined,
+                                                      onPressed: widget.enabled
+                                                          ? () => _select(
+                                                              entry,
+                                                              entries,
+                                                              toggle: true,
+                                                            )
+                                                          : null,
+                                                    ),
+                                                    menuItem(
+                                                      widget.isRu
+                                                          ? 'Копировать путь'
+                                                          : 'Copy path',
+                                                      icon: Icons.content_copy,
+                                                      onPressed: () =>
+                                                          Clipboard.setData(
+                                                            ClipboardData(
+                                                              text: entry.path,
+                                                            ),
+                                                          ),
+                                                    ),
+                                                  ]);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                  ),
                 ),
               ),
             ),
-            if (_selected.isNotEmpty)
-              Material(
+            ExpandSection(
+              expanded: _selected.isNotEmpty,
+              spring: AppMotion.spatialFast,
+              child: Material(
                 color: scheme.secondaryContainer,
                 child: Padding(
                   padding: const EdgeInsets.only(left: 16, right: 8),
@@ -819,6 +923,7 @@ class _BrowserState extends ConsumerState<_Browser> {
                   ),
                 ),
               ),
+            ),
           ],
         ),
       ),

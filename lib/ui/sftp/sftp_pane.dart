@@ -18,6 +18,10 @@ import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
 import '../../l10n/app_strings.dart';
+import '../motion/app_motion.dart';
+import '../motion/expand_section.dart';
+import '../motion/layered_switcher.dart';
+import '../motion/smooth_scroll.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
 import 'sftp_dialogs.dart';
@@ -653,11 +657,13 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     Widget body;
     if (!ready) {
       body = SftpPlaceholder(
+        key: const ValueKey('offline'),
         icon: Icons.cloud_off,
         text: _s.noServerConnection,
       );
     } else if (_error != null) {
       body = SftpPlaceholder(
+        key: ValueKey('error:${_dir.requestedPath}'),
         icon: Icons.error_outline,
         text: _error!,
         action: Wrap(
@@ -682,6 +688,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     } else {
       final list = _visible;
       body = CallbackShortcuts(
+        key: const ValueKey('list'),
         bindings: _keys,
         child: Focus(
           focusNode: _listFocus,
@@ -692,63 +699,73 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
               setState(_selected.clear);
             },
             onSecondaryTapUp: (d) => _contextMenu(null, d.globalPosition),
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 8),
-              itemCount: list.isEmpty ? 2 : list.length + 1,
-              itemBuilder: (context, i) {
-                if (i == 0) {
-                  return SftpEntryRow(
-                    entry: null,
-                    selected: false,
-                    onTap: () => _open(_parentOf(_cwd ?? '/')),
-                    onDoubleTap: () => _open(_parentOf(_cwd ?? '/')),
-                    onSecondary: (_) {},
-                    strings: _s,
-                  );
-                }
-                if (list.isEmpty) {
-                  return SizedBox(
-                    height: 180,
-                    child: SftpPlaceholder(
-                      icon: Icons.folder_open_outlined,
-                      text: _s.isRu ? 'Папка пуста' : 'This folder is empty',
-                    ),
-                  );
-                }
-                final e = list[i - 1];
-                final mobile = DesktopEnv.isMobile;
-                return SftpDragSource(
-                  entry: e,
-                  actions: () => _actions,
-                  child: SftpEntryRow(
-                    entry: e,
-                    selected: _selected.contains(e.path),
-                    showSelection: mobile && _selected.isNotEmpty,
-                    onSelect: mobile ? (_) => _select(e, toggle: true) : null,
-                    onTap: () {
-                      if (mobile && _selected.isEmpty) {
-                        if (e.isDir) {
-                          _open(e.path);
-                        } else {
-                          _select(e, toggle: true);
-                        }
-                      } else if (mobile) {
-                        _select(e, toggle: true);
-                      } else {
-                        _select(e);
-                      }
-                    },
-                    onDoubleTap: () => _activate(e),
-                    onSecondary: (pos) => _contextMenu(e, pos),
-                    strings: _s,
-                  ),
-                );
-              },
+            child: ScrollEdgeFade(
+              top: 18,
+              bottom: 14,
+              child: SmoothScroll(
+                builder: (context, controller) => ListView.builder(
+                  controller: controller,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemCount: list.isEmpty ? 2 : list.length + 1,
+                  itemBuilder: (context, i) {
+                    if (i == 0) {
+                      return SftpEntryRow(
+                        entry: null,
+                        selected: false,
+                        onTap: () => _open(_parentOf(_cwd ?? '/')),
+                        onDoubleTap: () => _open(_parentOf(_cwd ?? '/')),
+                        onSecondary: (_) {},
+                        strings: _s,
+                      );
+                    }
+                    if (list.isEmpty) {
+                      return SizedBox(
+                        height: 180,
+                        child: SftpPlaceholder(
+                          icon: Icons.folder_open_outlined,
+                          text: _s.isRu ? 'Папка пуста' : 'This folder is empty',
+                        ),
+                      );
+                    }
+                    final e = list[i - 1];
+                    final mobile = DesktopEnv.isMobile;
+                    return SftpDragSource(
+                      entry: e,
+                      actions: () => _actions,
+                      child: SftpEntryRow(
+                        entry: e,
+                        selected: _selected.contains(e.path),
+                        showSelection: mobile && _selected.isNotEmpty,
+                        onSelect:
+                            mobile ? (_) => _select(e, toggle: true) : null,
+                        onTap: () {
+                          if (mobile && _selected.isEmpty) {
+                            if (e.isDir) {
+                              _open(e.path);
+                            } else {
+                              _select(e, toggle: true);
+                            }
+                          } else if (mobile) {
+                            _select(e, toggle: true);
+                          } else {
+                            _select(e);
+                          }
+                        },
+                        onDoubleTap: () => _activate(e),
+                        onSecondary: (pos) => _contextMenu(e, pos),
+                        strings: _s,
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ),
       );
     }
+
+    final fastDur = AppMotion.duration(context, AppMotion.durationFast);
 
     return ContextMenuArea(
       key: _menu,
@@ -778,10 +795,12 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                   items: _folderItems(),
                 ),
               ),
-              if (PlatformCapabilities.sharedDownloads &&
-                  widget.tab.isLocal &&
-                  !_hasStorageAccess)
-                Padding(
+              ExpandSection(
+                expanded:
+                    PlatformCapabilities.sharedDownloads &&
+                    widget.tab.isLocal &&
+                    !_hasStorageAccess,
+                child: Padding(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
                   child: Material(
                     color: scheme.secondaryContainer,
@@ -818,8 +837,11 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                     ),
                   ),
                 ),
-              if (_selected.isNotEmpty)
-                Padding(
+              ),
+              ExpandSection(
+                expanded: _selected.isNotEmpty,
+                spring: AppMotion.spatialFast,
+                child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
@@ -846,10 +868,19 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                     ],
                   ),
                 ),
-              if (_loading)
-                const LinearProgressIndicator(minHeight: 2)
-              else
-                const SizedBox(height: 2),
+              ),
+              SizedBox(
+                height: 2,
+                child: AnimatedSwitcher(
+                  duration: fastDur,
+                  child: _loading
+                      ? const LinearProgressIndicator(
+                          key: ValueKey('loading'),
+                          minHeight: 2,
+                        )
+                      : const SizedBox.shrink(key: ValueKey('idle')),
+                ),
+              ),
               // Список с приёмом файлов перетаскиванием.
               Expanded(
                 child: SftpDropZone(
@@ -872,48 +903,61 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                             color: scheme.surface,
                             borderRadius: BorderRadius.circular(16),
                             clipBehavior: Clip.antiAlias,
-                            child: body,
+                            child: FadeSlideSwitcher(
+                              scaleBegin: 0.99,
+                              offset: const Offset(0, 0.02),
+                              child: body,
+                            ),
                           ),
                         ),
                       ),
-                      if (_dragOver)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Container(
-                              margin: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: scheme.primaryContainer.withValues(
-                                  alpha: 0.85,
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: AnimatedOpacity(
+                            opacity: _dragOver ? 1.0 : 0.0,
+                            duration: fastDur,
+                            curve: Curves.easeOutCubic,
+                            child: AnimatedScale(
+                              scale: _dragOver ? 1.0 : 0.96,
+                              duration: fastDur,
+                              curve: AppMotion.fastSpringCurve,
+                              child: Container(
+                                margin: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: scheme.primaryContainer.withValues(
+                                    alpha: 0.85,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: scheme.primary,
+                                    width: 2,
+                                  ),
                                 ),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: scheme.primary,
-                                  width: 2,
-                                ),
-                              ),
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.upload,
-                                      size: 40,
-                                      color: scheme.onPrimaryContainer,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      _s.dropToUpload(_cwd ?? ''),
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.upload,
+                                        size: 40,
                                         color: scheme.onPrimaryContainer,
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        _s.dropToUpload(_cwd ?? ''),
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: scheme.onPrimaryContainer,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
+                      ),
                     ],
                   ),
                 ),

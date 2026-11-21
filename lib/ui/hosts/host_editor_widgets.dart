@@ -53,24 +53,41 @@ class _ColorDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return InkResponse(
-      onTap: onTap,
-      radius: 22,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+    return PressableSurface(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      pressScale: 0.08,
+      borderRadius: BorderRadius.circular(16),
+      selectedBorderRadius: BorderRadius.circular(11),
+      selected: selected,
+      color: color,
+      selectedColor: color,
+      side: BorderSide.none,
+      selectedSide: BorderSide(color: scheme.onSurface, width: 2.5),
+      child: SizedBox(
         width: 32,
         height: 32,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? scheme.onSurface : Colors.transparent,
-            width: 2.5,
+        child: Center(
+          child: AnimatedSwitcher(
+            duration: AppMotion.duration(context, AppMotion.durationFast),
+            switchInCurve: AppMotion.fastSpringCurve,
+            switchOutCurve: AppMotion.emphasizedAccelerate,
+            transitionBuilder: (child, anim) => ScaleTransition(
+              scale: anim,
+              child: FadeTransition(opacity: anim, child: child),
+            ),
+            child: selected
+                ? const Icon(
+                    Icons.check,
+                    key: ValueKey('check'),
+                    size: 18,
+                    color: Colors.white,
+                  )
+                : const SizedBox.shrink(key: ValueKey('empty')),
           ),
         ),
-        child: selected
-            ? const Icon(Icons.check, size: 18, color: Colors.white)
-            : null,
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../infra/platform/desktop_env.dart';
+import '../motion/expressive_segments.dart';
 
 /// Строка настроек: подпись слева, управление справа.
 /// На широком экране подписи стоят в одну колонку одинаковой ширины,
@@ -71,7 +72,8 @@ class SettingChoice<T> extends StatelessWidget {
         underline: const SizedBox.shrink(),
         borderRadius: BorderRadius.circular(12),
         items: [
-          for (final (v, label) in options) DropdownMenuItem<T>(value: v, child: Text(label)),
+          for (final (v, label) in options)
+            DropdownMenuItem<T>(value: v, child: Text(label)),
         ],
         onChanged: (v) {
           if (v != null) onChanged(v);
@@ -79,16 +81,12 @@ class SettingChoice<T> extends StatelessWidget {
       );
     }
 
-    return SegmentedButton<T>(
-      showSelectedIcon: false,
-      emptySelectionAllowed: !known,
+    return ExpressiveSegments<T>(
       segments: [
-        for (final o in options) ButtonSegment(value: o.$1, label: Text(o.$2)),
+        for (final o in options) ExpressiveSegment(value: o.$1, label: o.$2),
       ],
-      selected: known ? {value} : <T>{},
-      onSelectionChanged: (v) {
-        if (v.isNotEmpty) onChanged(v.first);
-      },
+      selected: known ? value : null,
+      onChanged: onChanged,
     );
   }
 }
