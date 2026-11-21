@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 import 'app_motion.dart';
 
@@ -234,11 +234,16 @@ class ScrollEdgeFade extends StatefulWidget {
     super.key,
     this.top = 24,
     this.bottom = 16,
+    this.color,
     required this.child,
   });
 
   final double top;
   final double bottom;
+
+  /// Цвет фона, в который растворяются края. По умолчанию берётся у ближайшего
+  /// [Material] или из [ColorScheme.surface].
+  final Color? color;
   final Widget child;
 
   @override
@@ -276,36 +281,54 @@ class _ScrollEdgeFadeState extends State<ScrollEdgeFade> {
 
     Widget content = KeyedSubtree(key: _childKey, child: widget.child);
     if (topSize > 0.5 || bottomSize > 0.5) {
-      content = ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (bounds) {
-          final h = bounds.height;
-          if (h <= 0) {
-            return const LinearGradient(
-              colors: [Color(0xFF000000), Color(0xFF000000)],
-            ).createShader(bounds);
-          }
-          final tStop = (topSize / h).clamp(0.0, 0.35);
-          final bStop = (1.0 - bottomSize / h).clamp(0.65, 1.0);
-          return LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              if (topSize > 0.5)
-                const Color(0x00000000)
-              else
-                const Color(0xFF000000),
-              const Color(0xFF000000),
-              const Color(0xFF000000),
-              if (bottomSize > 0.5)
-                const Color(0x00000000)
-              else
-                const Color(0xFF000000),
-            ],
-            stops: [0.0, tStop, bStop, 1.0],
-          ).createShader(bounds);
-        },
-        child: content,
+      // Два тонких градиента поверх краёв вместо ShaderMask(BlendMode.dstIn):
+      // не создаёт полноэкранный offscreen-слой (saveLayer) на каждом списке.
+      final fadeColor =
+          widget.color ??
+          Material.maybeOf(context)?.color ??
+          Theme.of(context).colorScheme.surface;
+      final clear = fadeColor.withValues(alpha: 0);
+      content = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          content,
+          if (topSize > 0.5)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              height: topSize,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [fadeColor, clear],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (bottomSize > 0.5)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: bottomSize,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [fadeColor, clear],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       );
     }
 

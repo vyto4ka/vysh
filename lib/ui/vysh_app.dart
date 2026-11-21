@@ -17,6 +17,7 @@ import 'motion/theme_transition.dart';
 import 'shell/app_shell.dart';
 import 'shell/ui_state.dart';
 import 'theme/app_theme.dart';
+import 'widgets/memory_lifecycle_host.dart';
 
 /// Корневой навигатор - через него сессии показывают диалоги
 /// (пароль, ключ сервера) из не-UI кода.
@@ -127,9 +128,11 @@ class VyshApp extends ConsumerWidget {
             systemNavigationBarColor: currentTheme.colorScheme.surface,
             systemNavigationBarIconBrightness: iconBrightness,
           ),
-          child: ThemeTransitionHost(
-            themeKey: transitionKey,
-            child: child ?? const SizedBox.shrink(),
+          child: MemoryLifecycleHost(
+            child: ThemeTransitionHost(
+              themeKey: transitionKey,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         );
       },

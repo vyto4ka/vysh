@@ -16,6 +16,7 @@ import 'app/windows/window_options.dart';
 import 'app/windows/window_transport.dart';
 import 'app/dependencies.dart';
 import 'infra/platform/font_files.dart';
+import 'infra/platform/memory_trimmer.dart';
 import 'infra/platform/window_placement.dart';
 import 'infra/storage/app_paths.dart';
 import 'infra/storage/json_store.dart';
@@ -46,7 +47,7 @@ Future<void> main(List<String> args) async {
         final childSettings = AppSettings.fromJson(
           Map<String, Object?>.from(arguments['initial']['settings']),
         );
-        _configureRenderer(childSettings);
+        _configureRenderer(childSettings, childWindow: true);
         final initialTitle = arguments['title'] as String?;
         final windowTitle = initialTitle == null || initialTitle.isEmpty
             ? 'vysh'
@@ -145,6 +146,10 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  if (kIsWeb || !(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    MemoryTrimmer.configureStartupLimits();
+  }
+
   await _loadTerminalFont();
 
   runApp(
@@ -159,19 +164,18 @@ Future<void> main(List<String> args) async {
   );
 }
 
-/// Запоминаем фактический рендерер и ограничиваем кэш текстур Skia до 64 МБ
-/// для всех окон (и главного, и вынесенных).
-void _configureRenderer(AppSettings settings) {
+/// Запоминаем фактический рендерер и задаём экономные лимиты кэшей Skia
+/// и ImageCache для всех окон (и главного, и вынесенных).
+void _configureRenderer(AppSettings settings, {bool childWindow = false}) {
   startupRenderer = switch (Platform.environment['VYSH_RENDERER']) {
     'impeller' => Renderer.impeller,
     'skia' => Renderer.skia,
     _ => settings.renderer,
   };
-  if (startupRenderer == Renderer.skia) {
-    SystemChannels.skia
-        .invokeMethod<void>('Skia.setResourceCacheMaxBytes', 64 << 20)
-        .catchError((_) {});
-  }
+  MemoryTrimmer.configureStartupLimits(
+    childWindow: childWindow,
+    useSkia: startupRenderer == Renderer.skia,
+  );
 }
 
 /// Свой шрифт терминала (файл из профиля) нужен до первого кадра: иначе

@@ -21,6 +21,8 @@ flutter build windows --release "--dart-define=BUILD_DATE=$buildDate"
 if ($LASTEXITCODE -ne 0) { throw "flutter build failed" }
 
 $src = "build\windows\x64\runner\Release"
+& "$PSScriptRoot\release\shake_icon_font.ps1" -BundleDir $src
+if ($LASTEXITCODE -ne 0) { throw "icon font tree-shaking failed" }
 $out = "dist\vysh-$version-windows-x64"
 $zip = "$out.zip"
 

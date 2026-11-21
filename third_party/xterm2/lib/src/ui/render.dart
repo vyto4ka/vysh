@@ -360,6 +360,12 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     super.systemFontsDidChange();
   }
 
+  /// Releases cached native [Paragraph] objects (e.g. when the tab is hidden
+  /// or the app enters background).
+  void clearParagraphCache() {
+    _painter.clearFontCache();
+  }
+
   @override
   void performLayout() {
     size = constraints.biggest;

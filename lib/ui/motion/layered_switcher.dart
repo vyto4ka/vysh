@@ -15,6 +15,7 @@ class LayeredSwitcher extends StatefulWidget {
     this.axis = Axis.horizontal,
     this.shift = 24,
     this.pauseHidden = true,
+    this.lazy = false,
   });
 
   final int index;
@@ -23,6 +24,10 @@ class LayeredSwitcher extends StatefulWidget {
   final double shift;
   final bool pauseHidden;
 
+  /// Не монтировать скрытые вкладки, пока пользователь не переключится на них
+  /// хотя бы раз. Убирает лишнюю инициализацию и потребление RAM при старте.
+  final bool lazy;
+
   @override
   State<LayeredSwitcher> createState() => _LayeredSwitcherState();
 }
@@ -30,6 +35,7 @@ class LayeredSwitcher extends StatefulWidget {
 class _LayeredSwitcherState extends State<LayeredSwitcher>
     with SingleTickerProviderStateMixin {
   late int _to = widget.index;
+  late final Set<int> _mounted = {widget.index};
   var _under = <_UnderLayer>[];
   int _dir = 1;
   late final AnimationController _t = AnimationController.unbounded(
@@ -50,6 +56,7 @@ class _LayeredSwitcherState extends State<LayeredSwitcher>
   @override
   void didUpdateWidget(covariant LayeredSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _mounted.add(widget.index);
     if (widget.index == _to) return;
     if (AppMotion.reduced(context)) {
       _t.value = 1;
@@ -105,7 +112,9 @@ class _LayeredSwitcherState extends State<LayeredSwitcher>
           fit: StackFit.expand,
           children: [
             for (var i = 0; i < widget.children.length; i++)
-              if (i != _to && !underIndices.contains(i))
+              if (i != _to &&
+                  !underIndices.contains(i) &&
+                  (!widget.lazy || _mounted.contains(i)))
                 _buildLayer(i, shown: false),
             for (final l in _under)
               _buildLayer(

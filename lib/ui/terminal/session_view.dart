@@ -155,8 +155,25 @@ class _SessionViewState extends _SessionViewBase
     });
   }
 
+  void _clearParagraphCache() {
+    try {
+      _terminalViewKey.currentState?.renderTerminal.clearParagraphCache();
+    } catch (_) {
+      // Viewport может быть ещё не смонтирован.
+    }
+  }
+
+  @override
+  void didHaveMemoryPressure() {
+    _clearParagraphCache();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _clearParagraphCache();
+    }
     if (state == AppLifecycleState.resumed && widget.active) {
       final session = ref.read(tabsProvider.notifier).sessionOf(widget.tab.id);
 
@@ -172,6 +189,9 @@ class _SessionViewState extends _SessionViewBase
   void didUpdateWidget(SessionView old) {
     super.didUpdateWidget(old);
 
+    if (!widget.active && old.active) {
+      _clearParagraphCache();
+    }
     if (widget.active && !old.active) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {

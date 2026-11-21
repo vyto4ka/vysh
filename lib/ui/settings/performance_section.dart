@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/settings/app_settings.dart';
 import '../../l10n/app_strings.dart';
 import '../../app/controllers/settings_controller.dart';
+import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../motion/app_motion.dart';
 import '../motion/expand_section.dart';
@@ -90,8 +91,8 @@ class PerformanceSection extends ConsumerWidget {
           value: s.pauseHiddenTabs,
           onChanged: ctrl.setPauseHiddenTabs,
         ),
-        // На Android движок выбирает сам Flutter, переключатель только для ПК.
-        if (!DesktopEnv.isMobile)
+        // На Android и macOS движок задаётся сборкой, переключатель только для Windows и Linux.
+        if (!DesktopEnv.isMobile && !PlatformCapabilities.isMacOS)
           SettingRow(
             label: strings.isRu ? 'Отрисовка' : 'Renderer',
             child: Wrap(

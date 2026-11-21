@@ -1,6 +1,6 @@
-diff -ruN --strip-trailing-cr upstream/lib/src/core/input/handler.dart patched/lib/src/core/input/handler.dart
---- upstream/lib/src/core/input/handler.dart	2026-07-23 14:07:32.000000000 +0000
-+++ patched/lib/src/core/input/handler.dart	2026-11-20 17:59:56.342245804 +0000
+diff -ruN orig/lib/src/core/input/handler.dart /home/antigravity/vyto4ka/vysh/third_party/xterm2/lib/src/core/input/handler.dart
+--- a/lib/src/core/input/handler.dart	2026-07-23 14:07:32.000000000 +0000
++++ b/lib/src/core/input/handler.dart	2026-11-21 20:35:15.390425319 +0000
 @@ -4,6 +4,7 @@
  import 'package:xterm2/src/core/input/event.dart';
  import 'package:xterm2/src/core/input/keys.dart';
@@ -18,9 +18,9 @@ diff -ruN --strip-trailing-cr upstream/lib/src/core/input/handler.dart patched/l
        return null;
      }
  
-diff -ruN --strip-trailing-cr upstream/lib/src/terminal_view.dart patched/lib/src/terminal_view.dart
---- upstream/lib/src/terminal_view.dart	2026-07-23 14:07:32.000000000 +0000
-+++ patched/lib/src/terminal_view.dart	2026-11-20 17:32:35.062205183 +0000
+diff -ruN orig/lib/src/terminal_view.dart /home/antigravity/vyto4ka/vysh/third_party/xterm2/lib/src/terminal_view.dart
+--- a/lib/src/terminal_view.dart	2026-07-23 14:07:32.000000000 +0000
++++ b/lib/src/terminal_view.dart	2026-11-21 20:35:15.392425318 +0000
 @@ -117,6 +117,8 @@
      this.mouseCursor = SystemMouseCursors.text,
      this.keyboardType = TextInputType.emailAddress,
@@ -52,9 +52,9 @@ diff -ruN --strip-trailing-cr upstream/lib/src/terminal_view.dart patched/lib/sr
          onInsert: _onInsert,
          onDelete: () {
            _scrollToBottom();
-diff -ruN --strip-trailing-cr upstream/lib/src/ui/custom_text_edit.dart patched/lib/src/ui/custom_text_edit.dart
---- upstream/lib/src/ui/custom_text_edit.dart	2026-07-11 05:25:42.000000000 +0000
-+++ patched/lib/src/ui/custom_text_edit.dart	2026-11-20 17:32:35.063205183 +0000
+diff -ruN orig/lib/src/ui/custom_text_edit.dart /home/antigravity/vyto4ka/vysh/third_party/xterm2/lib/src/ui/custom_text_edit.dart
+--- a/lib/src/ui/custom_text_edit.dart	2026-07-11 05:25:42.000000000 +0000
++++ b/lib/src/ui/custom_text_edit.dart	2026-11-21 20:35:15.392425318 +0000
 @@ -20,6 +20,8 @@
      this.inputAction = TextInputAction.newline,
      this.keyboardAppearance = Brightness.light,
@@ -88,3 +88,31 @@ diff -ruN --strip-trailing-cr upstream/lib/src/ui/custom_text_edit.dart patched/
        );
  
        _connection = TextInput.attach(this, config);
+diff -ruN orig/lib/src/ui/painter.dart /home/antigravity/vyto4ka/vysh/third_party/xterm2/lib/src/ui/painter.dart
+--- a/lib/src/ui/painter.dart	2026-07-16 15:16:02.000000000 +0000
++++ b/lib/src/ui/painter.dart	2026-11-21 20:51:06.206273050 +0000
+@@ -13,7 +13,7 @@
+ const _specialBlinkColor = 2;
+ const _specialReverseColor = 3;
+ const _specialItalicColor = 4;
+-const _defaultParagraphCacheSize = 2048;
++const _defaultParagraphCacheSize = 1024;
+ 
+ /// Encapsulates the logic for painting various terminal elements.
+ class TerminalPainter {
+diff -ruN orig/lib/src/ui/render.dart /home/antigravity/vyto4ka/vysh/third_party/xterm2/lib/src/ui/render.dart
+--- a/lib/src/ui/render.dart	2026-07-16 14:14:32.000000000 +0000
++++ b/lib/src/ui/render.dart	2026-11-21 20:51:09.939272450 +0000
+@@ -360,6 +360,12 @@
+     super.systemFontsDidChange();
+   }
+ 
++  /// Releases cached native [Paragraph] objects (e.g. when the tab is hidden
++  /// or the app enters background).
++  void clearParagraphCache() {
++    _painter.clearFontCache();
++  }
++
+   @override
+   void performLayout() {
+     size = constraints.biggest;

@@ -6,8 +6,9 @@
 
 1. **Обучение экранной клавиатуры Android:** в оригинале `CustomTextEdit` жёстко задаёт `enableSuggestions: false` и `enableIMEPersonalizedLearning: false`. На Android из-за второго флага Gboard и другие клавиатуры открываются в анонимном режиме: клавиатуре запрещено обучение. Оба флага стали параметрами `TerminalView`, по умолчанию `false`, как в оригинале. vysh передаёт `enableIMEPersonalizedLearning: true` (`lib/ui/terminal/session_view.dart`); `enableSuggestions` остаётся `false`.
 2. **Игнорирование `KeytabActionType.shortcut` в `KeytabInputHandler`:** в оригинале при нажатии `Shift+Up`/`Shift+PgUp` в основном буфере обработчик возвращал имя шортката (`"scrollLineUp"`, `"scrollPageUp"`) и отправлял его буквальным текстом в оболочку.
+3. **Экономия памяти `ParagraphCache`:** размер кэша по умолчанию уменьшен с `2048` до `1024` нативных `ui.Paragraph` на вкладку (`painter.dart`), а в `RenderTerminal` добавлен метод `clearParagraphCache()` (`render.dart`), который `SessionView` вызывает при скрытии вкладки, сворачивании окна и по сигналу `didHaveMemoryPressure`.
 
-Тест: `test/xterm2_patch_test.dart` проверяет обе правки.
+Тест: `test/xterm2_patch_test.dart` проверяет правки.
 
 ## Проверка и обновление
 

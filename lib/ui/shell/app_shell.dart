@@ -263,6 +263,7 @@ class _HomeView extends ConsumerWidget {
               index: section,
               axis: Axis.horizontal,
               shift: 28,
+              lazy: true,
               children: const [
                 HostsPage(key: ValueKey('hosts')),
                 SettingsPage(key: ValueKey('settings')),

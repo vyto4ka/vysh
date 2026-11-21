@@ -13,7 +13,7 @@ const _specialUnderlineColor = 1;
 const _specialBlinkColor = 2;
 const _specialReverseColor = 3;
 const _specialItalicColor = 4;
-const _defaultParagraphCacheSize = 2048;
+const _defaultParagraphCacheSize = 1024;
 
 /// Encapsulates the logic for painting various terminal elements.
 class TerminalPainter {

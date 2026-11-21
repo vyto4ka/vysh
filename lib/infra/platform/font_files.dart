@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../domain/services/font_info.dart';
 import '../storage/app_paths.dart';
+import 'memory_trimmer.dart';
 
 export '../../domain/services/font_info.dart' show AddFontError, AddFontException;
 
@@ -46,7 +47,9 @@ abstract final class FontFiles {
   static Future<List<String>> systemMonospace() async {
     if (kIsWeb || Platform.isAndroid || Platform.isIOS) return const [];
     final files = await _systemFontFiles();
-    return Isolate.run(() => monospaceFamilies(files));
+    final families = await Isolate.run(() => monospaceFamilies(files));
+    MemoryTrimmer.trimProcessMemory();
+    return families;
   }
 
   /// Семейства из [paths], у которых буквы одной ширины. Без повторов,

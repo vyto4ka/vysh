@@ -48,11 +48,17 @@ class _HostsPageState extends ConsumerState<HostsPage> {
         life == null ||
         life == AppLifecycleState.resumed ||
         life == AppLifecycleState.inactive;
-    return shown && ref.read(tabsProvider).isHome;
+    return shown &&
+        ref.read(tabsProvider).isHome &&
+        ref.read(homeSectionProvider) == 0;
   }
 
   void _ping() {
-    if (!mounted || !ref.read(settingsProvider).pingHosts) return;
+    if (!mounted ||
+        !ref.read(settingsProvider).pingHosts ||
+        ref.read(hostsProvider).isEmpty) {
+      return;
+    }
     _lastPing = DateTime.now();
     ref.invalidate(reachabilityProvider);
   }

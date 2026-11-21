@@ -258,18 +258,30 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         .read(tabsProvider.notifier)
         .sessionOf(widget.tab.id);
     _directorySession?.currentDirectory.addListener(_onTerminalDirectory);
-    _directoryTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _pollDirectory(),
-    );
+    _syncDirectoryTimer();
     unawaited(_checkStorageAccess());
     if (widget.tab.status == SessionStatus.ready) _init();
+  }
+
+  void _syncDirectoryTimer() {
+    if (widget.active) {
+      _directoryTimer ??= Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _pollDirectory(),
+      );
+    } else {
+      _directoryTimer?.cancel();
+      _directoryTimer = null;
+    }
   }
 
   @override
   void didUpdateWidget(SftpPane old) {
     super.didUpdateWidget(old);
-    if (widget.active && !old.active) unawaited(_pollDirectory(force: true));
+    if (widget.active != old.active) {
+      _syncDirectoryTimer();
+      if (widget.active) unawaited(_pollDirectory(force: true));
+    }
     if (widget.tab.status == SessionStatus.ready &&
         old.tab.status != SessionStatus.ready) {
       _following || _cwd == null ? _init() : _dir.open(_cwd!);

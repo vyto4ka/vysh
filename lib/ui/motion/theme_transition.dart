@@ -62,7 +62,7 @@ class _ThemeTransitionHostState extends State<ThemeTransitionHost>
     if (size.isEmpty) return;
     final dpr = View.maybeOf(context)?.devicePixelRatio ?? 1.0;
     try {
-      final image = ro.toImageSync(pixelRatio: dpr.clamp(1.0, 2.5));
+      final image = ro.toImageSync(pixelRatio: dpr.clamp(1.0, 1.5));
       _disposeSnapshot();
       _snapshot = image;
 

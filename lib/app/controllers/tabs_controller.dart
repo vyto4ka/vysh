@@ -4,6 +4,7 @@ import '../../domain/models/host.dart';
 import '../../domain/models/session_tab.dart';
 import 'hosts_controller.dart';
 import 'settings_controller.dart';
+import '../../infra/platform/memory_trimmer.dart';
 import '../../l10n/app_strings.dart';
 import '../dependencies.dart';
 import '../terminal/terminal_session.dart';
@@ -203,6 +204,7 @@ class TabsController extends Notifier<TabsState> {
     if (!hasActive) {
       ref.read(backgroundSessionsProvider).idle();
     }
+    MemoryTrimmer.trimProcessMemory();
   }
 
   void closeActive() {
