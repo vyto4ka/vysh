@@ -224,9 +224,9 @@ class _ShakeBoxState extends State<ShakeBox>
       animation: _ctrl,
       builder: (context, child) {
         final t = _ctrl.value;
-        if (t == 0 || t == 1) return child!;
-        final dx =
-            math.sin(t * math.pi * 5) * (1 - t) * (1 - t) * widget.amplitude;
+        final dx = (t == 0 || t == 1)
+            ? 0.0
+            : math.sin(t * math.pi * 5) * (1 - t) * (1 - t) * widget.amplitude;
         return Transform.translate(offset: Offset(dx, 0), child: child);
       },
       child: widget.child,

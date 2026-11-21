@@ -167,12 +167,8 @@ class _CollapsibleGroupSliverState extends State<_CollapsibleGroupSliver>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _open,
-      builder: (context, _) {
-        if (!_open.isAnimating && !widget.collapsed && _open.value == 1) {
-          return widget.sliver;
-        }
-        return SliverReveal(factor: _open.value, sliver: widget.sliver);
-      },
+      builder: (context, _) =>
+          SliverReveal(factor: _open.value, sliver: widget.sliver),
     );
   }
 }
@@ -358,10 +354,8 @@ class _SelectionBar extends StatelessWidget {
                           context,
                           AppMotion.durationFast,
                         ),
-                        transitionBuilder: (child, anim) => FadeTransition(
-                          opacity: anim,
-                          child: child,
-                        ),
+                        transitionBuilder: (child, anim) =>
+                            FadeTransition(opacity: anim, child: child),
                         child: Text(
                           context.strings.selectedCount(count),
                           key: ValueKey(count),

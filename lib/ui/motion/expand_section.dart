@@ -42,6 +42,7 @@ class _ExpandSectionState extends State<ExpandSection>
     vsync: this,
     value: widget.expanded ? 1 : 0,
   );
+  final _childKey = GlobalKey();
   late bool _mountedChild = widget.expanded;
   bool _notifiedAnimating = false;
 
@@ -98,11 +99,14 @@ class _ExpandSectionState extends State<ExpandSection>
 
   @override
   Widget build(BuildContext context) {
+    if (!_mountedChild && !widget.keepAlive) {
+      return const SizedBox.shrink();
+    }
+    final keyed = KeyedSubtree(key: _childKey, child: widget.child);
     if (!_mountedChild) {
-      if (!widget.keepAlive) return const SizedBox.shrink();
       return Offstage(
         offstage: true,
-        child: TickerMode(enabled: false, child: widget.child),
+        child: TickerMode(enabled: false, child: keyed),
       );
     }
 
@@ -133,7 +137,7 @@ class _ExpandSectionState extends State<ExpandSection>
           ),
         );
       },
-      child: widget.child,
+      child: keyed,
     );
   }
 }

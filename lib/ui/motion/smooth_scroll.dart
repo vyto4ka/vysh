@@ -246,6 +246,7 @@ class ScrollEdgeFade extends StatefulWidget {
 }
 
 class _ScrollEdgeFadeState extends State<ScrollEdgeFade> {
+  final _childKey = GlobalKey();
   double _topProgress = 0;
   double _bottomProgress = 0;
 
@@ -273,7 +274,7 @@ class _ScrollEdgeFadeState extends State<ScrollEdgeFade> {
     final topSize = widget.top * _topProgress;
     final bottomSize = widget.bottom * _bottomProgress;
 
-    Widget content = widget.child;
+    Widget content = KeyedSubtree(key: _childKey, child: widget.child);
     if (topSize > 0.5 || bottomSize > 0.5) {
       content = ShaderMask(
         blendMode: BlendMode.dstIn,

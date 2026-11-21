@@ -163,54 +163,66 @@ class _TabStripState extends ConsumerState<TabStrip> {
                                       !state.isHome &&
                                       focusId == tab.id &&
                                       !external.containsKey(tab.id),
-                            beside:
-                                splitVisible &&
-                                (tab.id == split ||
-                                    tab.id == state.activeTab?.id),
-                            placement:
-                                ref.watch(splitLayoutProvider).axis ==
-                                    Axis.vertical
-                                ? (tab.id == split
-                                      ? Icons.align_vertical_bottom
-                                      : Icons.align_vertical_top)
-                                : ((tab.id == split) !=
-                                          ref.watch(splitLayoutProvider).reverse
-                                      ? Icons.align_horizontal_right
-                                      : Icons.align_horizontal_left),
-                            external: external.containsKey(tab.id),
-                            strings: strings,
-                            onTap: () {
-                              if (external.containsKey(tab.id)) {
-                                ref
-                                    .read(detachedWindowsProvider.notifier)
-                                    .show(tab.id);
-                              } else {
-                                if (!(splitVisible &&
-                                    (tab.id == split ||
-                                        tab.id == state.activeTab?.id))) {
-                                  ctrl.activate(state.tabs.indexOf(tab) + 1);
-                                }
-                                ref
-                                    .read(workspaceFocusProvider.notifier)
-                                    .select(tab.id);
-                              }
-                            },
-                            onClose: () => ctrl.close(tab.id),
-                            onDuplicate: () => ctrl.duplicate(tab.id),
-                            onReconnect: () => ctrl.reconnect(tab.id),
-                            onSplit: () => splitSession(ref, tab.id),
-                            onSplitDown: () =>
-                                splitSession(ref, tab.id, axis: Axis.vertical),
-                            onDetach: PlatformCapabilities.desktopWindow
-                                ? () => detachSession(context, ref, tab.id)
-                                : null,
-                            onAttach: window != null
-                                ? () => window.returnToMain(tab.id)
-                                : external.containsKey(tab.id)
-                                ? () => ref
-                                      .read(detachedWindowsProvider.notifier)
-                                      .returnToTabs(tab.id)
-                                : null,
+                                  beside:
+                                      splitVisible &&
+                                      (tab.id == split ||
+                                          tab.id == state.activeTab?.id),
+                                  placement:
+                                      ref.watch(splitLayoutProvider).axis ==
+                                          Axis.vertical
+                                      ? (tab.id == split
+                                            ? Icons.align_vertical_bottom
+                                            : Icons.align_vertical_top)
+                                      : ((tab.id == split) !=
+                                                ref
+                                                    .watch(splitLayoutProvider)
+                                                    .reverse
+                                            ? Icons.align_horizontal_right
+                                            : Icons.align_horizontal_left),
+                                  external: external.containsKey(tab.id),
+                                  strings: strings,
+                                  onTap: () {
+                                    if (external.containsKey(tab.id)) {
+                                      ref
+                                          .read(
+                                            detachedWindowsProvider.notifier,
+                                          )
+                                          .show(tab.id);
+                                    } else {
+                                      if (!(splitVisible &&
+                                          (tab.id == split ||
+                                              tab.id == state.activeTab?.id))) {
+                                        ctrl.activate(
+                                          state.tabs.indexOf(tab) + 1,
+                                        );
+                                      }
+                                      ref
+                                          .read(workspaceFocusProvider.notifier)
+                                          .select(tab.id);
+                                    }
+                                  },
+                                  onClose: () => ctrl.close(tab.id),
+                                  onDuplicate: () => ctrl.duplicate(tab.id),
+                                  onReconnect: () => ctrl.reconnect(tab.id),
+                                  onSplit: () => splitSession(ref, tab.id),
+                                  onSplitDown: () => splitSession(
+                                    ref,
+                                    tab.id,
+                                    axis: Axis.vertical,
+                                  ),
+                                  onDetach: PlatformCapabilities.desktopWindow
+                                      ? () =>
+                                            detachSession(context, ref, tab.id)
+                                      : null,
+                                  onAttach: window != null
+                                      ? () => window.returnToMain(tab.id)
+                                      : external.containsKey(tab.id)
+                                      ? () => ref
+                                            .read(
+                                              detachedWindowsProvider.notifier,
+                                            )
+                                            .returnToTabs(tab.id)
+                                      : null,
                                 ),
                               ),
                             ],
@@ -678,8 +690,11 @@ class _TabEntranceState extends State<_TabEntrance>
     super.dispose();
   }
 
+  final _childKey = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
+    final keyed = KeyedSubtree(key: _childKey, child: widget.child);
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (context, child) {
@@ -694,7 +709,7 @@ class _TabEntranceState extends State<_TabEntrance>
           ),
         );
       },
-      child: widget.child,
+      child: keyed,
     );
   }
 }
@@ -744,8 +759,7 @@ class _StatusDot extends StatefulWidget {
   State<_StatusDot> createState() => _StatusDotState();
 }
 
-class _StatusDotState extends State<_StatusDot>
-    with TickerProviderStateMixin {
+class _StatusDotState extends State<_StatusDot> with TickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1050),

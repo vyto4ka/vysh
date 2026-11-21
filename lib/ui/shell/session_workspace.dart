@@ -56,10 +56,13 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace>
     _ratioFrom = _currentRatio;
     _ratioTo = target;
     _ratioCtrl.value = 0;
-    AppMotion.springTo(_ratioCtrl, 1, spring: AppMotion.spatialDefault)
-        .whenComplete(() {
-          if (mounted) setState(() => _ratio = target);
-        });
+    AppMotion.springTo(
+      _ratioCtrl,
+      1,
+      spring: AppMotion.spatialDefault,
+    ).whenComplete(() {
+      if (mounted) setState(() => _ratio = target);
+    });
   }
 
   double get _currentRatio => _ratioCtrl.isAnimating
@@ -170,14 +173,14 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace>
     );
 
     Widget withEntrance(Widget child, bool visible) {
-      if (!visible) return child;
       return AnimatedBuilder(
         animation: _switchCtrl,
         builder: (context, inner) {
-          if (!_switchCtrl.isAnimating && _switchCtrl.value == 1) return inner!;
+          final animating =
+              visible && (_switchCtrl.isAnimating || _switchCtrl.value < 1);
           final t = _switchCtrl.value.clamp(0.0, 1.0);
-          final opacity = (0.35 + 0.65 * t).clamp(0.0, 1.0);
-          final dy = 8.0 * (1 - _switchCtrl.value);
+          final opacity = animating ? (0.35 + 0.65 * t).clamp(0.0, 1.0) : 1.0;
+          final dy = animating ? 8.0 * (1 - _switchCtrl.value) : 0.0;
           return Opacity(
             opacity: opacity,
             child: Transform.translate(offset: Offset(0, dy), child: inner),
@@ -249,7 +252,9 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace>
                     ),
                     border: Border.all(
                       width: hover ? 3.5 : 2.5,
-                      color: hover ? scheme.primary : scheme.primary.withValues(alpha: 0.75),
+                      color: hover
+                          ? scheme.primary
+                          : scheme.primary.withValues(alpha: 0.75),
                     ),
                     borderRadius: BorderRadius.circular(hover ? 22 : 16),
                   ),

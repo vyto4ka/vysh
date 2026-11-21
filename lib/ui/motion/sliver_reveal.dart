@@ -44,7 +44,7 @@ class RenderSliverReveal extends RenderProxySliver {
     }
     child.layout(constraints, parentUsesSize: true);
     final full = child.geometry!;
-    if (full.scrollOffsetCorrection != null) {
+    if (full.scrollOffsetCorrection != null || _factor == 1.0) {
       geometry = full;
       return;
     }

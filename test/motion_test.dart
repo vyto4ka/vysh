@@ -1,7 +1,16 @@
 // Пружинные примитивы движения: PressableSurface, ExpandSection,
 // LayeredSwitcher, ExpressiveSegments, SliverReveal и режим без анимаций.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vysh/app/controllers/tabs_controller.dart';
+import 'package:vysh/app/dependencies.dart';
+import 'package:vysh/domain/models/host.dart';
+import 'package:vysh/domain/models/session_tab.dart';
+import 'package:vysh/domain/ports/document_store.dart';
+import 'package:vysh/domain/ports/secret_store.dart';
+import 'package:vysh/ui/hosts/host_card.dart';
 import 'package:vysh/ui/motion/app_motion.dart';
 import 'package:vysh/ui/motion/expand_section.dart';
 import 'package:vysh/ui/motion/expressive_segments.dart';
@@ -36,52 +45,56 @@ void main() {
     expect(AppShape.pressedCorner(16), lessThan(16));
   });
 
-  testWidgets('PressableSurface вызывает onTap и завершает пружину', (
-    tester,
-  ) async {
-    var taps = 0;
-    var selected = false;
+  testWidgets(
+    'PressableSurface вызывает onTap с первого клика мышью при удержании в несколько кадров',
+    (tester) async {
+      var taps = 0;
+      var selected = false;
 
-    await tester.pumpWidget(
-      StatefulBuilder(
-        builder: (context, setState) => MaterialApp(
-          home: Scaffold(
-            body: Center(
-              child: PressableSurface(
-                selected: selected,
-                borderRadius: BorderRadius.circular(18),
-                selectedBorderRadius: BorderRadius.circular(12),
-                color: Colors.blueGrey,
-                selectedColor: Colors.blue,
-                onTap: () => setState(() {
-                  taps++;
-                  selected = !selected;
-                }),
-                child: const SizedBox(
-                  width: 120,
-                  height: 48,
-                  child: Center(child: Text('Tap target')),
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) => MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: PressableSurface(
+                  selected: selected,
+                  borderRadius: BorderRadius.circular(18),
+                  selectedBorderRadius: BorderRadius.circular(12),
+                  color: Colors.blueGrey,
+                  selectedColor: Colors.blue,
+                  onTap: () => setState(() {
+                    taps++;
+                    selected = !selected;
+                  }),
+                  child: const SizedBox(
+                    width: 120,
+                    height: 48,
+                    child: Center(child: Text('Tap target')),
+                  ),
                 ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.text('Tap target')),
-    );
-    await tester.pump(const Duration(milliseconds: 40));
-    await gesture.up();
-    await tester.pumpAndSettle();
+      // Реальный клик ЛКМ длится ~80-100 мс (несколько кадров сжатия пружины).
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Tap target')),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
 
-    expect(taps, 1);
-    expect(selected, isTrue);
-  });
+      expect(taps, 1);
+      expect(selected, isTrue);
+    },
+  );
 
   testWidgets(
-    'ExpandSection монтирует содержимое сразу и размонтирует после закрытия',
+    'ExpandSection монтирует сразу, сохраняет State после раскрытия и размонтирует после закрытия',
     (tester) async {
       var open = false;
       final animatingStates = <bool>[];
@@ -99,7 +112,7 @@ void main() {
                   ExpandSection(
                     expanded: open,
                     onAnimatingChanged: animatingStates.add,
-                    child: const SizedBox(height: 60, child: Text('Payload')),
+                    child: const _StatefulCounter(label: 'Panel'),
                   ),
                 ],
               ),
@@ -108,20 +121,26 @@ void main() {
         ),
       );
 
-      expect(find.text('Payload'), findsNothing);
+      expect(find.text('Panel:0'), findsNothing);
 
       await tester.tap(find.text('Toggle'));
       await tester.pump();
       // В первом же кадре открытия виджет уже смонтирован в дереве.
-      expect(find.text('Payload'), findsOneWidget);
+      expect(find.text('Panel:0'), findsOneWidget);
 
+      // Меняем внутренний State во время анимации раскрытия.
+      await tester.tap(find.text('Panel:0'));
+      await tester.pump(const Duration(milliseconds: 32));
+      expect(find.text('Panel:1'), findsOneWidget);
+
+      // После завершения пружины и снятия ClipRect внутренний State не сбрасывается.
       await tester.pumpAndSettle();
-      expect(find.text('Payload'), findsOneWidget);
+      expect(find.text('Panel:1'), findsOneWidget);
       expect(animatingStates, [true, false]);
 
       await tester.tap(find.text('Toggle'));
       await tester.pumpAndSettle();
-      expect(find.text('Payload'), findsNothing);
+      expect(find.text('Panel:1'), findsNothing);
     },
   );
 
@@ -169,34 +188,41 @@ void main() {
     expect(find.text('A:1'), findsOneWidget);
   });
 
-  testWidgets('ExpressiveSegments переключает активный сегмент', (
-    tester,
-  ) async {
-    var current = 'a';
+  testWidgets(
+    'ExpressiveSegments переключает активный сегмент с первого клика при удержании в несколько кадров',
+    (tester) async {
+      var current = 'a';
 
-    await tester.pumpWidget(
-      StatefulBuilder(
-        builder: (context, setState) => MaterialApp(
-          home: Scaffold(
-            body: ExpressiveSegments<String>(
-              expand: true,
-              segments: const [
-                ExpressiveSegment(value: 'a', label: 'First'),
-                ExpressiveSegment(value: 'b', label: 'Second'),
-                ExpressiveSegment(value: 'c', label: 'Third'),
-              ],
-              selected: current,
-              onChanged: (v) => setState(() => current = v),
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) => MaterialApp(
+            home: Scaffold(
+              body: ExpressiveSegments<String>(
+                expand: true,
+                segments: const [
+                  ExpressiveSegment(value: 'a', label: 'First'),
+                  ExpressiveSegment(value: 'b', label: 'Second'),
+                  ExpressiveSegment(value: 'c', label: 'Third'),
+                ],
+                selected: current,
+                onChanged: (v) => setState(() => current = v),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('Second'));
-    await tester.pumpAndSettle();
-    expect(current, 'b');
-  });
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Second')),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(current, 'b');
+    },
+  );
 
   testWidgets('SliverReveal сворачивает сливер до нулевой высоты прокрутки', (
     tester,
@@ -275,4 +301,81 @@ void main() {
     await tester.pump();
     expect(find.text('Instant'), findsNothing);
   });
+
+  testWidgets(
+    'HostCard открывает сессию с первого клика ЛКМ во время анимации сжатия',
+    (tester) async {
+      final spy = _SpyTabs();
+      const server = Host(
+        id: 'srv-1',
+        label: 'prod-01',
+        address: '10.0.0.5',
+        username: 'root',
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tabsProvider.overrideWith(() => spy),
+            documentStoreProvider.overrideWith((ref, name) => _NullStore()),
+            secretStoreProvider.overrideWithValue(_NullSecrets()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 340,
+                  height: 72,
+                  child: HostCard(host: server),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('prod-01')),
+        kind: PointerDeviceKind.mouse,
+        buttons: kPrimaryMouseButton,
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(spy.openedHosts.map((h) => h.id), ['srv-1']);
+    },
+  );
+}
+
+class _NullStore implements DocumentStore {
+  @override
+  Object? readSync() => null;
+  @override
+  Future<bool> write(Object? data) async => true;
+}
+
+class _NullSecrets implements SecretStore {
+  @override
+  Future<String?> read(String key) async => null;
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
+}
+
+class _SpyTabs extends TabsController {
+  final openedHosts = <Host>[];
+
+  @override
+  TabsState build() => const TabsState(tabs: [], active: 0);
+
+  @override
+  String openHost(Host host, {String? password}) {
+    openedHosts.add(host);
+    return host.id;
+  }
 }

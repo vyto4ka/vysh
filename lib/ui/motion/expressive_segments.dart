@@ -298,10 +298,7 @@ class _SegmentButtonState<T> extends State<_SegmentButton<T>>
                 ),
               );
 
-              if (pressT > 0) {
-                tile = Transform.scale(scale: 1 - 0.035 * pressT, child: tile);
-              }
-              return tile;
+              return Transform.scale(scale: 1 - 0.035 * pressT, child: tile);
             },
           ),
         ),

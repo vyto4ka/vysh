@@ -201,13 +201,13 @@ class _PressableSurfaceState extends State<PressableSurface>
                 ),
         );
 
-        if (widget.pressScale > 0 && pressT > 0) {
-          surface = Transform.scale(
-            scale: 1 - widget.pressScale * pressT,
-            child: surface,
-          );
-        }
-        return surface;
+        // Transform.scale должен оставаться в дереве всегда (при покое scale=1):
+        // условная обёртка меняла тип корневого виджета на втором кадре клика
+        // и пересоздавала InkWell, сбрасывая активный TapGestureRecognizer.
+        final scale = widget.pressScale > 0
+            ? 1 - widget.pressScale * pressT
+            : 1.0;
+        return Transform.scale(scale: scale, child: surface);
       },
       child: widget.child,
     );
