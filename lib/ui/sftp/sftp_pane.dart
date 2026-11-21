@@ -1,19 +1,23 @@
 import 'dart:async';
-import '../../app/terminal/terminal_session.dart';
-import '../../app/terminal/current_directory.dart';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../domain/models/session_tab.dart';
-import '../../domain/ports/sftp.dart';
 import '../../app/controllers/settings_controller.dart';
-import '../../app/sftp/sftp_actions.dart';
-import '../../app/sftp/sftp_directory.dart';
 import '../../app/controllers/tabs_controller.dart';
 import '../../app/controllers/transfer_queue.dart';
+import '../../app/settings/app_settings.dart';
+import '../../app/sftp/file_copy.dart';
+import '../../app/sftp/sftp_actions.dart';
+import '../../app/sftp/sftp_clipboard.dart';
+import '../../app/sftp/sftp_directory.dart';
+import '../../app/terminal/current_directory.dart';
+import '../../app/terminal/terminal_session.dart';
+import '../../domain/models/session_tab.dart';
+import '../../domain/ports/sftp.dart';
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
@@ -24,12 +28,12 @@ import '../motion/layered_switcher.dart';
 import '../motion/smooth_scroll.dart';
 import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
-import 'sftp_dialogs.dart';
+import 'file_path_bar.dart';
 import 'file_workspace.dart';
-import '../../app/sftp/file_copy.dart';
+import 'sftp_dialogs.dart';
 import 'sftp_drag.dart';
 import 'sftp_entry_row.dart';
-import 'file_path_bar.dart';
+import 'sftp_text_editor.dart';
 import 'transfers_view.dart';
 
 Future<void> showSessionFiles(BuildContext context, String id) =>
@@ -56,7 +60,7 @@ Future<void> showSessionFiles(BuildContext context, String id) =>
       ),
     );
 
-/// Single file pane attached to a session; the two-pane workspace is independent.
+/// Боковая или полноэкранная панель проводника, привязанная к вкладке терминала.
 class SftpPane extends ConsumerStatefulWidget {
   const SftpPane({super.key, required this.tab, required this.active});
 
@@ -69,23 +73,43 @@ class SftpPane extends ConsumerStatefulWidget {
 
 class _SftpPaneState extends ConsumerState<SftpPane> {
   final _pathField = TextEditingController();
+  final _pathFocus = FocusNode(debugLabel: 'sftp-path');
+  final _filterField = TextEditingController();
+  final _filterFocus = FocusNode(debugLabel: 'sftp-filter');
+  final _listFocus = FocusNode(debugLabel: 'sftp-list');
+  final _menu = GlobalKey<ContextMenuAreaState>();
+  final _history = SftpPathHistory();
 
   AppStrings get _s =>
       AppStrings.of(context, ref.read(settingsProvider).language);
-  bool _showHidden = false;
+
+  bool _showFilter = false;
   bool _dragOver = false;
   bool _hasStorageAccess = true;
+  bool _navigatingHistory = false;
   final _selected = <String>{};
   String? _anchor;
+  String? _cursorPath;
   bool? _followOverride;
   String? _lastReported;
   Timer? _directoryTimer;
   bool _pollingDirectory = false;
   TerminalSession? _directorySession;
   int _followGeneration = 0;
+  ScrollController? _activeScroll;
+
+  String _typeAhead = '';
+  Timer? _typeAheadTimer;
+
+  bool get _windowsPaths =>
+      widget.tab.isLocal && PlatformCapabilities.isWindows;
 
   bool get _following =>
       _followOverride ?? ref.read(settingsProvider).followTerminalDirectory;
+
+  String get _fsIdentity => widget.tab.isLocal
+      ? 'local'
+      : (_directorySession?.target ?? widget.tab.id);
 
   String _parentOf(String path) =>
       widget.tab.isLocal ? LocalFiles.parentPath(path) : remoteParent(path);
@@ -201,9 +225,35 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     }
   }
 
+  void _toggleFilter() {
+    setState(() {
+      _showFilter = !_showFilter;
+      if (!_showFilter) _filterField.clear();
+    });
+    if (_showFilter) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _filterFocus.requestFocus();
+      });
+    } else {
+      _listFocus.requestFocus();
+    }
+  }
+
+  void _closeFilter() {
+    if (!_showFilter) return;
+    setState(() {
+      _showFilter = false;
+      _filterField.clear();
+    });
+    _listFocus.requestFocus();
+  }
+
   @override
   void initState() {
     super.initState();
+    _filterField.addListener(() {
+      if (mounted) setState(() {});
+    });
     _directorySession = ref
         .read(tabsProvider.notifier)
         .sessionOf(widget.tab.id);
@@ -220,7 +270,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   void didUpdateWidget(SftpPane old) {
     super.didUpdateWidget(old);
     if (widget.active && !old.active) unawaited(_pollDirectory(force: true));
-    // После переподключения SFTP-канал новый - перечитываем папку.
     if (widget.tab.status == SessionStatus.ready &&
         old.tab.status != SessionStatus.ready) {
       _following || _cwd == null ? _init() : _dir.open(_cwd!);
@@ -229,11 +278,15 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
   @override
   void dispose() {
+    _typeAheadTimer?.cancel();
     _directoryTimer?.cancel();
     _directorySession?.currentDirectory.removeListener(_onTerminalDirectory);
     _dir.dispose();
     _listFocus.dispose();
+    _pathFocus.dispose();
+    _filterFocus.dispose();
     _pathField.dispose();
+    _filterField.dispose();
     super.dispose();
   }
 
@@ -244,7 +297,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
       tabId: widget.tab.id,
       session: session,
       queue: ref.read(transferQueueProvider.notifier),
-      // На Android - системная Download, на ПК - папка из настроек.
       downloadsDir: () {
         final dir = ref.read(settingsProvider).downloadsDir;
         return DesktopEnv.isMobile || dir.isEmpty
@@ -257,7 +309,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   Future<SftpSession> _sftp() =>
       ref.read(tabsProvider.notifier).sessionOf(widget.tab.id)!.sftp();
 
-  /// Текущая папка, список, загрузка и ошибка (с защитой от устаревших ответов).
   late final _dir = SftpDirectory(
     _sftp,
     resetChannel: () =>
@@ -292,16 +343,43 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
   Future<void> _open(String path) => _dir.open(path);
 
+  Future<void> _goBack() async {
+    final target = _history.back();
+    if (target == null) return;
+    _navigatingHistory = true;
+    try {
+      await _dir.open(target);
+    } finally {
+      _navigatingHistory = false;
+    }
+  }
+
+  Future<void> _goForward() async {
+    final target = _history.forward();
+    if (target == null) return;
+    _navigatingHistory = true;
+    try {
+      await _dir.open(target);
+    } finally {
+      _navigatingHistory = false;
+    }
+  }
+
   Future<void> _refresh() => _dir.refresh();
 
   void _onDirChanged() {
     if (!mounted) return;
     setState(() {
-      // Открыли другую папку (или перечитали) - прежнее выделение не действует.
       if (_dir.loading || !identical(_shownEntries, _dir.entries)) {
         _shownEntries = _dir.entries;
         _selected.clear();
         _anchor = null;
+        _cursorPath = null;
+      }
+      if (!_dir.loading && _dir.error == null && _dir.cwd != null) {
+        if (!_navigatingHistory) {
+          _history.record(_dir.cwd!);
+        }
       }
       final shown = _dir.error != null
           ? (_dir.requestedPath ?? _dir.cwd)
@@ -334,8 +412,23 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     }
   }
 
-  List<RemoteEntry> get _visible =>
-      _showHidden ? _entries : _entries.where((e) => !e.isHidden).toList();
+  List<RemoteEntry> _computeVisible(AppSettings settings) {
+    final query = _filterField.text.trim().toLowerCase();
+    final filtered = _entries.where((e) {
+      if (!settings.showHiddenFiles && e.isHidden) return false;
+      if (query.isNotEmpty && !e.name.toLowerCase().contains(query)) {
+        return false;
+      }
+      return true;
+    });
+    return sortSftpEntries(
+      filtered,
+      settings.sftpSortField,
+      ascending: settings.sftpSortAscending,
+    );
+  }
+
+  List<RemoteEntry> get _visible => _computeVisible(ref.read(settingsProvider));
 
   List<RemoteEntry> get _selection =>
       _entries.where((e) => _selected.contains(e.path)).toList();
@@ -381,7 +474,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         resolveConflict: _resolveConflict,
       );
       if (path != null) {
-        // На Android файл публикуется в системную папку Download.
         _toast(
           DesktopEnv.isMobile
               ? _s.downloadingToDownloads
@@ -420,6 +512,17 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     );
   }
 
+  Future<void> _editText(RemoteEntry e) async {
+    final saved = await openSftpTextEditor(
+      context,
+      openSession: _sftp,
+      entry: e,
+      strings: _s,
+      onOpenExternally: () => _openLocally(e),
+    );
+    if (saved && mounted) await _refresh();
+  }
+
   Future<void> _mkdir() async {
     final name = await askText(
       context,
@@ -428,6 +531,22 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     );
     if (name == null || name.isEmpty || _cwd == null) return;
     await _run(() async => (await _sftp()).mkdir(_joinPath(_cwd!, name)));
+  }
+
+  Future<void> _mkfile() async {
+    final name = await askText(context, title: _s.newFile, label: _s.fileName);
+    if (name == null || name.isEmpty || _cwd == null) return;
+    final target = _joinPath(_cwd!, name);
+    await _run(() async => createEmptySftpFile(await _sftp(), target));
+    if (mounted) {
+      setState(() {
+        _selected
+          ..clear()
+          ..add(target);
+        _anchor = target;
+        _cursorPath = target;
+      });
+    }
   }
 
   Future<void> _rename(RemoteEntry e) async {
@@ -444,6 +563,21 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     );
   }
 
+  Future<void> _moveEntriesInto(
+    List<RemoteEntry> entries,
+    String targetDir,
+  ) async {
+    if (entries.isEmpty) return;
+    await _run(() async {
+      final sftp = await _sftp();
+      for (final e in entries) {
+        final dest = _joinPath(targetDir, e.name);
+        if (dest == e.path) continue;
+        await sftp.rename(e.path, dest);
+      }
+    });
+  }
+
   Future<void> _chmod(RemoteEntry e) async {
     final mode = await askPermissions(context, e);
     if (mode == null) return;
@@ -454,28 +588,97 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     if (entries.isEmpty) return;
     final ok = await confirmDelete(context, entries);
     if (!ok) return;
-    await _run(() async {
+    final targetCwd = _cwd;
+    final hasDirs = entries.any((e) => e.isDir && !e.isLink);
+    if (!hasDirs && entries.length <= 3) {
+      await _run(() async => deleteSftpEntries(await _sftp(), entries));
+      return;
+    }
+    try {
       final sftp = await _sftp();
-      for (final e in entries) {
-        await _deleteRecursive(sftp, e);
-      }
-    });
+      ref
+          .read(transferQueueProvider.notifier)
+          .enqueue(
+            tabId: widget.tab.id,
+            direction: TransferDirection.upload,
+            name: '${_s.delete}: ${entries.map((e) => e.name).join(', ')}',
+            localPath: '',
+            remotePath: targetCwd ?? '',
+            total: 0,
+            run: (cancel, _) =>
+                deleteSftpEntries(sftp, entries, cancel: cancel),
+            onSettled: () {
+              if (mounted && _cwd == targetCwd) _refresh();
+            },
+          );
+    } catch (e) {
+      _toast(_s.errorText(e), error: true);
+    }
   }
 
-  Future<void> _deleteRecursive(SftpSession sftp, RemoteEntry e) async {
-    if (e.isDir && !e.isLink) {
-      for (final child in await sftp.list(e.path)) {
-        await _deleteRecursive(sftp, child);
-      }
-      await sftp.removeDir(e.path);
-    } else {
-      await sftp.removeFile(e.path);
+  void _copyOrCut(List<RemoteEntry> entries, {required bool cut}) {
+    if (entries.isEmpty) return;
+    ref
+        .read(sftpClipboardProvider.notifier)
+        .setEntries(
+          sourceIdentity: _fsIdentity,
+          openSource: _sftp,
+          entries: entries,
+          cut: cut,
+        );
+  }
+
+  Future<void> _pasteClipboard() async {
+    final clip = ref.read(sftpClipboardProvider);
+    final dir = _cwd;
+    if (clip == null || clip.entries.isEmpty || dir == null) return;
+    await _run(() async {
+      final target = await _sftp();
+      await pasteSftpClipboard(
+        clip: clip,
+        targetIdentity: _fsIdentity,
+        target: target,
+        targetDir: dir,
+        joinPath: _joinPath,
+        tabId: widget.tab.id,
+        queue: ref.read(transferQueueProvider.notifier),
+        resolveConflict: _resolveConflict,
+        onCompleted: (copied, skipped) {
+          if (clip.cut) ref.read(sftpClipboardProvider.notifier).clear();
+          _toast(_s.copiedCount(copied, skipped));
+        },
+        onSettled: () {
+          if (mounted && _cwd == dir) _refresh();
+        },
+      );
+    }, refresh: false);
+    if (mounted) await _refresh();
+  }
+
+  void _openInTerminal(String dirPath) {
+    final session = _directorySession;
+    if (session == null || widget.tab.status != SessionStatus.ready) return;
+    session.terminal.textInput(shellCdCommand(dirPath, windows: _windowsPaths));
+  }
+
+  void _insertPathsInTerminal(List<RemoteEntry> entries) {
+    final session = _directorySession;
+    if (session == null ||
+        entries.isEmpty ||
+        widget.tab.status != SessionStatus.ready) {
+      return;
     }
+    final quoted = entries
+        .map((e) => shellQuotePath(e.path, windows: _windowsPaths))
+        .join(' ');
+    session.terminal.paste('$quoted ');
   }
 
   void _activate(RemoteEntry e) {
     if (e.isDir) {
       _open(e.path);
+    } else if (DesktopEnv.isMobile && !widget.tab.isLocal) {
+      _editText(e);
     } else {
       _openLocally(e);
     }
@@ -497,6 +700,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                   .sublist(a < b ? a : b, (a < b ? b : a) + 1)
                   .map((x) => x.path),
             );
+          _cursorPath = e.path;
           return;
         }
       }
@@ -510,11 +714,118 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
           ..add(e.path);
       }
       _anchor = e.path;
+      _cursorPath = e.path;
     });
   }
 
-  final _menu = GlobalKey<ContextMenuAreaState>();
-  final _listFocus = FocusNode(debugLabel: 'sftp-list');
+  void _moveCursor(int delta, {bool extend = false, bool toEdge = false}) {
+    final list = _visible;
+    if (list.isEmpty) return;
+    final currentIdx = _cursorPath == null
+        ? -1
+        : list.indexWhere((e) => e.path == _cursorPath);
+    final int nextIdx;
+    if (toEdge) {
+      nextIdx = delta < 0 ? 0 : list.length - 1;
+    } else if (currentIdx < 0) {
+      nextIdx = delta < 0 ? list.length - 1 : 0;
+    } else {
+      nextIdx = (currentIdx + delta).clamp(0, list.length - 1);
+    }
+    final target = list[nextIdx];
+    setState(() {
+      if (extend && _anchor != null) {
+        final a = list.indexWhere((e) => e.path == _anchor);
+        if (a >= 0) {
+          _selected
+            ..clear()
+            ..addAll(
+              list
+                  .sublist(
+                    a < nextIdx ? a : nextIdx,
+                    (a < nextIdx ? nextIdx : a) + 1,
+                  )
+                  .map((e) => e.path),
+            );
+        } else {
+          _selected
+            ..clear()
+            ..add(target.path);
+          _anchor = target.path;
+        }
+      } else {
+        _selected
+          ..clear()
+          ..add(target.path);
+        _anchor = target.path;
+      }
+      _cursorPath = target.path;
+    });
+    _scrollToIndex(nextIdx);
+  }
+
+  void _scrollToIndex(int visibleIndex) {
+    final scroll = _activeScroll;
+    if (scroll == null || !scroll.hasClients) return;
+    final hasParent = _cwd != null && !_isRoot(_cwd!);
+    final rowIndex = visibleIndex + (hasParent ? 1 : 0);
+    final compact = Theme.of(context).visualDensity == VisualDensity.compact;
+    final itemHeight = compact ? 50.0 : 58.0;
+    final top = rowIndex * itemHeight;
+    final bottom = top + itemHeight;
+    final pos = scroll.position;
+    if (top < pos.pixels) {
+      scroll.animateTo(
+        top,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+      );
+    } else if (bottom > pos.pixels + pos.viewportDimension) {
+      scroll.animateTo(
+        (bottom - pos.viewportDimension).clamp(0.0, pos.maxScrollExtent),
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  KeyEventResult _onListKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final keys = Modifiers.instance;
+    if (keys.ctrl || keys.alt || keys.meta) return KeyEventResult.ignored;
+    final ch = event.character;
+    if (ch == null ||
+        ch.isEmpty ||
+        ch.codeUnitAt(0) < 0x20 ||
+        event.logicalKey == LogicalKeyboardKey.space) {
+      return KeyEventResult.ignored;
+    }
+    _typeAheadTimer?.cancel();
+    _typeAhead = '$_typeAhead${ch.toLowerCase()}';
+    _typeAheadTimer = Timer(
+      const Duration(milliseconds: 900),
+      () => _typeAhead = '',
+    );
+    final list = _visible;
+    final idx = list.indexWhere(
+      (e) => e.name.toLowerCase().startsWith(_typeAhead),
+    );
+    if (idx >= 0) {
+      final target = list[idx];
+      setState(() {
+        _selected
+          ..clear()
+          ..add(target.path);
+        _anchor = target.path;
+        _cursorPath = target.path;
+      });
+      _scrollToIndex(idx);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
 
   void _contextMenu(RemoteEntry? e, Offset pos) {
     if (e != null && !_selected.contains(e.path)) {
@@ -523,6 +834,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
           ..clear()
           ..add(e.path);
         _anchor = e.path;
+        _cursorPath = e.path;
       });
     }
     _listFocus.requestFocus();
@@ -530,20 +842,45 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     final single = sel.length == 1 ? sel.first : null;
     final error = Theme.of(context).colorScheme.error;
     final sharedAndroid = PlatformCapabilities.sharedDownloads;
+    final mac = PlatformCapabilities.isMacOS;
+    final clip = ref.read(sftpClipboardProvider);
+
     _menu.currentState?.open(pos, [
-      if (single != null && !single.isDir)
+      if (single != null && !single.isDir) ...[
         menuItem(
-          _s.open,
+          _s.editText,
+          icon: Icons.edit_note,
+          shortcut: SingleActivator(
+            LogicalKeyboardKey.keyE,
+            control: !mac,
+            meta: mac,
+          ),
+          onPressed: () => _editText(single),
+        ),
+        menuItem(
+          _s.openExternally,
           icon: Icons.open_in_new,
           onPressed: () => _openLocally(single),
         ),
-      if (single != null && single.isDir)
+      ],
+      if (single != null && single.isDir) ...[
         menuItem(
           _s.openFolder,
           icon: Icons.folder_open,
           onPressed: () => _open(single.path),
         ),
+        menuItem(
+          _s.openInTerminal,
+          icon: Icons.terminal,
+          onPressed: () => _openInTerminal(single.path),
+        ),
+      ],
       if (sel.isNotEmpty) ...[
+        menuItem(
+          _s.insertPathInTerminal,
+          icon: Icons.input,
+          onPressed: () => _insertPathsInTerminal(sel),
+        ),
         menuItem(
           _s.download,
           icon: Icons.download,
@@ -555,7 +892,39 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
             icon: Icons.drive_file_move_outlined,
             onPressed: () => _downloadTo(sel),
           ),
+        menuDivider(),
+        menuItem(
+          _s.copyEntries,
+          icon: Icons.copy_outlined,
+          shortcut: SingleActivator(
+            LogicalKeyboardKey.keyC,
+            control: !mac,
+            meta: mac,
+          ),
+          onPressed: () => _copyOrCut(sel, cut: false),
+        ),
+        menuItem(
+          _s.cutEntries,
+          icon: Icons.content_cut,
+          shortcut: SingleActivator(
+            LogicalKeyboardKey.keyX,
+            control: !mac,
+            meta: mac,
+          ),
+          onPressed: () => _copyOrCut(sel, cut: true),
+        ),
       ],
+      if (clip != null && clip.entries.isNotEmpty && _cwd != null)
+        menuItem(
+          _s.pasteEntries(clip.entries.length),
+          icon: Icons.content_paste,
+          shortcut: SingleActivator(
+            LogicalKeyboardKey.keyV,
+            control: !mac,
+            meta: mac,
+          ),
+          onPressed: _pasteClipboard,
+        ),
       if (single != null) ...[
         menuItem(
           _s.rename,
@@ -589,85 +958,165 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     ]);
   }
 
-  /// Пункты, относящиеся к текущей папке (меню «⋮» и пустое место списка).
-  List<Widget> _folderItems() => [
-    CheckboxMenuButton(
-      value: _following,
-      onChanged: (v) => _setFollow(v!),
-      child: Text(_s.followTerminalDirectoryTitle),
-    ),
-    if (!widget.tab.isLocal &&
-        _directorySession?.currentDirectory.value == null)
-      menuItem(
-        _s.isRu ? 'Включить интеграцию оболочки…' : 'Enable shell integration…',
-        icon: Icons.link,
-        onPressed: _enableDirectoryReporting,
+  List<Widget> _folderItems() {
+    final clip = ref.read(sftpClipboardProvider);
+    final showHidden = ref.read(settingsProvider).showHiddenFiles;
+    final mac = PlatformCapabilities.isMacOS;
+    return [
+      CheckboxMenuButton(
+        value: _following,
+        onChanged: (v) => _setFollow(v!),
+        child: Text(_s.followTerminalDirectoryTitle),
       ),
-    menuDivider(),
-    menuItem(_s.uploadFiles, icon: Icons.upload_file, onPressed: _uploadFiles),
-    if (!PlatformCapabilities.sharedDownloads)
+      if (_cwd != null)
+        menuItem(
+          _s.openInTerminal,
+          icon: Icons.terminal,
+          onPressed: () => _openInTerminal(_cwd!),
+        ),
+      if (!widget.tab.isLocal &&
+          _directorySession?.currentDirectory.value == null)
+        menuItem(
+          _s.isRu
+              ? 'Включить интеграцию оболочки…'
+              : 'Enable shell integration…',
+          icon: Icons.link,
+          onPressed: _enableDirectoryReporting,
+        ),
+      menuDivider(),
+      if (clip != null && clip.entries.isNotEmpty && _cwd != null)
+        menuItem(
+          _s.pasteEntries(clip.entries.length),
+          icon: Icons.content_paste,
+          shortcut: SingleActivator(
+            LogicalKeyboardKey.keyV,
+            control: !mac,
+            meta: mac,
+          ),
+          onPressed: _pasteClipboard,
+        ),
       menuItem(
-        _s.uploadFolder,
-        icon: Icons.drive_folder_upload_outlined,
-        onPressed: _uploadFolder,
+        _s.uploadFiles,
+        icon: Icons.upload_file,
+        onPressed: _uploadFiles,
       ),
-    menuItem(
-      _s.newFolder,
-      icon: Icons.create_new_folder_outlined,
-      onPressed: _mkdir,
-    ),
-    menuDivider(),
-    menuItem(_s.homeFolder, icon: Icons.home_outlined, onPressed: _dir.home),
-    menuItem(
-      _s.refresh,
-      icon: Icons.refresh,
-      shortcut: Keys.refresh,
-      onPressed: _refresh,
-    ),
-    CheckboxMenuButton(
-      value: _showHidden,
-      onChanged: (_) => setState(() => _showHidden = !_showHidden),
-      child: Text(_s.hiddenFiles),
-    ),
-  ];
+      if (!PlatformCapabilities.sharedDownloads)
+        menuItem(
+          _s.uploadFolder,
+          icon: Icons.drive_folder_upload_outlined,
+          onPressed: _uploadFolder,
+        ),
+      menuItem(_s.newFile, icon: Icons.note_add_outlined, onPressed: _mkfile),
+      menuItem(
+        _s.newFolder,
+        icon: Icons.create_new_folder_outlined,
+        onPressed: _mkdir,
+      ),
+      menuDivider(),
+      menuItem(_s.homeFolder, icon: Icons.home_outlined, onPressed: _dir.home),
+      menuItem(
+        _s.refresh,
+        icon: Icons.refresh,
+        shortcut: Keys.refresh,
+        onPressed: _refresh,
+      ),
+      CheckboxMenuButton(
+        value: showHidden,
+        onChanged: (v) =>
+            ref.read(settingsProvider.notifier).setShowHiddenFiles(v!),
+        child: Text(_s.hiddenFiles),
+      ),
+    ];
+  }
 
-  /// Клавиши в списке файлов.
-  Map<ShortcutActivator, VoidCallback> get _keys => {
-    Keys.delete: () => _delete(_selection),
-    Keys.rename: () {
-      final sel = _selection;
-      if (sel.length == 1) _rename(sel.first);
-    },
-    Keys.refresh: _refresh,
-    const SingleActivator(LogicalKeyboardKey.enter): () {
-      final sel = _selection;
-      if (sel.length == 1) _activate(sel.first);
-    },
-    const SingleActivator(LogicalKeyboardKey.backspace): () {
-      if (_cwd != null && !_isRoot(_cwd!)) _open(_parentOf(_cwd!));
-    },
-    const SingleActivator(LogicalKeyboardKey.keyA, control: true): () =>
-        setState(() {
-          _selected
-            ..clear()
-            ..addAll(_visible.map((e) => e.path));
-        }),
-    if (PlatformCapabilities.isMacOS)
-      const SingleActivator(LogicalKeyboardKey.keyA, meta: true): () =>
+  void _focusPathBar() {
+    _pathFocus.requestFocus();
+    _pathField.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _pathField.text.length,
+    );
+  }
+
+  Map<ShortcutActivator, VoidCallback> get _paneShortcuts {
+    final mac = PlatformCapabilities.isMacOS;
+    return {
+      SingleActivator(LogicalKeyboardKey.keyF, control: !mac, meta: mac):
+          _toggleFilter,
+      SingleActivator(LogicalKeyboardKey.keyL, control: !mac, meta: mac):
+          _focusPathBar,
+      const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _goBack,
+      const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+          _goForward,
+    };
+  }
+
+  Map<ShortcutActivator, VoidCallback> get _listShortcuts {
+    final mac = PlatformCapabilities.isMacOS;
+    return {
+      Keys.delete: () => _delete(_selection),
+      Keys.rename: () {
+        final sel = _selection;
+        if (sel.length == 1) _rename(sel.first);
+      },
+      Keys.refresh: _refresh,
+      const SingleActivator(LogicalKeyboardKey.arrowDown): () => _moveCursor(1),
+      const SingleActivator(LogicalKeyboardKey.arrowUp): () => _moveCursor(-1),
+      const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true): () =>
+          _moveCursor(1, extend: true),
+      const SingleActivator(LogicalKeyboardKey.arrowUp, shift: true): () =>
+          _moveCursor(-1, extend: true),
+      const SingleActivator(LogicalKeyboardKey.home): () =>
+          _moveCursor(-1, toEdge: true),
+      const SingleActivator(LogicalKeyboardKey.end): () =>
+          _moveCursor(1, toEdge: true),
+      const SingleActivator(LogicalKeyboardKey.space): () {
+        final path = _cursorPath;
+        if (path == null) {
+          _moveCursor(1);
+          return;
+        }
+        final e = _visible.where((x) => x.path == path).firstOrNull;
+        if (e != null) _select(e, toggle: true);
+      },
+      const SingleActivator(LogicalKeyboardKey.escape): () {
+        if (_showFilter) {
+          _closeFilter();
+        } else if (_selected.isNotEmpty) {
+          setState(_selected.clear);
+        }
+      },
+      const SingleActivator(LogicalKeyboardKey.enter): () {
+        final sel = _selection;
+        if (sel.length == 1) _activate(sel.first);
+      },
+      SingleActivator(LogicalKeyboardKey.keyE, control: !mac, meta: mac): () {
+        final sel = _selection;
+        if (sel.length == 1 && !sel.first.isDir) _editText(sel.first);
+      },
+      SingleActivator(LogicalKeyboardKey.keyC, control: !mac, meta: mac): () =>
+          _copyOrCut(_selection, cut: false),
+      SingleActivator(LogicalKeyboardKey.keyX, control: !mac, meta: mac): () =>
+          _copyOrCut(_selection, cut: true),
+      SingleActivator(LogicalKeyboardKey.keyV, control: !mac, meta: mac):
+          _pasteClipboard,
+      const SingleActivator(LogicalKeyboardKey.backspace): () {
+        if (_cwd != null && !_isRoot(_cwd!)) _open(_parentOf(_cwd!));
+      },
+      SingleActivator(LogicalKeyboardKey.keyA, control: !mac, meta: mac): () =>
           setState(() {
             _selected
               ..clear()
               ..addAll(_visible.map((e) => e.path));
           }),
-  };
+    };
+  }
 
   // ─── UI ───────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(
-      settingsProvider.select((s) => (s.language, s.followTerminalDirectory)),
-    );
+    final settings = ref.watch(settingsProvider);
+    ref.watch(sftpClipboardProvider);
     ref.listen<bool>(
       settingsProvider.select((s) => s.followTerminalDirectory),
       (prev, next) {
@@ -686,6 +1135,8 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     final scheme = theme.colorScheme;
     final ready = widget.tab.status == SessionStatus.ready;
     final termDir = _directorySession?.currentDirectory.value;
+    final hasParentRow = _cwd != null && !_isRoot(_cwd!);
+    final scopeId = 'pane:${widget.tab.id}';
 
     Widget body;
     if (!ready) {
@@ -713,12 +1164,18 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         ),
       );
     } else {
-      final list = _visible;
+      final list = _computeVisible(settings);
+      final selectedList = _selection;
+      final extraParent = hasParentRow ? 1 : 0;
+      final showEmpty = !_loading && list.isEmpty;
+      final itemCount = showEmpty ? extraParent + 1 : list.length + extraParent;
+
       body = CallbackShortcuts(
         key: const ValueKey('list'),
-        bindings: _keys,
+        bindings: _listShortcuts,
         child: Focus(
           focusNode: _listFocus,
+          onKeyEvent: _onListKeyEvent,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
@@ -730,37 +1187,49 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
               top: 18,
               bottom: 14,
               child: SmoothScroll(
-                builder: (context, controller) => ListView.builder(
-                  controller: controller,
-                  padding: const EdgeInsets.only(bottom: 8),
-                  itemCount: list.isEmpty ? 2 : list.length + 1,
-                  itemBuilder: (context, i) {
-                    if (i == 0) {
-                      return SftpEntryRow(
-                        entry: null,
-                        selected: false,
-                        onTap: () => _open(_parentOf(_cwd ?? '/')),
-                        onSecondary: (_) {},
-                        strings: _s,
-                      );
-                    }
-                    if (list.isEmpty) {
-                      return SizedBox(
-                        height: 180,
-                        child: SftpPlaceholder(
-                          icon: Icons.folder_open_outlined,
-                          text: _s.isRu
-                              ? 'Папка пуста'
-                              : 'This folder is empty',
-                        ),
-                      );
-                    }
-                    final e = list[i - 1];
-                    final mobile = DesktopEnv.isMobile;
-                    return SftpDragSource(
-                      entry: e,
-                      actions: () => _actions,
-                      child: SftpEntryRow(
+                builder: (context, controller) {
+                  _activeScroll = controller;
+                  return ListView.builder(
+                    controller: controller,
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: itemCount,
+                    itemBuilder: (context, i) {
+                      if (hasParentRow && i == 0) {
+                        final parentPath = _parentOf(_cwd!);
+                        return SftpFolderDropTarget(
+                          scopeId: scopeId,
+                          targetDirPath: parentPath,
+                          enabled: ready,
+                          onMoveEntries: (items) =>
+                              _moveEntriesInto(items, parentPath),
+                          child: SftpEntryRow(
+                            entry: null,
+                            selected: false,
+                            onTap: () => _open(parentPath),
+                            onSecondary: (_) {},
+                            strings: _s,
+                          ),
+                        );
+                      }
+                      if (showEmpty) {
+                        final filtering = _filterField.text.trim().isNotEmpty;
+                        return SizedBox(
+                          height: 180,
+                          child: SftpPlaceholder(
+                            icon: filtering
+                                ? Icons.search_off
+                                : Icons.folder_open_outlined,
+                            text: filtering
+                                ? _s.noMatchingFiles
+                                : (_s.isRu
+                                      ? 'Папка пуста'
+                                      : 'This folder is empty'),
+                          ),
+                        );
+                      }
+                      final e = list[i - extraParent];
+                      final mobile = DesktopEnv.isMobile;
+                      Widget row = SftpEntryRow(
                         entry: e,
                         selected: _selected.contains(e.path),
                         showSelection: mobile && _selected.isNotEmpty,
@@ -790,13 +1259,33 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                             _select(e);
                           }
                         },
-                        onDoubleTap: e.isDir ? null : () => _openLocally(e),
+                        onDoubleTap: e.isDir ? null : () => _activate(e),
                         onSecondary: (pos) => _contextMenu(e, pos),
                         strings: _s,
-                      ),
-                    );
-                  },
-                ),
+                      );
+
+                      if (e.isDir) {
+                        row = SftpFolderDropTarget(
+                          scopeId: scopeId,
+                          targetDirPath: e.path,
+                          enabled: ready,
+                          onMoveEntries: (items) =>
+                              _moveEntriesInto(items, e.path),
+                          child: row,
+                        );
+                      }
+
+                      return SftpDragSource(
+                        entry: e,
+                        scopeId: scopeId,
+                        selectedEntries: selectedList,
+                        windowsPaths: _windowsPaths,
+                        actions: () => _actions,
+                        child: row,
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ),
@@ -806,217 +1295,249 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
 
     final fastDur = AppMotion.duration(context, AppMotion.durationFast);
 
-    return ContextMenuArea(
-      key: _menu,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Material(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(color: scheme.outlineVariant),
-          ),
-          clipBehavior: Clip.antiAlias,
-          color: scheme.surfaceContainerLow,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              FilePathBar(
-                controller: _pathField,
-                enabled: ready,
-                onOpen: _open,
-                onUp: _cwd != null && !_isRoot(_cwd!)
-                    ? () => _open(_parentOf(_cwd!))
-                    : null,
-                onRefresh: _refresh,
-                isRu: _s.isRu,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (ready &&
-                        termDir != null &&
-                        _cwd != null &&
-                        termDir != _cwd)
-                      IconButton(
-                        tooltip: _s.goToTerminalDirectory,
-                        onPressed: _jumpToTerminalDirectory,
-                        icon: const Icon(Icons.my_location_outlined),
-                      ),
-                    MenuIconButton(
-                      enabled: ready && !_loading && _error == null,
-                      items: _folderItems(),
-                    ),
-                  ],
-                ),
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (e) {
+        if (!ready) return;
+        if (e.buttons == kBackMouseButton && _history.canBack) {
+          _goBack();
+        } else if (e.buttons == kForwardMouseButton && _history.canForward) {
+          _goForward();
+        }
+      },
+      child: CallbackShortcuts(
+        bindings: _paneShortcuts,
+        child: ContextMenuArea(
+          key: _menu,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Material(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: scheme.outlineVariant),
               ),
-              ExpandSection(
-                expanded:
-                    PlatformCapabilities.sharedDownloads &&
-                    widget.tab.isLocal &&
-                    !_hasStorageAccess,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-                  child: Material(
-                    color: scheme.secondaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.folder_off_outlined,
-                            size: 18,
-                            color: scheme.onSecondaryContainer,
+              clipBehavior: Clip.antiAlias,
+              color: scheme.surfaceContainerLow,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FilePathBar(
+                    controller: _pathField,
+                    pathFocusNode: _pathFocus,
+                    enabled: ready,
+                    onOpen: _open,
+                    onBack: _history.canBack ? _goBack : null,
+                    onForward: _history.canForward ? _goForward : null,
+                    onUp: hasParentRow ? () => _open(_parentOf(_cwd!)) : null,
+                    onRefresh: _refresh,
+                    isRu: _s.isRu,
+                    cwd: _cwd,
+                    windowsPaths: _windowsPaths,
+                    showFilter: _showFilter,
+                    filterController: _filterField,
+                    filterFocusNode: _filterFocus,
+                    onToggleFilter: _toggleFilter,
+                    onCloseFilter: _closeFilter,
+                    sortField: settings.sftpSortField,
+                    sortAscending: settings.sftpSortAscending,
+                    onSortSelected: ref
+                        .read(settingsProvider.notifier)
+                        .setSftpSort,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (ready &&
+                            termDir != null &&
+                            _cwd != null &&
+                            termDir != _cwd)
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 34,
+                              minHeight: 34,
+                            ),
+                            iconSize: 20,
+                            tooltip: _s.goToTerminalDirectory,
+                            onPressed: _jumpToTerminalDirectory,
+                            icon: const Icon(Icons.my_location_outlined),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _s.isRu
-                                  ? 'Нет доступа к памяти устройства'
-                                  : 'No access to device storage',
-                              style: theme.textTheme.bodySmall?.copyWith(
+                        MenuIconButton(
+                          enabled: ready && !_loading && _error == null,
+                          items: _folderItems(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ExpandSection(
+                    expanded:
+                        PlatformCapabilities.sharedDownloads &&
+                        widget.tab.isLocal &&
+                        !_hasStorageAccess,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                      child: Material(
+                        color: scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.folder_off_outlined,
+                                size: 18,
                                 color: scheme.onSecondaryContainer,
                               ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _s.isRu
+                                      ? 'Нет доступа к памяти устройства'
+                                      : 'No access to device storage',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSecondaryContainer,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _requestStorageAccess,
+                                child: Text(_s.isRu ? 'Разрешить' : 'Allow'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  ExpandSection(
+                    expanded: _selected.isNotEmpty,
+                    spring: AppMotion.spatialFast,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
+                              style: theme.textTheme.labelLarge,
                             ),
                           ),
-                          TextButton(
-                            onPressed: _requestStorageAccess,
-                            child: Text(_s.isRu ? 'Разрешить' : 'Allow'),
+                          IconButton(
+                            tooltip: _s.isRu
+                                ? 'Снять выделение'
+                                : 'Clear selection',
+                            onPressed: () => setState(_selected.clear),
+                            icon: const Icon(Icons.close),
+                          ),
+                          IconButton(
+                            tooltip: _s.isRu
+                                ? 'Скачать выделенное'
+                                : 'Download selected',
+                            onPressed: () => _download(_selection),
+                            icon: const Icon(Icons.download_outlined),
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-              ),
-              ExpandSection(
-                expanded: _selected.isNotEmpty,
-                spring: AppMotion.spatialFast,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
-                          style: theme.textTheme.labelLarge,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: _s.isRu
-                            ? 'Снять выделение'
-                            : 'Clear selection',
-                        onPressed: () => setState(_selected.clear),
-                        icon: const Icon(Icons.close),
-                      ),
-                      IconButton(
-                        tooltip: _s.isRu
-                            ? 'Скачать выделенное'
-                            : 'Download selected',
-                        onPressed: () => _download(_selection),
-                        icon: const Icon(Icons.download_outlined),
-                      ),
-                    ],
+                  SizedBox(
+                    height: 2,
+                    child: AnimatedSwitcher(
+                      duration: fastDur,
+                      child: _loading
+                          ? const LinearProgressIndicator(
+                              key: ValueKey('loading'),
+                              minHeight: 2,
+                            )
+                          : const SizedBox.shrink(key: ValueKey('idle')),
+                    ),
                   ),
-                ),
-              ),
-              SizedBox(
-                height: 2,
-                child: AnimatedSwitcher(
-                  duration: fastDur,
-                  child: _loading
-                      ? const LinearProgressIndicator(
-                          key: ValueKey('loading'),
-                          minHeight: 2,
-                        )
-                      : const SizedBox.shrink(key: ValueKey('idle')),
-                ),
-              ),
-              // Список с приёмом файлов перетаскиванием.
-              Expanded(
-                child: SftpDropZone(
-                  enabled: widget.active && ready && _cwd != null,
-                  onHover: (over) {
-                    if (mounted && _dragOver != over) {
-                      setState(() => _dragOver = over);
-                    }
-                  },
-                  onDropPaths: (paths) {
-                    if (mounted) setState(() => _dragOver = false);
-                    if (_cwd != null) _upload(paths);
-                  },
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                          child: Material(
-                            color: scheme.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            clipBehavior: Clip.antiAlias,
-                            child: FadeSlideSwitcher(
-                              scaleBegin: 0.99,
-                              offset: const Offset(0, 0.02),
-                              child: body,
+                  Expanded(
+                    child: SftpDropZone(
+                      enabled: widget.active && ready && _cwd != null,
+                      onHover: (over) {
+                        if (mounted && _dragOver != over) {
+                          setState(() => _dragOver = over);
+                        }
+                      },
+                      onDropPaths: (paths) {
+                        if (mounted) setState(() => _dragOver = false);
+                        if (_cwd != null) _upload(paths);
+                      },
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                              child: Material(
+                                color: scheme.surface,
+                                borderRadius: BorderRadius.circular(16),
+                                clipBehavior: Clip.antiAlias,
+                                child: FadeSlideSwitcher(
+                                  scaleBegin: 0.99,
+                                  offset: const Offset(0, 0.02),
+                                  child: body,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: AnimatedOpacity(
-                            opacity: _dragOver ? 1.0 : 0.0,
-                            duration: fastDur,
-                            curve: Curves.easeOutCubic,
-                            child: AnimatedScale(
-                              scale: _dragOver ? 1.0 : 0.96,
-                              duration: fastDur,
-                              curve: AppMotion.fastSpringCurve,
-                              child: Container(
-                                margin: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: scheme.primaryContainer.withValues(
-                                    alpha: 0.85,
-                                  ),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: scheme.primary,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.upload,
-                                        size: 40,
-                                        color: scheme.onPrimaryContainer,
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: AnimatedOpacity(
+                                opacity: _dragOver ? 1.0 : 0.0,
+                                duration: fastDur,
+                                curve: Curves.easeOutCubic,
+                                child: AnimatedScale(
+                                  scale: _dragOver ? 1.0 : 0.96,
+                                  duration: fastDur,
+                                  curve: AppMotion.fastSpringCurve,
+                                  child: Container(
+                                    margin: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: scheme.primaryContainer.withValues(
+                                        alpha: 0.85,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        _s.dropToUpload(_cwd ?? ''),
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: scheme.onPrimaryContainer,
-                                        ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: scheme.primary,
+                                        width: 2,
                                       ),
-                                    ],
+                                    ),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.upload,
+                                            size: 40,
+                                            color: scheme.onPrimaryContainer,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _s.dropToUpload(_cwd ?? ''),
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: scheme.onPrimaryContainer,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  TransfersView(tabId: widget.tab.id),
+                ],
               ),
-              TransfersView(tabId: widget.tab.id),
-            ],
+            ),
           ),
         ),
       ),
@@ -1024,7 +1545,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
   }
 }
 
-/// `dirname` для локального пути без лишних зависимостей.
 String _parentDir(String path) {
   final i = path.lastIndexOf(RegExp(r'[\\/]'));
   return i <= 0 ? path : path.substring(0, i);

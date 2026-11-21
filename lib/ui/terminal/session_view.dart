@@ -21,6 +21,7 @@ import '../../infra/platform/desktop_env.dart';
 import '../motion/app_motion.dart';
 import '../motion/expand_section.dart';
 import '../motion/layered_switcher.dart';
+import '../sftp/sftp_drag.dart';
 import '../sftp/sftp_pane.dart';
 import '../shell/ui_state.dart';
 import '../shell/app_shortcuts.dart';
@@ -373,91 +374,103 @@ class _SessionViewState extends _SessionViewBase
     final isCompact =
         MediaQuery.sizeOf(context).width < 650 || DesktopEnv.isMobile;
 
-    final terminalArea = ColoredBox(
-      color: terminalBackgroundFor(scheme, ext),
-      child: ContextMenuArea(
-        key: _menu,
-        onClose: () => _focus.requestFocus(),
-        child: Stack(
-          key: _terminalStackKey,
-          children: [
-            Positioned.fill(child: terminalView),
-            Positioned.fill(
-              child: IgnorePointer(
-                ignoring: !showFailure,
-                child: AnimatedSwitcher(
-                  duration: AppMotion.duration(
-                    context,
-                    AppMotion.durationDefault,
-                  ),
-                  switchInCurve: AppMotion.emphasizedDecelerate,
-                  switchOutCurve: AppMotion.emphasizedAccelerate,
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: ScaleTransition(
-                      scale: Tween<double>(begin: 0.98, end: 1.0).animate(anim),
-                      child: child,
+    final terminalArea = SftpTerminalDropZone(
+      enabled: widget.active && widget.tab.status == SessionStatus.ready,
+      windowsShell: widget.tab.isLocal && PlatformCapabilities.isWindows,
+      acceptLocalOsFiles: widget.tab.isLocal,
+      onInsertText: (text) {
+        session.terminal.paste(text);
+        _focus.requestFocus();
+      },
+      child: ColoredBox(
+        color: terminalBackgroundFor(scheme, ext),
+        child: ContextMenuArea(
+          key: _menu,
+          onClose: () => _focus.requestFocus(),
+          child: Stack(
+            key: _terminalStackKey,
+            children: [
+              Positioned.fill(child: terminalView),
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: !showFailure,
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.duration(
+                      context,
+                      AppMotion.durationDefault,
                     ),
-                  ),
-                  child: showFailure
-                      ? ConnectionFailureView(
-                          key: const ValueKey('failure'),
-                          session: session,
-                          onReconnect: _reconnect,
-                          onDismiss: () {
-                            setState(() {
-                              _failureDismissed = true;
-                              _showLogManually = false;
-                            });
+                    switchInCurve: AppMotion.emphasizedDecelerate,
+                    switchOutCurve: AppMotion.emphasizedAccelerate,
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: ScaleTransition(
+                        scale: Tween<double>(
+                          begin: 0.98,
+                          end: 1.0,
+                        ).animate(anim),
+                        child: child,
+                      ),
+                    ),
+                    child: showFailure
+                        ? ConnectionFailureView(
+                            key: const ValueKey('failure'),
+                            session: session,
+                            onReconnect: _reconnect,
+                            onDismiss: () {
+                              setState(() {
+                                _failureDismissed = true;
+                                _showLogManually = false;
+                              });
 
-                            _focus.requestFocus();
-                          },
-                        )
-                      : const SizedBox.shrink(key: ValueKey('no-failure')),
+                              _focus.requestFocus();
+                            },
+                          )
+                        : const SizedBox.shrink(key: ValueKey('no-failure')),
+                  ),
                 ),
               ),
-            ),
-            if (_selectionMenuPosition != null)
-              SelectionMenu(
-                position: _selectionMenuPosition!,
-                hasSelection: _controller.selection != null,
-                isEmptySpace: _selectionIsEmptiness,
-                selectedCharCount: _getSelectedCharCount(),
-                strings: strings,
-                onCopy: _copy,
-                onPaste: () {
-                  _dismissselectionMenu();
-                  _paste();
-                },
-                onCut: _cut,
-                onSelectAll: _selectAll,
-                onErase: _eraseCurrentSelectionOrLine,
-                onShare: _share,
-                onReset: _reset,
-                onClear: _clear,
-                onLog: widget.tab.isLocal
-                    ? null
-                    : () {
-                        _dismissselectionMenu();
+              if (_selectionMenuPosition != null)
+                SelectionMenu(
+                  position: _selectionMenuPosition!,
+                  hasSelection: _controller.selection != null,
+                  isEmptySpace: _selectionIsEmptiness,
+                  selectedCharCount: _getSelectedCharCount(),
+                  strings: strings,
+                  onCopy: _copy,
+                  onPaste: () {
+                    _dismissselectionMenu();
+                    _paste();
+                  },
+                  onCut: _cut,
+                  onSelectAll: _selectAll,
+                  onErase: _eraseCurrentSelectionOrLine,
+                  onShare: _share,
+                  onReset: _reset,
+                  onClear: _clear,
+                  onLog: widget.tab.isLocal
+                      ? null
+                      : () {
+                          _dismissselectionMenu();
 
-                        setState(() {
-                          _showLogManually = true;
-                        });
-                      },
-                onReconnect: () {
-                  _dismissselectionMenu();
-                  _reconnect();
-                },
-                onDismiss: _dismissselectionMenu,
-              ),
-            // Ручки выделения - для пальца; мышью выделяют и без них.
-            if (DesktopEnv.isMobile &&
-                _controller.selection != null &&
-                !_controller.selection!.isCollapsed) ...[
-              _selectionHandle(start: true),
-              _selectionHandle(start: false),
+                          setState(() {
+                            _showLogManually = true;
+                          });
+                        },
+                  onReconnect: () {
+                    _dismissselectionMenu();
+                    _reconnect();
+                  },
+                  onDismiss: _dismissselectionMenu,
+                ),
+              // Ручки выделения - для пальца; мышью выделяют и без них.
+              if (DesktopEnv.isMobile &&
+                  _controller.selection != null &&
+                  !_controller.selection!.isCollapsed) ...[
+                _selectionHandle(start: true),
+                _selectionHandle(start: false),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

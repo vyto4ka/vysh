@@ -97,8 +97,52 @@ extension SftpStrings on AppStrings {
       isRu ? '«$name» сохранён на сервере' : '«$name» saved on the server';
   String get newFolder => isRu ? 'Новая папка' : 'New folder';
   String get folderName => isRu ? 'Имя папки' : 'Folder name';
+  String get newFile => isRu ? 'Новый файл' : 'New file';
+  String get fileName => isRu ? 'Имя файла' : 'File name';
   String get open => isRu ? 'Открыть' : 'Open';
+  String get openExternally =>
+      isRu ? 'Открыть во внешней программе' : 'Open externally';
+  String get editText => isRu ? 'Редактировать текст' : 'Edit text';
+  String get save => isRu ? 'Сохранить' : 'Save';
+  String get wordWrap => isRu ? 'Перенос строк' : 'Word wrap';
+  String get unsavedChangesTitle =>
+      isRu ? 'Несохранённые изменения' : 'Unsaved changes';
+  String get unsavedChangesDesc => isRu
+      ? 'В файле остались несохранённые правки. Закрыть без сохранения?'
+      : 'This file has unsaved changes. Discard them?';
+  String get discardChanges => isRu ? 'Не сохранять' : 'Discard';
+  String get fileTooLargeForEditor => isRu
+      ? 'Файл больше 2 МБ — откройте его во внешней программе'
+      : 'File is larger than 2 MB — open it externally instead';
+  String get binaryFileWarning => isRu
+      ? 'Похоже на бинарный файл — текстовый редактор для него недоступен'
+      : 'This looks like a binary file and cannot be opened as text';
   String get openFolder => isRu ? 'Открыть папку' : 'Open folder';
+  String get openInTerminal =>
+      isRu ? 'Открыть папку в терминале' : 'Open folder in terminal';
+  String get insertPathInTerminal =>
+      isRu ? 'Вставить путь в терминал' : 'Insert path in terminal';
+  String get copyEntries => isRu ? 'Копировать' : 'Copy';
+  String get cutEntries => isRu ? 'Вырезать' : 'Cut';
+  String pasteEntries(int count) =>
+      isRu ? 'Вставить ($count)' : 'Paste ($count)';
+  String copiedCount(int copied, int skipped) => skipped > 0
+      ? (isRu
+            ? 'Готово: $copied, пропущено: $skipped'
+            : 'Done: $copied, skipped: $skipped')
+      : (isRu ? 'Готово: $copied' : 'Done: $copied');
+  String get sortTitle => isRu ? 'Сортировка' : 'Sort by';
+  String get sortByName => isRu ? 'По имени' : 'Name';
+  String get sortBySize => isRu ? 'По размеру' : 'Size';
+  String get sortByModified => isRu ? 'По дате изменения' : 'Modified';
+  String get sortByType => isRu ? 'По типу' : 'Type';
+  String get filterFiles => isRu ? 'Фильтр по имени…' : 'Filter by name…';
+  String get clearFilter => isRu ? 'Очистить фильтр' : 'Clear filter';
+  String get noMatchingFiles =>
+      isRu ? 'Ничего не найдено' : 'No matching files';
+  String get backFolder => isRu ? 'Назад' : 'Back';
+  String get forwardFolder => isRu ? 'Вперёд' : 'Forward';
+  String get drivesList => isRu ? 'Диски' : 'Drives';
   String get downloadTo => isRu ? 'Скачать в…' : 'Download to…';
   String get permissions => isRu ? 'Права доступа' : 'Permissions';
   String get copyPath => isRu ? 'Копировать путь' : 'Copy path';

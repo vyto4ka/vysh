@@ -67,6 +67,9 @@ enum AppLanguage {
   en,
 }
 
+/// Поле сортировки списка файлов в проводнике.
+enum SftpSortField { name, size, modified, type }
+
 class AppSettings {
   const AppSettings({
     this.themeMode = ThemeMode.system,
@@ -103,6 +106,9 @@ class AppSettings {
     this.catppuccinAccent = 'mauve',
     this.serverStats = true,
     this.followTerminalDirectory = true,
+    this.showHiddenFiles = false,
+    this.sftpSortField = SftpSortField.name,
+    this.sftpSortAscending = true,
     this.checkForUpdates = true,
     this.updatePromptDays = 3,
   });
@@ -194,6 +200,15 @@ class AppSettings {
   /// Автоматически переходить в проводнике за рабочей папкой оболочки терминала.
   final bool followTerminalDirectory;
 
+  /// Показывать скрытые файлы и папки (начинающиеся с `.`) в проводнике.
+  final bool showHiddenFiles;
+
+  /// Поле сортировки списка файлов в проводнике.
+  final SftpSortField sftpSortField;
+
+  /// Направление сортировки в проводнике (true - по возрастанию).
+  final bool sftpSortAscending;
+
   /// Проверять обновления автоматически.
   final bool checkForUpdates;
 
@@ -235,6 +250,9 @@ class AppSettings {
     String? catppuccinAccent,
     bool? serverStats,
     bool? followTerminalDirectory,
+    bool? showHiddenFiles,
+    SftpSortField? sftpSortField,
+    bool? sftpSortAscending,
     bool? checkForUpdates,
     int? updatePromptDays,
   }) => AppSettings(
@@ -274,6 +292,9 @@ class AppSettings {
     serverStats: serverStats ?? this.serverStats,
     followTerminalDirectory:
         followTerminalDirectory ?? this.followTerminalDirectory,
+    showHiddenFiles: showHiddenFiles ?? this.showHiddenFiles,
+    sftpSortField: sftpSortField ?? this.sftpSortField,
+    sftpSortAscending: sftpSortAscending ?? this.sftpSortAscending,
     checkForUpdates: checkForUpdates ?? this.checkForUpdates,
     updatePromptDays: updatePromptDays ?? this.updatePromptDays,
   );
@@ -314,6 +335,9 @@ class AppSettings {
     'catppuccinAccent': catppuccinAccent,
     'serverStats': serverStats,
     'followTerminalDirectory': followTerminalDirectory,
+    'showHiddenFiles': showHiddenFiles,
+    'sftpSortField': sftpSortField.name,
+    'sftpSortAscending': sftpSortAscending,
     'checkForUpdates': checkForUpdates,
     'updatePromptDays': updatePromptDays,
   };
@@ -379,6 +403,12 @@ class AppSettings {
     catppuccinAccent: json.str('catppuccinAccent') ?? 'mauve',
     serverStats: json.boolean('serverStats') ?? true,
     followTerminalDirectory: json.boolean('followTerminalDirectory') ?? true,
+    showHiddenFiles: json.boolean('showHiddenFiles') ?? false,
+    sftpSortField: SftpSortField.values.firstWhere(
+      (f) => f.name == json['sftpSortField'],
+      orElse: () => SftpSortField.name,
+    ),
+    sftpSortAscending: json.boolean('sftpSortAscending') ?? true,
     checkForUpdates: json.boolean('checkForUpdates') ?? true,
     updatePromptDays: switch (json.integer('updatePromptDays')) {
       1 => 1,

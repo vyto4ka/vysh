@@ -29,6 +29,12 @@ class LocalFileSession implements SftpSession {
 
   @override
   Future<List<RemoteEntry>> list(String path) async {
+    if (Platform.isWindows) {
+      final normalized = path.replaceAll('/', '\\').trim();
+      if (normalized.isEmpty || normalized == r'\') {
+        return _listWindowsDrives();
+      }
+    }
     try {
       final result = <RemoteEntry>[];
       await for (final e in Directory(path).list(followLinks: false)) {
@@ -42,6 +48,30 @@ class LocalFileSession implements SftpSession {
     } on FileSystemException catch (e) {
       throw localFilesystemFailure(e);
     }
+  }
+
+  Future<List<RemoteEntry>> _listWindowsDrives() async {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    final drives = <RemoteEntry>[];
+    final checks = [
+      for (var i = 0; i < letters.length; i++)
+        () async {
+          final root = '${letters[i]}:\\';
+          try {
+            final ok = await Directory(
+              root,
+            ).exists().timeout(const Duration(milliseconds: 350));
+            if (ok) {
+              return RemoteEntry(name: root, path: root, isDir: true);
+            }
+          } catch (_) {}
+          return null;
+        }(),
+    ];
+    for (final entry in await Future.wait(checks)) {
+      if (entry != null) drives.add(entry);
+    }
+    return drives;
   }
 
   @override

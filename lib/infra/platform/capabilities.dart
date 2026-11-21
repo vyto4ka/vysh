@@ -19,15 +19,21 @@ abstract final class PlatformCapabilities {
   }
 
   /// Своё окно с управлением через window_manager (размер, заголовок).
-  static bool get desktopWindow => _is(
-      () => Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+  static bool get desktopWindow =>
+      _is(() => Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
-  /// Перетаскивание файлов между панелью SFTP и файловым менеджером.
-  static bool get fileDragAndDrop => desktopWindow;
+  /// Перетаскивание файлов между панелью SFTP и файловым менеджером
+  /// (в безголовом flutter test нативного канала DropManager нет).
+  static bool get fileDragAndDrop => _is(
+    () =>
+        !Platform.environment.containsKey('FLUTTER_TEST') &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS),
+  );
 
   /// Перетаскивание наружу «виртуальным файлом»: получатель (Проводник,
   /// Finder) сам запрашивает содержимое после отпускания. Только файлы.
-  static bool get dragOutVirtualFiles => _is(() => Platform.isWindows || Platform.isMacOS);
+  static bool get dragOutVirtualFiles =>
+      _is(() => Platform.isWindows || Platform.isMacOS);
 
   /// Перетаскивание наружу ссылкой на файл (text/uri-list, Linux): копия
   /// скачивается во временную папку, получатель забирает её оттуда.
@@ -36,6 +42,9 @@ abstract final class PlatformCapabilities {
 
   /// Текущая ОС - macOS (нативный светофор, ⌘-шорткаты, свои пути).
   static bool get isMacOS => _is(() => Platform.isMacOS);
+
+  /// Текущая ОС - Windows (буквы дисков `C:\`, пути с `\`, оболочка cmd/pwsh).
+  static bool get isWindows => _is(() => Platform.isWindows);
 
   /// Края окна без системной рамки тянем сами (Linux; на Windows это делает система).
   static bool get selfResizedWindow => _is(() => Platform.isLinux);
@@ -53,11 +62,13 @@ abstract final class PlatformCapabilities {
   static bool get sharedDownloads => _is(() => Platform.isAndroid);
 
   /// Системные утилиты сети (ping, traceroute) и процессы.
-  static bool get processes => _is(() => !Platform.isAndroid && !Platform.isIOS);
+  static bool get processes =>
+      _is(() => !Platform.isAndroid && !Platform.isIOS);
 
   /// Шрифт терминала по умолчанию - свой из сборки: на macOS и Android
   /// подходящего моноширинного в системе нет.
-  static bool get bundledMonoFont => _is(() => Platform.isMacOS || Platform.isAndroid);
+  static bool get bundledMonoFont =>
+      _is(() => Platform.isMacOS || Platform.isAndroid);
 
   /// Список установленных шрифтов можно прочитать из системных папок.
   static bool get systemFontList => desktopWindow;

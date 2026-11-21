@@ -111,6 +111,15 @@ class SettingsController extends Notifier<AppSettings> {
   void setServerStats(bool v) => _update(state.copyWith(serverStats: v));
   void setFollowTerminalDirectory(bool v) =>
       _update(state.copyWith(followTerminalDirectory: v));
+  void setShowHiddenFiles(bool v) =>
+      _update(state.copyWith(showHiddenFiles: v));
+  void setSftpSort(SftpSortField field) {
+    final ascending = state.sftpSortField == field
+        ? !state.sftpSortAscending
+        : (field == SftpSortField.name || field == SftpSortField.type);
+    _update(state.copyWith(sftpSortField: field, sftpSortAscending: ascending));
+  }
+
   void setTitleBarMode(TitleBarMode v) =>
       _update(state.copyWith(titleBarMode: v));
   void setKeepAliveSeconds(int seconds) =>

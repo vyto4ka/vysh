@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import '../../infra/platform/capabilities.dart';
@@ -8,6 +9,7 @@ import '../../domain/ports/sftp.dart';
 import '../terminal/terminal_session.dart';
 import '../controllers/transfer_queue.dart';
 import 'file_copy.dart';
+import 'sftp_clipboard.dart';
 import '../../infra/platform/local_file_session.dart';
 
 /// Ответ на вопрос о файлах, которые уже есть на сервере:
@@ -50,13 +52,14 @@ class SftpActions {
     final sftp = await _sftp;
     const local = LocalFileSession();
     final entries = [for (final path in localPaths) await local.stat(path)];
+    final total = await estimateTransferBytes(local, entries);
     queue.enqueue(
       tabId: tabId,
       direction: TransferDirection.upload,
       name: entries.map((e) => e.name).join(', '),
       localPath: localPaths.firstOrNull ?? '',
       remotePath: remoteDir,
-      total: 0,
+      total: total,
       run: (cancel, progress) async {
         final copy = FileCopy(
           source: local,
@@ -136,13 +139,14 @@ class SftpActions {
         entries.isNotEmpty) {
       const local = LocalFileSession();
       final destination = dir;
+      final total = await estimateTransferBytes(sftp, entries);
       queue.enqueue(
         tabId: tabId,
         direction: TransferDirection.download,
         name: entries.map((e) => e.name).join(', '),
         localPath: dir,
         remotePath: entries.first.path,
-        total: 0,
+        total: total,
         run: (cancel, progress) async {
           final copy = FileCopy(
             source: sftp,
@@ -497,4 +501,264 @@ class DragDownload {
       _queue.cancel(id);
     }
   }
+}
+
+enum SftpTextEditError { tooLarge, binary }
+
+class SftpTextEditException implements Exception {
+  const SftpTextEditException(this.error);
+  final SftpTextEditError error;
+}
+
+/// Максимальный размер файла для встроенного текстового редактора (2 МБ).
+const sftpMaxTextBytes = 2 * 1024 * 1024;
+
+/// Оценить суммарный объём файлов (и содержимого папок с лимитом обхода,
+/// чтобы не задерживать старт на гигантских деревьях).
+Future<int> estimateTransferBytes(
+  SftpSession source,
+  List<RemoteEntry> entries, {
+  int maxDirReads = 120,
+}) async {
+  var total = 0;
+  var dirReads = 0;
+  Future<void> walk(RemoteEntry e) async {
+    if (!e.isDir) {
+      total += e.size;
+      return;
+    }
+    if (e.isLink || dirReads >= maxDirReads) return;
+    dirReads++;
+    try {
+      for (final child in await source.list(e.path)) {
+        await walk(child);
+      }
+    } catch (_) {}
+  }
+
+  for (final e in entries) {
+    await walk(e);
+  }
+  return total;
+}
+
+/// Создать пустой файл [targetPath], не перезаписывая существующий.
+Future<void> createEmptySftpFile(SftpSession sftp, String targetPath) async {
+  var exists = false;
+  try {
+    await sftp.stat(targetPath);
+    exists = true;
+  } on SftpFailure catch (e) {
+    if (e.code != SftpFailureCode.noSuchFile) rethrow;
+  }
+  if (exists) throw const SftpFailure(SftpFailureCode.exists);
+
+  final tempDir = await Directory.systemTemp.createTemp('vysh-empty-');
+  try {
+    final emptyFile = File('${tempDir.path}${Platform.pathSeparator}empty');
+    await emptyFile.writeAsBytes(const []);
+    await sftp.upload(
+      emptyFile,
+      targetPath,
+      cancel: CancelToken(),
+      onProgress: (_) {},
+    );
+  } finally {
+    try {
+      await tempDir.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+/// Скачать и декодировать текстовый файл (проверяя размер и отсутствие NUL-байт).
+Future<String> readSftpTextFile(
+  SftpSession sftp,
+  RemoteEntry entry, {
+  CancelToken? cancel,
+  int maxBytes = sftpMaxTextBytes,
+}) async {
+  if (entry.size > maxBytes) {
+    throw const SftpTextEditException(SftpTextEditError.tooLarge);
+  }
+  final tempDir = await Directory.systemTemp.createTemp('vysh-text-read-');
+  try {
+    final tempFile = File('${tempDir.path}${Platform.pathSeparator}content');
+    await sftp.download(
+      entry.path,
+      tempFile,
+      cancel: cancel ?? CancelToken(),
+      onProgress: (_) {},
+    );
+    final bytes = await tempFile.readAsBytes();
+    if (bytes.length > maxBytes) {
+      throw const SftpTextEditException(SftpTextEditError.tooLarge);
+    }
+    final probeLen = bytes.length < 8192 ? bytes.length : 8192;
+    for (var i = 0; i < probeLen; i++) {
+      if (bytes[i] == 0) {
+        throw const SftpTextEditException(SftpTextEditError.binary);
+      }
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  } finally {
+    try {
+      await tempDir.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+/// Сохранить изменённый текст обратно в [targetPath] атомарно через upload.
+Future<void> writeSftpTextFile(
+  SftpSession sftp,
+  String targetPath,
+  String content, {
+  CancelToken? cancel,
+}) async {
+  final tempDir = await Directory.systemTemp.createTemp('vysh-text-write-');
+  try {
+    final tempFile = File('${tempDir.path}${Platform.pathSeparator}content');
+    await tempFile.writeAsBytes(utf8.encode(content), flush: true);
+    await sftp.upload(
+      tempFile,
+      targetPath,
+      cancel: cancel ?? CancelToken(),
+      onProgress: (_) {},
+    );
+  } finally {
+    try {
+      await tempDir.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+/// Рекурсивное удаление записей с поддержкой отмены [cancel].
+Future<void> deleteSftpEntries(
+  SftpSession sftp,
+  List<RemoteEntry> entries, {
+  CancelToken? cancel,
+}) async {
+  Future<void> removeOne(RemoteEntry e) async {
+    if (cancel?.isCancelled == true) throw const TransferCancelled();
+    if (e.isDir && !e.isLink) {
+      for (final child in await sftp.list(e.path)) {
+        await removeOne(child);
+      }
+      if (cancel?.isCancelled == true) throw const TransferCancelled();
+      await sftp.removeDir(e.path);
+    } else {
+      await sftp.removeFile(e.path);
+    }
+  }
+
+  for (final e in entries) {
+    await removeOne(e);
+  }
+}
+
+/// Вставить записи из [clip] в [targetDir] на [target] (поддерживает как
+/// мгновенное перемещение внутри одной ФС, так и копирование между серверами).
+Future<void> pasteSftpClipboard({
+  required SftpClipboardData clip,
+  required String targetIdentity,
+  required SftpSession target,
+  required String targetDir,
+  required String Function(String dir, String name) joinPath,
+  required String tabId,
+  required TransferQueue queue,
+  required ResolveCopyConflict resolveConflict,
+  void Function()? onSettled,
+  void Function(int copied, int skipped)? onCompleted,
+}) async {
+  final sameFs = clip.sourceIdentity == targetIdentity;
+  if (clip.cut && sameFs) {
+    // Быстрое атомарное перемещение на одной и той же ФС (кроме вставки в ту же папку).
+    var allMovedFast = true;
+    for (final e in clip.entries) {
+      final dest = joinPath(targetDir, e.name);
+      if (dest == e.path) continue;
+      if (e.isDir &&
+          (targetDir == e.path ||
+              targetDir.startsWith('${e.path}/') ||
+              targetDir.startsWith('${e.path}\\'))) {
+        continue;
+      }
+      try {
+        await target.stat(dest);
+        allMovedFast = false;
+        break;
+      } on SftpFailure catch (err) {
+        if (err.code != SftpFailureCode.noSuchFile) {
+          allMovedFast = false;
+          break;
+        }
+      }
+    }
+    if (allMovedFast) {
+      var moved = 0;
+      for (final e in clip.entries) {
+        final dest = joinPath(targetDir, e.name);
+        if (dest == e.path) continue;
+        if (e.isDir &&
+            (targetDir == e.path ||
+                targetDir.startsWith('${e.path}/') ||
+                targetDir.startsWith('${e.path}\\'))) {
+          continue;
+        }
+        await target.rename(e.path, dest);
+        moved++;
+      }
+      onCompleted?.call(moved, 0);
+      onSettled?.call();
+      return;
+    }
+  }
+
+  final source = await clip.openSource();
+  final total = await estimateTransferBytes(source, clip.entries);
+  queue.enqueue(
+    tabId: tabId,
+    direction: TransferDirection.upload,
+    name: clip.entries.map((e) => e.name).join(', '),
+    localPath: '',
+    remotePath: targetDir,
+    total: total,
+    run: (cancel, progress) async {
+      final copier = FileCopy(
+        source: source,
+        sameFilesystem: sameFs,
+        target: target,
+        cancel: cancel,
+        progress: progress,
+        resolve: resolveConflict,
+      );
+      for (final entry in clip.entries) {
+        final dest = joinPath(targetDir, entry.name);
+        if (sameFs && dest == entry.path && !clip.cut) {
+          // Дублирование файла/папки в той же директории («имя (2)»).
+          final copy = FileCopy(
+            source: source,
+            sameFilesystem: true,
+            target: target,
+            cancel: cancel,
+            progress: progress,
+            resolve: (_) async => const CopyDecision(CopyChoice.keepBoth),
+          );
+          await copy.copy(entry, dest);
+          copier.copied += copy.copied;
+          continue;
+        }
+        final prevCopied = copier.copied;
+        final prevSkipped = copier.skipped;
+        await copier.copy(entry, dest);
+        if (clip.cut &&
+            dest != entry.path &&
+            copier.skipped == prevSkipped &&
+            copier.copied > prevCopied) {
+          await deleteSftpEntries(source, [entry], cancel: cancel);
+        }
+      }
+      onCompleted?.call(copier.copied, copier.skipped);
+    },
+    onSettled: onSettled,
+  );
 }

@@ -1,15 +1,20 @@
 import 'dart:async' show unawaited;
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../app/controllers/settings_controller.dart';
 import '../../app/controllers/tabs_controller.dart';
 import '../../app/controllers/transfer_queue.dart';
+import '../../app/dependencies.dart';
+import '../../app/settings/app_settings.dart';
 import '../../app/sftp/file_copy.dart';
+import '../../app/sftp/sftp_actions.dart';
 import '../../app/sftp/sftp_directory.dart';
 import '../../domain/models/session_tab.dart';
 import '../../domain/ports/sftp.dart';
-import '../../app/dependencies.dart';
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/desktop_env.dart';
 import '../../infra/platform/local_files.dart';
@@ -20,11 +25,13 @@ import '../motion/expressive_segments.dart';
 import '../motion/layered_switcher.dart';
 import '../motion/smooth_scroll.dart';
 import '../shell/ui_state.dart';
-import 'transfers_view.dart';
-import 'file_path_bar.dart';
-import 'sftp_entry_row.dart';
-import '../widgets/modifiers.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/modifiers.dart';
+import 'file_path_bar.dart';
+import 'sftp_dialogs.dart';
+import 'sftp_entry_row.dart';
+import 'sftp_text_editor.dart';
+import 'transfers_view.dart';
 
 final fileWorkspaceLocalProvider = localFileSessionProvider;
 
@@ -98,6 +105,7 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
 
   bool get isRu =>
       AppStrings.of(context, ref.read(settingsProvider).language).isRu;
+
   Future<void> _copy(bool right) async {
     final source = (right ? _left : _right).currentState!;
     final target = (right ? _right : _left).currentState!;
@@ -109,7 +117,8 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
     final to = target.endpoint;
     if (from == null || to == null) return;
     setState(() => _busy = true);
-    // Capture source/target before queueing: changing a dropdown cannot redirect a copy.
+    final total = await estimateTransferBytes(from, entries);
+    if (!mounted) return;
     ref
         .read(transferQueueProvider.notifier)
         .enqueue(
@@ -118,7 +127,7 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
           name: entries.map((e) => e.name).join(', '),
           localPath: '',
           remotePath: dir,
-          total: 0,
+          total: total,
           run: (cancel, progress) async {
             final copier = FileCopy(
               source: from,
@@ -360,12 +369,34 @@ class _BrowserState extends ConsumerState<_Browser> {
     return endpoint!;
   });
   final _path = TextEditingController();
+  final _pathFocus = FocusNode();
+  final _filterField = TextEditingController();
+  final _filterFocus = FocusNode();
+  final _listFocus = FocusNode();
+  final _history = SftpPathHistory();
   final _selected = <String>{};
   final _menu = GlobalKey<ContextMenuAreaState>();
   bool _hasStorageAccess = true;
+  bool _showFilter = false;
+  bool _navigatingHistory = false;
   int _request = 0;
   List<RemoteEntry> _previous = const [];
   String? _anchor;
+  String? _cursorPath;
+  ScrollController? _activeScroll;
+
+  bool get _isLocal => _source.isEmpty;
+  bool get _windowsPaths => _isLocal && PlatformCapabilities.isWindows;
+
+  String _parentOf(String path) =>
+      _isLocal ? LocalFiles.parentPath(path) : remoteParent(path);
+  String _joinPath(String dir, String name) =>
+      _isLocal ? LocalFiles.join(dir, name) : remoteJoin(dir, name);
+  bool _isRoot(String path) =>
+      _isLocal ? LocalFiles.isRootPath(path) : path == '/';
+
+  AppStrings get _s =>
+      AppStrings.of(context, ref.read(settingsProvider).language);
 
   String get _localLabel => PlatformCapabilities.sharedDownloads
       ? (_hasStorageAccess
@@ -400,17 +431,19 @@ class _BrowserState extends ConsumerState<_Browser> {
     List<RemoteEntry> entries, {
     bool toggle = false,
   }) {
+    _listFocus.requestFocus();
     setState(() {
       if (Modifiers.instance.shift && _anchor != null) {
         final a = entries.indexWhere((e) => e.path == _anchor);
         final b = entries.indexOf(entry);
-        if (a >= 0) {
+        if (a >= 0 && b >= 0) {
           if (!Modifiers.instance.ctrl) _selected.clear();
           _selected.addAll(
             entries
                 .sublist(a < b ? a : b, (a > b ? a : b) + 1)
                 .map((e) => e.path),
           );
+          _cursorPath = entry.path;
         }
       } else {
         final remove = _selected.contains(entry.path);
@@ -428,6 +461,7 @@ class _BrowserState extends ConsumerState<_Browser> {
           _selected.add(entry.path);
         }
         _anchor = entry.path;
+        _cursorPath = entry.path;
       }
     });
     widget.onChanged();
@@ -441,8 +475,26 @@ class _BrowserState extends ConsumerState<_Browser> {
   String get identity => _source.isEmpty
       ? 'local'
       : ref.read(tabsProvider.notifier).sessionOf(_source)?.target ?? _source;
+
   List<RemoteEntry> get selection =>
       directory.entries.where((e) => _selected.contains(e.path)).toList();
+
+  List<RemoteEntry> _computeVisible(AppSettings settings) {
+    final query = _filterField.text.trim().toLowerCase();
+    final filtered = directory.entries.where((e) {
+      if (!settings.showHiddenFiles && e.isHidden) return false;
+      if (query.isNotEmpty && !e.name.toLowerCase().contains(query)) {
+        return false;
+      }
+      return true;
+    });
+    return sortSftpEntries(
+      filtered,
+      settings.sftpSortField,
+      ascending: settings.sftpSortAscending,
+    );
+  }
+
   @override
   void didUpdateWidget(_Browser old) {
     super.didUpdateWidget(old);
@@ -461,6 +513,9 @@ class _BrowserState extends ConsumerState<_Browser> {
   @override
   void initState() {
     super.initState();
+    _filterField.addListener(() {
+      if (mounted) setState(() {});
+    });
     directory.addListener(_changed);
     unawaited(_checkStorageAccess());
     _connect();
@@ -473,8 +528,14 @@ class _BrowserState extends ConsumerState<_Browser> {
         _previous = directory.entries;
         _selected.clear();
         _anchor = null;
+        _cursorPath = null;
       }
       if (!directory.loading) {
+        if (directory.error == null &&
+            directory.cwd != null &&
+            !_navigatingHistory) {
+          _history.record(directory.cwd!);
+        }
         _path.text =
             (directory.error != null
                 ? directory.requestedPath
@@ -489,6 +550,7 @@ class _BrowserState extends ConsumerState<_Browser> {
     final request = ++_request;
     endpoint = null;
     _selected.clear();
+    _history.clear();
     try {
       final connected = _source.isEmpty
           ? ref.read(fileWorkspaceLocalProvider)
@@ -498,13 +560,9 @@ class _BrowserState extends ConsumerState<_Browser> {
       await directory.home();
     } catch (e) {
       if (mounted && request == _request) {
-        final strings = AppStrings.of(
-          context,
-          ref.read(settingsProvider).language,
-        );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(strings.errorText(e))));
+        ).showSnackBar(SnackBar(content: Text(_s.errorText(e))));
       }
     }
   }
@@ -514,433 +572,904 @@ class _BrowserState extends ConsumerState<_Browser> {
     await directory.open(path);
   }
 
+  Future<void> _goBack() async {
+    final target = _history.back();
+    if (target == null) return;
+    _navigatingHistory = true;
+    try {
+      await _open(target);
+    } finally {
+      _navigatingHistory = false;
+    }
+  }
+
+  Future<void> _goForward() async {
+    final target = _history.forward();
+    if (target == null) return;
+    _navigatingHistory = true;
+    try {
+      await _open(target);
+    } finally {
+      _navigatingHistory = false;
+    }
+  }
+
+  void _toggleFilter() {
+    setState(() {
+      _showFilter = !_showFilter;
+      if (!_showFilter) _filterField.clear();
+    });
+    if (_showFilter) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _filterFocus.requestFocus();
+      });
+    } else {
+      _listFocus.requestFocus();
+    }
+  }
+
+  void _closeFilter() {
+    if (!_showFilter) return;
+    setState(() {
+      _showFilter = false;
+      _filterField.clear();
+    });
+    _listFocus.requestFocus();
+  }
+
+  Future<void> _run(Future<void> Function() fn) async {
+    try {
+      await fn();
+      if (mounted) await directory.refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_s.errorText(e)),
+          backgroundColor: Theme.of(context).colorScheme.errorContainer,
+        ),
+      );
+    }
+  }
+
+  Future<void> _mkdir() async {
+    final cwd = directory.cwd;
+    if (cwd == null || endpoint == null) return;
+    final name = await askText(
+      context,
+      title: _s.newFolder,
+      label: _s.folderName,
+    );
+    if (name == null || name.isEmpty) return;
+    await _run(() => endpoint!.mkdir(_joinPath(cwd, name)));
+  }
+
+  Future<void> _mkfile() async {
+    final cwd = directory.cwd;
+    if (cwd == null || endpoint == null) return;
+    final name = await askText(context, title: _s.newFile, label: _s.fileName);
+    if (name == null || name.isEmpty) return;
+    await _run(() => createEmptySftpFile(endpoint!, _joinPath(cwd, name)));
+  }
+
+  Future<void> _rename(RemoteEntry e) async {
+    if (endpoint == null) return;
+    final name = await askText(
+      context,
+      title: _s.rename,
+      label: _s.newNameHint,
+      initial: e.name,
+    );
+    if (name == null || name.isEmpty || name == e.name) return;
+    await _run(
+      () => endpoint!.rename(e.path, _joinPath(_parentOf(e.path), name)),
+    );
+  }
+
+  Future<void> _chmod(RemoteEntry e) async {
+    if (endpoint == null) return;
+    final mode = await askPermissions(context, e);
+    if (mode == null) return;
+    await _run(() => endpoint!.chmod(e.path, mode));
+  }
+
+  Future<void> _delete(List<RemoteEntry> entries) async {
+    if (entries.isEmpty || endpoint == null) return;
+    final ok = await confirmDelete(context, entries);
+    if (!ok) return;
+    await _run(() => deleteSftpEntries(endpoint!, entries));
+  }
+
+  Future<void> _editText(RemoteEntry e) async {
+    if (endpoint == null) return;
+    final saved = await openSftpTextEditor(
+      context,
+      openSession: () async => endpoint!,
+      entry: e,
+      strings: _s,
+    );
+    if (saved && mounted) await directory.refresh();
+  }
+
+  void _moveCursor(
+    List<RemoteEntry> list,
+    int delta, {
+    bool extend = false,
+    bool toEdge = false,
+  }) {
+    if (list.isEmpty) return;
+    final currentIdx = _cursorPath == null
+        ? -1
+        : list.indexWhere((e) => e.path == _cursorPath);
+    final int nextIdx;
+    if (toEdge) {
+      nextIdx = delta < 0 ? 0 : list.length - 1;
+    } else if (currentIdx < 0) {
+      nextIdx = delta < 0 ? list.length - 1 : 0;
+    } else {
+      nextIdx = (currentIdx + delta).clamp(0, list.length - 1);
+    }
+    final target = list[nextIdx];
+    setState(() {
+      if (extend && _anchor != null) {
+        final a = list.indexWhere((e) => e.path == _anchor);
+        if (a >= 0) {
+          _selected
+            ..clear()
+            ..addAll(
+              list
+                  .sublist(
+                    a < nextIdx ? a : nextIdx,
+                    (a < nextIdx ? nextIdx : a) + 1,
+                  )
+                  .map((e) => e.path),
+            );
+        } else {
+          _selected
+            ..clear()
+            ..add(target.path);
+          _anchor = target.path;
+        }
+      } else {
+        _selected
+          ..clear()
+          ..add(target.path);
+        _anchor = target.path;
+      }
+      _cursorPath = target.path;
+    });
+    widget.onChanged();
+    final scroll = _activeScroll;
+    if (scroll != null && scroll.hasClients) {
+      final hasParent = directory.cwd != null && !_isRoot(directory.cwd!);
+      final rowIdx = nextIdx + (hasParent ? 1 : 0);
+      final h = Theme.of(context).visualDensity == VisualDensity.compact
+          ? 50.0
+          : 58.0;
+      final top = rowIdx * h;
+      final bottom = top + h;
+      final pos = scroll.position;
+      if (top < pos.pixels) {
+        scroll.jumpTo(top);
+      } else if (bottom > pos.pixels + pos.viewportDimension) {
+        scroll.jumpTo(
+          (bottom - pos.viewportDimension).clamp(0.0, pos.maxScrollExtent),
+        );
+      }
+    }
+  }
+
+  List<Widget> _folderMenuItems(AppStrings strings, bool showHidden) => [
+    menuItem(
+      strings.newFile,
+      icon: Icons.note_add_outlined,
+      onPressed: widget.enabled ? _mkfile : null,
+    ),
+    menuItem(
+      strings.newFolder,
+      icon: Icons.create_new_folder_outlined,
+      onPressed: widget.enabled ? _mkdir : null,
+    ),
+    menuDivider(),
+    menuItem(
+      strings.homeFolder,
+      icon: Icons.home_outlined,
+      onPressed: widget.enabled
+          ? () {
+              _clear();
+              directory.home();
+            }
+          : null,
+    ),
+    menuItem(
+      strings.refresh,
+      icon: Icons.refresh,
+      shortcut: Keys.refresh,
+      onPressed: widget.enabled
+          ? () {
+              _clear();
+              directory.refresh();
+            }
+          : null,
+    ),
+    CheckboxMenuButton(
+      value: showHidden,
+      onChanged: (v) =>
+          ref.read(settingsProvider.notifier).setShowHiddenFiles(v!),
+      child: Text(strings.hiddenFiles),
+    ),
+  ];
+
+  void _openEntryMenu(
+    Offset position,
+    RemoteEntry? entry,
+    List<RemoteEntry> entries,
+    AppStrings strings,
+    bool showHidden,
+  ) {
+    if (entry != null && !_selected.contains(entry.path)) {
+      setState(() {
+        _selected
+          ..clear()
+          ..add(entry.path);
+        _anchor = entry.path;
+        _cursorPath = entry.path;
+      });
+      widget.onChanged();
+    }
+    final sel = selection;
+    final single = sel.length == 1 ? sel.first : null;
+    final mac = PlatformCapabilities.isMacOS;
+    final errorColor = Theme.of(context).colorScheme.error;
+
+    _menu.currentState?.open(position, [
+      if (single != null && !single.isDir)
+        menuItem(
+          strings.editText,
+          icon: Icons.edit_note,
+          shortcut: SingleActivator(
+            LogicalKeyboardKey.keyE,
+            control: !mac,
+            meta: mac,
+          ),
+          onPressed: widget.enabled ? () => _editText(single) : null,
+        ),
+      if (single != null && single.isDir)
+        menuItem(
+          strings.openFolder,
+          icon: Icons.folder_open,
+          onPressed: widget.enabled ? () => _open(single.path) : null,
+        ),
+      if (entry != null)
+        menuItem(
+          _selected.contains(entry.path)
+              ? strings.deselectEntry
+              : strings.selectEntry,
+          icon: Icons.check_box_outlined,
+          onPressed: widget.enabled
+              ? () => _select(entry, entries, toggle: true)
+              : null,
+        ),
+      if (single != null) ...[
+        menuItem(
+          strings.rename,
+          icon: Icons.drive_file_rename_outline,
+          shortcut: Keys.rename,
+          onPressed: widget.enabled ? () => _rename(single) : null,
+        ),
+        if (!_isLocal)
+          menuItem(
+            strings.permissions,
+            icon: Icons.lock_outline,
+            onPressed: widget.enabled ? () => _chmod(single) : null,
+          ),
+        menuItem(
+          strings.copyPath,
+          icon: Icons.content_copy,
+          onPressed: () => Clipboard.setData(ClipboardData(text: single.path)),
+        ),
+      ],
+      if (sel.isNotEmpty) ...[
+        menuItem(
+          strings.delete,
+          icon: Icons.delete_outline,
+          shortcut: Keys.delete,
+          color: errorColor,
+          onPressed: widget.enabled ? () => _delete(sel) : null,
+        ),
+        menuDivider(),
+      ],
+      ..._folderMenuItems(strings, showHidden),
+    ]);
+  }
+
   @override
   void dispose() {
     _request++;
     directory.dispose();
     _path.dispose();
+    _pathFocus.dispose();
+    _filterField.dispose();
+    _filterFocus.dispose();
+    _listFocus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final entries = directory.entries.toList()
-      ..sort(
-        (a, b) => a.isDir != b.isDir
-            ? (a.isDir ? -1 : 1)
-            : a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
-    final strings = AppStrings.of(
-      context,
-      ref.watch(settingsProvider.select((s) => s.language)),
-    );
+    final settings = ref.watch(settingsProvider);
+    final entries = _computeVisible(settings);
+    final strings = AppStrings.of(context, settings.language);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final isLocal = _source.isEmpty;
-    return ContextMenuArea(
-      key: _menu,
-      child: Card.filled(
-        color: scheme.surfaceContainerLow,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: MenuAnchor(
-                      menuChildren: [
-                        MenuItemButton(
-                          leadingIcon: const Icon(Icons.computer_outlined),
-                          trailingIcon: _source.isEmpty
-                              ? const Icon(Icons.check)
-                              : null,
-                          onPressed: widget.enabled
-                              ? () {
-                                  setState(() => _source = '');
-                                  _connect();
-                                }
-                              : null,
-                          child: Text(_localLabel),
-                        ),
-                        if (widget.tabs.isNotEmpty) menuDivider(),
-                        for (final t in widget.tabs)
-                          MenuItemButton(
-                            leadingIcon: const Icon(Icons.dns_outlined),
-                            trailingIcon: t.id == _source
-                                ? const Icon(Icons.check)
-                                : null,
-                            onPressed: widget.enabled
-                                ? () {
-                                    setState(() => _source = t.id);
-                                    _connect();
-                                  }
-                                : null,
-                            child: Text(t.title),
+    final hasParentRow = directory.cwd != null && !_isRoot(directory.cwd!);
+    final mac = PlatformCapabilities.isMacOS;
+
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (e) {
+        if (!widget.enabled || endpoint == null) return;
+        if (e.buttons == kBackMouseButton && _history.canBack) {
+          _goBack();
+        } else if (e.buttons == kForwardMouseButton && _history.canForward) {
+          _goForward();
+        }
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          SingleActivator(LogicalKeyboardKey.keyF, control: !mac, meta: mac):
+              _toggleFilter,
+          SingleActivator(
+            LogicalKeyboardKey.keyL,
+            control: !mac,
+            meta: mac,
+          ): () {
+            _pathFocus.requestFocus();
+            _path.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _path.text.length,
+            );
+          },
+          const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+              _goBack,
+          const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+              _goForward,
+        },
+        child: ContextMenuArea(
+          key: _menu,
+          child: Card.filled(
+            color: scheme.surfaceContainerLow,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: MenuAnchor(
+                          menuChildren: [
+                            MenuItemButton(
+                              leadingIcon: const Icon(Icons.computer_outlined),
+                              trailingIcon: _source.isEmpty
+                                  ? const Icon(Icons.check)
+                                  : null,
+                              onPressed: widget.enabled
+                                  ? () {
+                                      setState(() => _source = '');
+                                      _connect();
+                                    }
+                                  : null,
+                              child: Text(_localLabel),
+                            ),
+                            if (widget.tabs.isNotEmpty) menuDivider(),
+                            for (final t in widget.tabs)
+                              MenuItemButton(
+                                leadingIcon: const Icon(Icons.dns_outlined),
+                                trailingIcon: t.id == _source
+                                    ? const Icon(Icons.check)
+                                    : null,
+                                onPressed: widget.enabled
+                                    ? () {
+                                        setState(() => _source = t.id);
+                                        _connect();
+                                      }
+                                    : null,
+                                child: Text(t.title),
+                              ),
+                          ],
+                          builder: (context, menu, _) => TextButton(
+                            onPressed: !widget.enabled
+                                ? null
+                                : () =>
+                                      menu.isOpen ? menu.close() : menu.open(),
+                            style: TextButton.styleFrom(
+                              foregroundColor: scheme.onSurface,
+                              minimumSize: const Size(48, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _source.isEmpty
+                                      ? Icons.computer_outlined
+                                      : Icons.dns_outlined,
+                                  color: scheme.primary,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _sourceTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleSmall,
+                                  ),
+                                ),
+                                const Icon(Icons.expand_more),
+                              ],
+                            ),
                           ),
-                      ],
-                      builder: (context, menu, _) => TextButton(
-                        onPressed: !widget.enabled
-                            ? null
-                            : () => menu.isOpen ? menu.close() : menu.open(),
-                        style: TextButton.styleFrom(
-                          foregroundColor: scheme.onSurface,
-                          minimumSize: const Size(48, 48),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                      ),
+                      if (directory.cwd != null)
+                        Text(
+                          '${entries.length}',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                FilePathBar(
+                  controller: _path,
+                  pathFocusNode: _pathFocus,
+                  enabled: widget.enabled && endpoint != null,
+                  onOpen: _open,
+                  onBack: _history.canBack ? _goBack : null,
+                  onForward: _history.canForward ? _goForward : null,
+                  isRu: widget.isRu,
+                  cwd: directory.cwd,
+                  windowsPaths: _windowsPaths,
+                  showFilter: _showFilter,
+                  filterController: _filterField,
+                  filterFocusNode: _filterFocus,
+                  onToggleFilter: _toggleFilter,
+                  onCloseFilter: _closeFilter,
+                  sortField: settings.sftpSortField,
+                  sortAscending: settings.sftpSortAscending,
+                  onSortSelected: ref
+                      .read(settingsProvider.notifier)
+                      .setSftpSort,
+                  onUp: hasParentRow
+                      ? () => _open(_parentOf(directory.cwd!))
+                      : null,
+                  onRefresh: () {
+                    _clear();
+                    directory.refresh();
+                  },
+                  trailing: MenuIconButton(
+                    enabled:
+                        widget.enabled &&
+                        endpoint != null &&
+                        !directory.loading &&
+                        directory.error == null,
+                    items: _folderMenuItems(strings, settings.showHiddenFiles),
+                  ),
+                ),
+                ExpandSection(
+                  expanded:
+                      PlatformCapabilities.sharedDownloads &&
+                      _isLocal &&
+                      !_hasStorageAccess,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                    child: Material(
+                      color: scheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
                         ),
                         child: Row(
                           children: [
                             Icon(
-                              _source.isEmpty
-                                  ? Icons.computer_outlined
-                                  : Icons.dns_outlined,
-                              color: scheme.primary,
+                              Icons.folder_off_outlined,
+                              size: 18,
+                              color: scheme.onSecondaryContainer,
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                _sourceTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
+                                widget.isRu
+                                    ? 'Показана папка приложения. Разрешите доступ к файлам устройства.'
+                                    : 'Showing app folder. Allow access to device files.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSecondaryContainer,
+                                ),
                               ),
                             ),
-                            const Icon(Icons.expand_more),
+                            TextButton(
+                              onPressed: _requestStorageAccess,
+                              child: Text(widget.isRu ? 'Разрешить' : 'Allow'),
+                            ),
                           ],
                         ),
                       ),
                     ),
                   ),
-                  if (directory.cwd != null)
-                    Text(
-                      '${entries.length}',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
+                ),
+                SizedBox(
+                  height: 2,
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.duration(
+                      context,
+                      AppMotion.durationFast,
                     ),
-                ],
-              ),
-            ),
-            FilePathBar(
-              controller: _path,
-              enabled: widget.enabled && endpoint != null,
-              onOpen: _open,
-              isRu: widget.isRu,
-              onUp:
-                  directory.cwd != null &&
-                      !(isLocal
-                          ? LocalFiles.isRootPath(directory.cwd!)
-                          : directory.cwd == '/')
-                  ? () => _open(
-                      isLocal
-                          ? LocalFiles.parentPath(directory.cwd!)
-                          : remoteParent(directory.cwd!),
-                    )
-                  : null,
-              onRefresh: () {
-                _clear();
-                directory.refresh();
-              },
-            ),
-            ExpandSection(
-              expanded:
-                  PlatformCapabilities.sharedDownloads &&
-                  isLocal &&
-                  !_hasStorageAccess,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-                child: Material(
-                  color: scheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.folder_off_outlined,
-                          size: 18,
-                          color: scheme.onSecondaryContainer,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            widget.isRu
-                                ? 'Показана папка приложения. Разрешите доступ к файлам устройства.'
-                                : 'Showing app folder. Allow access to device files.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSecondaryContainer,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _requestStorageAccess,
-                          child: Text(widget.isRu ? 'Разрешить' : 'Allow'),
-                        ),
-                      ],
-                    ),
+                    child: directory.loading
+                        ? const LinearProgressIndicator(
+                            key: ValueKey('loading'),
+                            minHeight: 2,
+                          )
+                        : const SizedBox.shrink(key: ValueKey('idle')),
                   ),
                 ),
-              ),
-            ),
-            SizedBox(
-              height: 2,
-              child: AnimatedSwitcher(
-                duration: AppMotion.duration(context, AppMotion.durationFast),
-                child: directory.loading
-                    ? const LinearProgressIndicator(
-                        key: ValueKey('loading'),
-                        minHeight: 2,
-                      )
-                    : const SizedBox.shrink(key: ValueKey('idle')),
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                child: Material(
-                  color: scheme.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  clipBehavior: Clip.antiAlias,
-                  child: FadeSlideSwitcher(
-                    scaleBegin: 0.99,
-                    offset: const Offset(0, 0.02),
-                    child: directory.error != null
-                        ? SftpPlaceholder(
-                            key: ValueKey('error:${directory.requestedPath}'),
-                            icon: Icons.error_outline,
-                            text: strings.errorText(directory.error!),
-                            action: Wrap(
-                              alignment: WrapAlignment.center,
-                              children: [
-                                if (PlatformCapabilities.sharedDownloads &&
-                                    isLocal &&
-                                    !_hasStorageAccess)
-                                  FilledButton.tonal(
-                                    onPressed: _requestStorageAccess,
-                                    child: Text(
-                                      widget.isRu
-                                          ? 'Разрешить доступ'
-                                          : 'Allow access',
-                                    ),
-                                  ),
-                                TextButton(
-                                  onPressed: () => directory.refresh(),
-                                  child: Text(strings.tryAgain),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    child: Material(
+                      color: scheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
+                      child: FadeSlideSwitcher(
+                        scaleBegin: 0.99,
+                        offset: const Offset(0, 0.02),
+                        child: directory.error != null
+                            ? SftpPlaceholder(
+                                key: ValueKey(
+                                  'error:${directory.requestedPath}',
                                 ),
-                                TextButton(
-                                  onPressed: () {
-                                    _clear();
-                                    directory.home();
-                                  },
-                                  child: Text(strings.homeFolder),
-                                ),
-                              ],
-                            ),
-                          )
-                        : !directory.loading && entries.isEmpty
-                        ? SftpPlaceholder(
-                            key: const ValueKey('empty'),
-                            icon: Icons.folder_open_outlined,
-                            text: widget.isRu
-                                ? 'Папка пуста'
-                                : 'This folder is empty',
-                          )
-                        : CallbackShortcuts(
-                            key: const ValueKey('list'),
-                            bindings: {
-                              const SingleActivator(
-                                LogicalKeyboardKey.keyA,
-                                control: true,
-                              ): () {
-                                setState(
-                                  () => _selected.addAll(
-                                    entries.map((e) => e.path),
-                                  ),
-                                );
-                                widget.onChanged();
-                              },
-                              if (PlatformCapabilities.isMacOS)
-                                const SingleActivator(
-                                  LogicalKeyboardKey.keyA,
-                                  meta: true,
-                                ): () {
-                                  setState(
-                                    () => _selected.addAll(
-                                      entries.map((e) => e.path),
-                                    ),
-                                  );
-                                  widget.onChanged();
-                                },
-                              const SingleActivator(LogicalKeyboardKey.escape):
-                                  _clear,
-                              const SingleActivator(
-                                LogicalKeyboardKey.enter,
-                              ): () {
-                                final selected = selection;
-                                if (widget.enabled &&
-                                    selected.length == 1 &&
-                                    selected.single.isDir) {
-                                  _open(selected.single.path);
-                                }
-                              },
-                            },
-                            child: Focus(
-                              child: ScrollEdgeFade(
-                                top: 18,
-                                bottom: 14,
-                                child: SmoothScroll(
-                                  builder: (context, controller) =>
-                                      ListView.builder(
-                                        controller: controller,
-                                        padding: const EdgeInsets.only(
-                                          bottom: 8,
+                                icon: Icons.error_outline,
+                                text: strings.errorText(directory.error!),
+                                action: Wrap(
+                                  alignment: WrapAlignment.center,
+                                  children: [
+                                    if (PlatformCapabilities.sharedDownloads &&
+                                        _isLocal &&
+                                        !_hasStorageAccess)
+                                      FilledButton.tonal(
+                                        onPressed: _requestStorageAccess,
+                                        child: Text(
+                                          widget.isRu
+                                              ? 'Разрешить доступ'
+                                              : 'Allow access',
                                         ),
-                                        itemCount: entries.length,
-                                        itemBuilder: (context, i) {
-                                          final entry = entries[i];
-                                          void open() {
-                                            if (widget.enabled && entry.isDir) {
-                                              _open(entry.path);
-                                            }
-                                          }
-
-                                          return SftpEntryRow(
-                                            entry: entry,
-                                            enabled: widget.enabled,
-                                            showSelection: true,
-                                            selected: _selected.contains(
-                                              entry.path,
+                                      ),
+                                    TextButton(
+                                      onPressed: () => directory.refresh(),
+                                      child: Text(strings.tryAgain),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        _clear();
+                                        directory.home();
+                                      },
+                                      child: Text(strings.homeFolder),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : !directory.loading &&
+                                  entries.isEmpty &&
+                                  !hasParentRow
+                            ? SftpPlaceholder(
+                                key: const ValueKey('empty'),
+                                icon: _filterField.text.trim().isNotEmpty
+                                    ? Icons.search_off
+                                    : Icons.folder_open_outlined,
+                                text: _filterField.text.trim().isNotEmpty
+                                    ? strings.noMatchingFiles
+                                    : (widget.isRu
+                                          ? 'Папка пуста'
+                                          : 'This folder is empty'),
+                              )
+                            : CallbackShortcuts(
+                                key: const ValueKey('list'),
+                                bindings: {
+                                  Keys.delete: () => _delete(selection),
+                                  Keys.rename: () {
+                                    final sel = selection;
+                                    if (sel.length == 1) _rename(sel.first);
+                                  },
+                                  Keys.refresh: () {
+                                    _clear();
+                                    directory.refresh();
+                                  },
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.arrowDown,
+                                  ): () =>
+                                      _moveCursor(entries, 1),
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.arrowUp,
+                                  ): () =>
+                                      _moveCursor(entries, -1),
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.arrowDown,
+                                    shift: true,
+                                  ): () =>
+                                      _moveCursor(entries, 1, extend: true),
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.arrowUp,
+                                    shift: true,
+                                  ): () =>
+                                      _moveCursor(entries, -1, extend: true),
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.home,
+                                  ): () =>
+                                      _moveCursor(entries, -1, toEdge: true),
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.end,
+                                  ): () =>
+                                      _moveCursor(entries, 1, toEdge: true),
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.space,
+                                  ): () {
+                                    final p = _cursorPath;
+                                    if (p == null) {
+                                      _moveCursor(entries, 1);
+                                      return;
+                                    }
+                                    final e = entries
+                                        .where((x) => x.path == p)
+                                        .firstOrNull;
+                                    if (e != null) {
+                                      _select(e, entries, toggle: true);
+                                    }
+                                  },
+                                  SingleActivator(
+                                    LogicalKeyboardKey.keyA,
+                                    control: !mac,
+                                    meta: mac,
+                                  ): () {
+                                    setState(
+                                      () => _selected.addAll(
+                                        entries.map((e) => e.path),
+                                      ),
+                                    );
+                                    widget.onChanged();
+                                  },
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.escape,
+                                  ): () {
+                                    if (_showFilter) {
+                                      _closeFilter();
+                                    } else {
+                                      _clear();
+                                    }
+                                  },
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.backspace,
+                                  ): () {
+                                    if (hasParentRow) {
+                                      _open(_parentOf(directory.cwd!));
+                                    }
+                                  },
+                                  SingleActivator(
+                                    LogicalKeyboardKey.keyE,
+                                    control: !mac,
+                                    meta: mac,
+                                  ): () {
+                                    final sel = selection;
+                                    if (widget.enabled &&
+                                        sel.length == 1 &&
+                                        !sel.single.isDir) {
+                                      _editText(sel.single);
+                                    }
+                                  },
+                                  const SingleActivator(
+                                    LogicalKeyboardKey.enter,
+                                  ): () {
+                                    final sel = selection;
+                                    if (!widget.enabled || sel.length != 1) {
+                                      return;
+                                    }
+                                    if (sel.single.isDir) {
+                                      _open(sel.single.path);
+                                    } else {
+                                      _editText(sel.single);
+                                    }
+                                  },
+                                },
+                                child: Focus(
+                                  focusNode: _listFocus,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      _listFocus.requestFocus();
+                                      _clear();
+                                    },
+                                    onSecondaryTapUp: (d) => _openEntryMenu(
+                                      d.globalPosition,
+                                      null,
+                                      entries,
+                                      strings,
+                                      settings.showHiddenFiles,
+                                    ),
+                                    child: ScrollEdgeFade(
+                                      top: 18,
+                                      bottom: 14,
+                                      child: SmoothScroll(
+                                        builder: (context, controller) {
+                                          _activeScroll = controller;
+                                          final extra = hasParentRow ? 1 : 0;
+                                          final showEmpty =
+                                              !directory.loading &&
+                                              entries.isEmpty;
+                                          return ListView.builder(
+                                            controller: controller,
+                                            padding: const EdgeInsets.only(
+                                              bottom: 8,
                                             ),
-                                            strings: strings,
-                                            onSelect: widget.enabled
-                                                ? (_) => _select(
-                                                    entry,
-                                                    entries,
-                                                    toggle: true,
-                                                  )
-                                                : null,
-                                            onIconTap: widget.enabled
-                                                ? () => _select(
-                                                    entry,
-                                                    entries,
-                                                    toggle: true,
-                                                  )
-                                                : null,
-                                            onTap: () {
-                                              if (!widget.enabled) return;
-                                              final modHeld =
-                                                  !DesktopEnv.isMobile &&
-                                                  (Modifiers.instance.ctrl ||
-                                                      Modifiers
-                                                          .instance
-                                                          .shift ||
-                                                      (PlatformCapabilities
-                                                              .isMacOS &&
-                                                          HardwareKeyboard
-                                                              .instance
-                                                              .isMetaPressed));
-                                              if (entry.isDir && !modHeld) {
-                                                open();
-                                              } else {
-                                                _select(entry, entries);
+                                            itemCount: showEmpty
+                                                ? extra + 1
+                                                : entries.length + extra,
+                                            itemBuilder: (context, i) {
+                                              if (hasParentRow && i == 0) {
+                                                return SftpEntryRow(
+                                                  entry: null,
+                                                  selected: false,
+                                                  showSelection: false,
+                                                  enabled: widget.enabled,
+                                                  strings: strings,
+                                                  onTap: () => _open(
+                                                    _parentOf(directory.cwd!),
+                                                  ),
+                                                  onSecondary: (_) {},
+                                                );
                                               }
-                                            },
-                                            onSecondary: (position) {
-                                              _menu.currentState
-                                                  ?.open(position, [
-                                                    if (entry.isDir)
-                                                      menuItem(
-                                                        widget.isRu
-                                                            ? 'Открыть папку'
-                                                            : 'Open folder',
-                                                        icon: Icons.folder_open,
-                                                        onPressed: open,
-                                                      ),
-                                                    menuItem(
-                                                      widget.isRu
-                                                          ? 'Выбрать'
-                                                          : 'Select',
-                                                      icon: Icons
-                                                          .check_box_outlined,
-                                                      onPressed: widget.enabled
-                                                          ? () => _select(
-                                                              entry,
-                                                              entries,
-                                                              toggle: true,
-                                                            )
-                                                          : null,
+                                              if (showEmpty) {
+                                                final filtering = _filterField
+                                                    .text
+                                                    .trim()
+                                                    .isNotEmpty;
+                                                return SizedBox(
+                                                  height: 180,
+                                                  child: SftpPlaceholder(
+                                                    icon: filtering
+                                                        ? Icons.search_off
+                                                        : Icons
+                                                              .folder_open_outlined,
+                                                    text: filtering
+                                                        ? strings
+                                                              .noMatchingFiles
+                                                        : (widget.isRu
+                                                              ? 'Папка пуста'
+                                                              : 'This folder is empty'),
+                                                  ),
+                                                );
+                                              }
+                                              final entry = entries[i - extra];
+                                              void open() {
+                                                if (widget.enabled &&
+                                                    entry.isDir) {
+                                                  _open(entry.path);
+                                                }
+                                              }
+
+                                              return SftpEntryRow(
+                                                entry: entry,
+                                                enabled: widget.enabled,
+                                                showSelection: true,
+                                                selected: _selected.contains(
+                                                  entry.path,
+                                                ),
+                                                strings: strings,
+                                                onSelect: widget.enabled
+                                                    ? (_) => _select(
+                                                        entry,
+                                                        entries,
+                                                        toggle: true,
+                                                      )
+                                                    : null,
+                                                onIconTap: widget.enabled
+                                                    ? () => _select(
+                                                        entry,
+                                                        entries,
+                                                        toggle: true,
+                                                      )
+                                                    : null,
+                                                onTap: () {
+                                                  if (!widget.enabled) return;
+                                                  final modHeld =
+                                                      !DesktopEnv.isMobile &&
+                                                      (Modifiers
+                                                              .instance
+                                                              .ctrl ||
+                                                          Modifiers
+                                                              .instance
+                                                              .shift ||
+                                                          (PlatformCapabilities
+                                                                  .isMacOS &&
+                                                              HardwareKeyboard
+                                                                  .instance
+                                                                  .isMetaPressed));
+                                                  if (entry.isDir && !modHeld) {
+                                                    open();
+                                                  } else {
+                                                    _select(entry, entries);
+                                                  }
+                                                },
+                                                onDoubleTap: entry.isDir
+                                                    ? null
+                                                    : () => _editText(entry),
+                                                onSecondary: (position) =>
+                                                    _openEntryMenu(
+                                                      position,
+                                                      entry,
+                                                      entries,
+                                                      strings,
+                                                      settings.showHiddenFiles,
                                                     ),
-                                                    menuItem(
-                                                      widget.isRu
-                                                          ? 'Копировать путь'
-                                                          : 'Copy path',
-                                                      icon: Icons.content_copy,
-                                                      onPressed: () =>
-                                                          Clipboard.setData(
-                                                            ClipboardData(
-                                                              text: entry.path,
-                                                            ),
-                                                          ),
-                                                    ),
-                                                  ]);
+                                              );
                                             },
                                           );
                                         },
                                       ),
+                                    ),
+                                  ),
                                 ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+                ExpandSection(
+                  expanded: _selected.isNotEmpty,
+                  spring: AppMotion.spatialFast,
+                  child: Material(
+                    color: scheme.secondaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${widget.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: scheme.onSecondaryContainer,
                               ),
                             ),
                           ),
-                  ),
-                ),
-              ),
-            ),
-            ExpandSection(
-              expanded: _selected.isNotEmpty,
-              spring: AppMotion.spatialFast,
-              child: Material(
-                color: scheme.secondaryContainer,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 16, right: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${widget.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: scheme.onSecondaryContainer,
+                          IconButton(
+                            tooltip: widget.isRu
+                                ? 'Снять выделение'
+                                : 'Clear selection',
+                            onPressed: _clear,
+                            icon: const Icon(Icons.close),
                           ),
-                        ),
+                          Tooltip(
+                            message:
+                                widget.destination ??
+                                (widget.isRu
+                                    ? 'Выберите папку назначения'
+                                    : 'Choose destination folder'),
+                            child: TextButton.icon(
+                              onPressed: widget.onCopy,
+                              icon: Icon(widget.copyIcon),
+                              label: Text(widget.copyLabel),
+                            ),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        tooltip: widget.isRu
-                            ? 'Снять выделение'
-                            : 'Clear selection',
-                        onPressed: _clear,
-                        icon: const Icon(Icons.close),
-                      ),
-                      Tooltip(
-                        message:
-                            widget.destination ??
-                            (widget.isRu
-                                ? 'Выберите папку назначения'
-                                : 'Choose destination folder'),
-                        child: TextButton.icon(
-                          onPressed: widget.onCopy,
-                          icon: Icon(widget.copyIcon),
-                          label: Text(widget.copyLabel),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

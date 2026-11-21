@@ -22,39 +22,53 @@ class LocalFiles {
   static String join(String a, String b) {
     if (kIsWeb) return '$a/$b';
     try {
-      return a.endsWith(Platform.pathSeparator) ? '$a$b' : '$a${Platform.pathSeparator}$b';
+      return a.endsWith(Platform.pathSeparator)
+          ? '$a$b'
+          : '$a${Platform.pathSeparator}$b';
     } catch (_) {
       return '$a/$b';
     }
   }
 
-  /// Родительская папка для локального пути (учитывает корни дисков Windows `C:\`).
-  static String parentPath(String path) {
-    if (kIsWeb || !Platform.isWindows) {
+  /// Виртуальный корень списка дисков на Windows (`C:\`, `D:\`, …).
+  static const windowsDrivesRoot = r'\';
+
+  /// Родительская папка для локального пути (на Windows `C:\` ведёт к списку дисков `\`).
+  static String parentPath(String path) =>
+      parentPathFor(path, windows: !kIsWeb && Platform.isWindows);
+
+  @visibleForTesting
+  static String parentPathFor(String path, {required bool windows}) {
+    if (!windows) {
       final clean = path.length > 1 && path.endsWith('/')
           ? path.substring(0, path.length - 1)
           : path;
       final i = clean.lastIndexOf('/');
       return i <= 0 ? '/' : clean.substring(0, i);
     }
-    var clean = path.replaceAll('/', '\\');
+    var clean = path.replaceAll('/', '\\').trim();
+    if (clean.isEmpty || clean == windowsDrivesRoot) return windowsDrivesRoot;
     while (clean.length > 3 && clean.endsWith('\\')) {
       clean = clean.substring(0, clean.length - 1);
     }
     if (RegExp(r'^[A-Za-z]:\\?$').hasMatch(clean)) {
-      return '${clean.substring(0, 2)}\\';
+      return windowsDrivesRoot;
     }
     final i = clean.lastIndexOf('\\');
-    if (i < 0) return clean;
+    if (i < 0) return windowsDrivesRoot;
     if (i == 2 && clean[1] == ':') return '${clean.substring(0, 2)}\\';
-    return i == 0 ? '\\' : clean.substring(0, i);
+    return i == 0 ? windowsDrivesRoot : clean.substring(0, i);
   }
 
-  /// Является ли локальный путь корневым (`/` или `C:\`).
-  static bool isRootPath(String path) {
-    if (kIsWeb || !Platform.isWindows) return path == '/';
-    return RegExp(r'^[A-Za-z]:\\?$').hasMatch(path.replaceAll('/', '\\')) ||
-        path == '\\';
+  /// Является ли локальный путь самым верхним корнем (`/` на POSIX или `\` на Windows).
+  static bool isRootPath(String path) =>
+      isRootPathFor(path, windows: !kIsWeb && Platform.isWindows);
+
+  @visibleForTesting
+  static bool isRootPathFor(String path, {required bool windows}) {
+    if (!windows) return path == '/';
+    final clean = path.replaceAll('/', '\\').trim();
+    return clean.isEmpty || clean == windowsDrivesRoot;
   }
 
   // ─── Общая папка Download на Android ────────────────────────────
@@ -66,8 +80,12 @@ class LocalFiles {
   /// (Android 9-, с запросом разрешения). [subDir] - путь внутри Download,
   /// чтобы скачанная папка сохранила структуру.
   /// Возвращает URI опубликованного файла; при неудаче бросает исключение.
-  static Future<String> saveToDownloads(String tempPath, String name,
-      {String subDir = '', String? mimeType}) async {
+  static Future<String> saveToDownloads(
+    String tempPath,
+    String name, {
+    String subDir = '',
+    String? mimeType,
+  }) async {
     try {
       final uri = await _filesChannel.invokeMethod<String>('saveToDownloads', {
         'tempPath': tempPath,
@@ -75,13 +93,16 @@ class LocalFiles {
         'subDir': subDir,
         'mimeType': mimeType,
       });
-      if (uri == null) throw const LocalFileFailure(LocalFileError.publishFailed);
+      if (uri == null)
+        throw const LocalFileFailure(LocalFileError.publishFailed);
       return uri;
     } on PlatformException catch (e) {
       if (e.code == 'PERMISSION_DENIED') {
         throw const LocalFileFailure(LocalFileError.storagePermissionDenied);
       }
-      throw LocalFileFailure(LocalFileError.publishFailed, {'detail': e.message ?? e.code});
+      throw LocalFileFailure(LocalFileError.publishFailed, {
+        'detail': e.message ?? e.code,
+      });
     }
   }
 
@@ -90,7 +111,10 @@ class LocalFiles {
   /// Возвращает URI сохранённого файла; null - пользователь отменил диалог.
   /// На других платформах/неудаче бросает исключение или возвращает null.
   static Future<String?> saveDocument(
-      List<int> bytes, String suggestedName, String mimeType) async {
+    List<int> bytes,
+    String suggestedName,
+    String mimeType,
+  ) async {
     if (kIsWeb || !Platform.isAndroid) return null;
     try {
       return await _filesChannel.invokeMethod<String>('saveDocument', {
@@ -102,7 +126,9 @@ class LocalFiles {
       if (e.code == 'PERMISSION_DENIED') {
         throw const LocalFileFailure(LocalFileError.storagePermissionDenied);
       }
-      throw LocalFileFailure(LocalFileError.publishFailed, {'detail': e.message ?? e.code});
+      throw LocalFileFailure(LocalFileError.publishFailed, {
+        'detail': e.message ?? e.code,
+      });
     }
   }
 
@@ -110,7 +136,8 @@ class LocalFiles {
   static Future<bool> hasStorageAccess() async {
     if (kIsWeb || !Platform.isAndroid) return true;
     try {
-      return await _filesChannel.invokeMethod<bool>('hasStorageAccess') ?? false;
+      return await _filesChannel.invokeMethod<bool>('hasStorageAccess') ??
+          false;
     } catch (_) {
       return false;
     }
@@ -121,7 +148,8 @@ class LocalFiles {
   static Future<bool> requestStorageAccess() async {
     if (kIsWeb || !Platform.isAndroid) return true;
     try {
-      return await _filesChannel.invokeMethod<bool>('requestStorageAccess') ?? false;
+      return await _filesChannel.invokeMethod<bool>('requestStorageAccess') ??
+          false;
     } catch (_) {
       return false;
     }
@@ -142,7 +170,10 @@ class LocalFiles {
   static Future<bool> shareText(String text) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     try {
-      return await _filesChannel.invokeMethod<bool>('shareText', {'text': text}) ?? false;
+      return await _filesChannel.invokeMethod<bool>('shareText', {
+            'text': text,
+          }) ??
+          false;
     } catch (_) {
       return false;
     }
@@ -221,8 +252,10 @@ class LocalFiles {
         try {
           final f = File(join(_home, '.config/user-dirs.dirs'));
           if (f.existsSync()) {
-            final m = RegExp(r'^XDG_DOWNLOAD_DIR="(.+)"', multiLine: true)
-                .firstMatch(f.readAsStringSync());
+            final m = RegExp(
+              r'^XDG_DOWNLOAD_DIR="(.+)"',
+              multiLine: true,
+            ).firstMatch(f.readAsStringSync());
             if (m != null) return m.group(1)!.replaceAll(r'$HOME', _home);
           }
         } catch (_) {}
@@ -241,7 +274,8 @@ class LocalFiles {
 
   static bool _taken(String path) =>
       _reserved.contains(_key(path)) ||
-      FileSystemEntity.typeSync(path, followLinks: false) != FileSystemEntityType.notFound;
+      FileSystemEntity.typeSync(path, followLinks: false) !=
+          FileSystemEntityType.notFound;
 
   /// Свободный путь в [dir] для имени с сервера: file.txt → file (1).txt,
   /// если такой файл/папка уже есть или занят другой передачей. Путь
@@ -255,7 +289,7 @@ class LocalFiles {
       final dot = name.lastIndexOf('.');
       final base = dot > 0 ? name.substring(0, dot) : name;
       final ext = dot > 0 ? name.substring(dot) : '';
-      for (var i = 1;; i++) {
+      for (var i = 1; ; i++) {
         candidate = childPath(dir, '$base ($i)$ext');
         if (!_taken(candidate)) break;
       }
@@ -281,11 +315,13 @@ class LocalFiles {
     try {
       final old = DateTime.now().subtract(const Duration(days: 1));
       await for (final e in base.list(followLinks: false)) {
-        if (e is! Directory || !e.path.split(RegExp(r'[\\/]')).last.startsWith(prefix)) {
+        if (e is! Directory ||
+            !e.path.split(RegExp(r'[\\/]')).last.startsWith(prefix)) {
           continue;
         }
         try {
-          if ((await e.stat()).modified.isBefore(old)) await e.delete(recursive: true);
+          if ((await e.stat()).modified.isBefore(old))
+            await e.delete(recursive: true);
         } catch (_) {}
       }
     } catch (_) {}
@@ -310,7 +346,9 @@ class LocalFiles {
       // «Открыть» такой файл значит запустить его - скрипт с сервера
       // выполнился бы здесь. Показываем текст.
       if (!url && windowsRunnable.hasMatch(path)) {
-        await Process.start('notepad.exe', [path], mode: ProcessStartMode.detached);
+        await Process.start('notepad.exe', [
+          path,
+        ], mode: ProcessStartMode.detached);
         return;
       }
       // Файл - Invoke-Item -LiteralPath (без разбора `[`/`*` как шаблона),
@@ -328,13 +366,17 @@ class LocalFiles {
         environment: {'VYSH_OPEN_PATH': path},
       );
       if (r.exitCode != 0) {
-        throw LocalFileFailure(LocalFileError.openFailed, {'detail': '${r.stderr}'.trim()});
+        throw LocalFileFailure(LocalFileError.openFailed, {
+          'detail': '${r.stderr}'.trim(),
+        });
       }
     } else if (Platform.isAndroid) {
       try {
         await _filesChannel.invokeMethod<bool>('openFile', {'path': path});
       } on PlatformException catch (e) {
-        throw LocalFileFailure(LocalFileError.openFailed, {'detail': e.message ?? e.code});
+        throw LocalFileFailure(LocalFileError.openFailed, {
+          'detail': e.message ?? e.code,
+        });
       }
     } else if (Platform.isMacOS) {
       await Process.start('open', [path], mode: ProcessStartMode.detached);
@@ -367,14 +409,19 @@ class LocalFiles {
     try {
       if (Platform.isWindows) {
         final isDir = Directory(path).existsSync();
-        await Process.start('explorer', isDir ? [path] : ['/select,$path'],
-            mode: ProcessStartMode.detached);
+        await Process.start(
+          'explorer',
+          isDir ? [path] : ['/select,$path'],
+          mode: ProcessStartMode.detached,
+        );
       } else if (Platform.isAndroid) {
         // Файловый менеджер открываем через платформенный канал:
         // Process.start на Android не работает.
         await _filesChannel.invokeMethod('revealPath', {'path': path});
       } else if (Platform.isLinux || Platform.isMacOS) {
-        final target = Directory(path).existsSync() ? path : File(path).parent.path;
+        final target = Directory(path).existsSync()
+            ? path
+            : File(path).parent.path;
         await openWithSystem(target);
       }
     } catch (_) {}
