@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/controllers/settings_controller.dart';
+import '../../app/controllers/tabs_controller.dart';
+import '../../infra/platform/capabilities.dart';
+import '../../infra/platform/window_placement.dart';
 import '../../infra/update/update_installer.dart';
 import '../../infra/update/update_service.dart';
 import '../motion/app_motion.dart';
@@ -46,7 +49,7 @@ Future<void> autoPromptForUpdate(
   }
 }
 
-/// Заметки релиза: HTML-теги из CHANGELOG → простой текст.
+/// Заметки релиза: HTML-теги и разметка Markdown из CHANGELOG → простой текст.
 @visibleForTesting
 String sanitizeReleaseNotes(String raw) {
   var text = raw;
@@ -71,12 +74,18 @@ String sanitizeReleaseNotes(String raw) {
       .replaceAll('&gt;', '>')
       .replaceAll('&quot;', '"')
       .replaceAll('&#39;', "'");
-  text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
   // Ссылки вида [текст](https://…) → текст (https://…): пакета Markdown нет.
   text = text.replaceAllMapped(
     RegExp(r'\[([^\]]+)\]\((https?://[^)]+)\)'),
     (m) => '${m.group(1)} (${m.group(2)})',
   );
+  text = text.replaceAll(RegExp(r'^#{1,6}\s+', multiLine: true), '');
+  text = text.replaceAllMapped(
+    RegExp(r'\*\*([^*\n]+)\*\*'),
+    (m) => m.group(1)!,
+  );
+  text = text.replaceAllMapped(RegExp(r'`([^`\n]+)`'), (m) => m.group(1)!);
+  text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
   return text.trim();
 }
 
@@ -228,9 +237,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         ),
         FilledButton(
           onPressed: _downloading ? null : _downloadAndInstall,
-          child: Text(
-            info.openInBrowser ? s.updateOpenDownload : s.updateNow,
-          ),
+          child: Text(info.openInBrowser ? s.updateOpenDownload : s.updateNow),
         ),
       ],
     );
@@ -263,6 +270,19 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
               _applying = received >= total;
             });
           }
+        },
+        beforeRestart: () async {
+          if (PlatformCapabilities.desktopWindow) {
+            try {
+              await WindowPlacement.instance.flush();
+            } catch (_) {}
+          }
+          try {
+            final ctrl = ref.read(tabsProvider.notifier);
+            for (final tab in ref.read(tabsProvider).tabs.toList()) {
+              ctrl.close(tab.id);
+            }
+          } catch (_) {}
         },
       );
       // restarting = приложение сейчас перезапустится (exit уже вызван).

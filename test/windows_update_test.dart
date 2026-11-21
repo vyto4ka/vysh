@@ -279,5 +279,183 @@ Future<void> main(List<String> args) async {
         expect(await h.proceedFile.exists(), isFalse);
       },
     );
+
+    test(
+      'hung old process is force-terminated after grace period and updated cleanly',
+      () async {
+        final source = Directory('${temp.path}/hung_new');
+        final target = Directory('${temp.path}/hung_installed');
+        final newExe = await compileApp(source, 'new-after-hang');
+        final oldExe = await compileApp(target, 'old-hung');
+        await Directory('${source.path}/data').create(recursive: true);
+        await Directory('${target.path}/data').create(recursive: true);
+        await File('${source.path}/data/app.so').writeAsString('aot-v2');
+        await File('${target.path}/data/app.so').writeAsString('aot-v1');
+
+        final old = await Process.start(
+          oldExe.path,
+          [],
+          mode: ProcessStartMode.detached,
+        );
+        int? newPid;
+        addTearDown(() async {
+          Process.killPid(old.pid);
+          if (newPid != null) Process.killPid(newPid);
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        });
+        await waitForFile(File('${target.path}/started.txt'));
+
+        final staging = Directory('${temp.path}/hung_staging');
+        await staging.create();
+        final cleanup = Directory('${temp.path}/hung_download');
+        await cleanup.create();
+        final h = await WindowsUpdateHandoff.start(
+          staging: staging,
+          sourceDir: source.path,
+          targetDir: target.path,
+          exePath: oldExe.path,
+          appPid: old.pid,
+          cleanupDir: cleanup.path,
+          gracefulWaitMs: 800,
+          noErrorDialog: true,
+        );
+        await h.waitUntilReady(timeout: const Duration(seconds: 20));
+        await File('${target.path}/started.txt').delete();
+        // Confirm handoff WITHOUT killing old.pid from Dart: updater must
+        // wait gracefully, then force-terminate the hung process and finish.
+        await h.proceed();
+
+        await waitForFile(File('${target.path}/started.txt'));
+        expect(
+          await File('${target.path}/started.txt').readAsString(),
+          'new-after-hang',
+        );
+        final timer = Stopwatch()..start();
+        while (timer.elapsed < const Duration(seconds: 15)) {
+          final status = jsonDecode(
+            (await h.statusFile.readAsString()).replaceFirst('\u{FEFF}', ''),
+          );
+          if (status['state'] == 'complete') {
+            newPid = int.parse(status['detail']);
+            break;
+          }
+          if (status['state'] == 'failed') fail('${status['detail']}');
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(newPid, isNotNull);
+        expect(
+          await UpdateInstaller.sha256OfFile(oldExe),
+          await UpdateInstaller.sha256OfFile(newExe),
+        );
+        expect(
+          await File('${target.path}/data/app.so').readAsString(),
+          'aot-v2',
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test(
+      'rolls back modified files when a later target file is locked externally',
+      () async {
+        final source = Directory('${temp.path}/rb_new');
+        final target = Directory('${temp.path}/rb_installed');
+        final newExe = await compileApp(source, 'new-rb');
+        final oldExe = await compileApp(target, 'old-rb');
+        await Directory('${source.path}/data').create(recursive: true);
+        await Directory('${target.path}/data').create(recursive: true);
+        await File('${source.path}/data/app.so').writeAsString('aot-new');
+        await File('${target.path}/data/app.so').writeAsString('aot-old');
+        await File('${source.path}/added_only_in_new.txt').writeAsString('x');
+        final srcTail = File('${source.path}/z_locked.dat');
+        final dstTail = File('${target.path}/z_locked.dat');
+        await srcTail.writeAsString('locked-new');
+        await dstTail.writeAsString('locked-old');
+
+        final oldExeHash = await UpdateInstaller.sha256OfFile(oldExe);
+        expect(oldExeHash, isNot(await UpdateInstaller.sha256OfFile(newExe)));
+
+        final lockReady = File('${temp.path}/lock.ready');
+        final locker = await Process.start(
+          WindowsUpdateHandoff.powershellExecutable,
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            r'$s = [IO.File]::Open($env:LOCK_PATH, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read); [IO.File]::WriteAllText($env:LOCK_READY, "1"); Start-Sleep -Seconds 30',
+          ],
+          environment: {
+            'LOCK_PATH': dstTail.path.replaceAll('/', r'\'),
+            'LOCK_READY': lockReady.path.replaceAll('/', r'\'),
+          },
+        );
+        addTearDown(() async {
+          locker.kill();
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await waitForFile(lockReady);
+
+        // Dummy already-exited PID so updater proceeds straight to copying.
+        final exitedDummy = await Process.start(
+          WindowsUpdateHandoff.powershellExecutable,
+          ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'],
+        );
+        await exitedDummy.exitCode;
+
+        final staging = Directory('${temp.path}/rb_staging');
+        await staging.create();
+        final cleanup = Directory('${temp.path}/rb_download');
+        await cleanup.create();
+        final h = await WindowsUpdateHandoff.start(
+          staging: staging,
+          sourceDir: source.path,
+          targetDir: target.path,
+          exePath: oldExe.path,
+          appPid: exitedDummy.pid,
+          cleanupDir: cleanup.path,
+          gracefulWaitMs: 100,
+          copyRetries: 2,
+          noErrorDialog: true,
+        );
+        await h.waitUntilReady(timeout: const Duration(seconds: 20));
+        await h.proceed();
+
+        Map<String, dynamic>? failedStatus;
+        final timer = Stopwatch()..start();
+        while (timer.elapsed < const Duration(seconds: 20)) {
+          if (await h.statusFile.exists()) {
+            final raw = (await h.statusFile.readAsString()).replaceFirst(
+              '\u{FEFF}',
+              '',
+            );
+            if (raw.trim().isNotEmpty) {
+              final parsed = jsonDecode(raw) as Map<String, dynamic>;
+              if (parsed['state'] == 'failed') {
+                failedStatus = parsed;
+                break;
+              }
+            }
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(failedStatus, isNotNull);
+        expect('${failedStatus!['detail']}', contains('z_locked.dat'));
+
+        // Neither vysh.exe nor data/app.so may remain on the new version.
+        expect(await UpdateInstaller.sha256OfFile(oldExe), oldExeHash);
+        expect(
+          await File('${target.path}/data/app.so').readAsString(),
+          'aot-old',
+        );
+        expect(
+          await File('${target.path}/added_only_in_new.txt').exists(),
+          isFalse,
+        );
+        locker.kill();
+        await locker.exitCode;
+        expect(await dstTail.readAsString(), 'locked-old');
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
   }, skip: !Platform.isWindows);
 }

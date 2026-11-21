@@ -49,23 +49,23 @@ void main() {
       );
     });
 
-    test('isNewerRelease: меньший номер никогда не считается новым (нет отката)', () {
-      // Выпуск исправления для старой ветки не должен предлагать откат,
-      // даже если он опубликован позже.
-      expect(
-        UpdateService.isNewerRelease(
-          '0.5.8',
-          '0.5.9',
-          latestPublished: DateTime(2026, 11, 8),
-          currentPublished: DateTime(2026, 11, 7),
-        ),
-        isFalse,
-      );
-      expect(
-        UpdateService.isNewerRelease('0.5.8', '0.5.9'),
-        isFalse,
-      );
-    });
+    test(
+      'isNewerRelease: меньший номер никогда не считается новым (нет отката)',
+      () {
+        // Выпуск исправления для старой ветки не должен предлагать откат,
+        // даже если он опубликован позже.
+        expect(
+          UpdateService.isNewerRelease(
+            '0.5.8',
+            '0.5.9',
+            latestPublished: DateTime(2026, 11, 8),
+            currentPublished: DateTime(2026, 11, 7),
+          ),
+          isFalse,
+        );
+        expect(UpdateService.isNewerRelease('0.5.8', '0.5.9'), isFalse);
+      },
+    );
   });
 
   group('buildUpdateInfo', () {
@@ -90,12 +90,12 @@ void main() {
     ];
 
     Map<String, dynamic> release(String tag, List assets, {DateTime? at}) => {
-          'tag_name': tag,
-          'assets': assets,
-          'body': 'Текст релиза',
-          'published_at': (at ?? DateTime(2026, 11, 8)).toIso8601String(),
-          'html_url': 'https://github.com/vyto4ka/vysh/releases/tag/$tag',
-        };
+      'tag_name': tag,
+      'assets': assets,
+      'body': 'Текст релиза',
+      'published_at': (at ?? DateTime(2026, 11, 8)).toIso8601String(),
+      'html_url': 'https://github.com/vyto4ka/vysh/releases/tag/$tag',
+    };
 
     test('нет релизов новее - null', () {
       final releases = [release('v0.5.9', assets)];
@@ -107,20 +107,21 @@ void main() {
       expect(UpdateService.buildUpdateInfo(releases, '0.6.0'), isNull);
     });
 
-    test('выбирается наибольший номер версии, даже если старую ветку выпустили позже', () {
-      final releases = [
-        release('v0.5.10', assets, at: DateTime(2026, 11, 9)),
-        release('v0.6.0', assets, at: DateTime(2026, 11, 8)),
-      ];
-      final info = UpdateService.buildUpdateInfo(releases, '0.5.9');
-      expect(info?.latestVersion, 'v0.6.0');
-    });
+    test(
+      'выбирается наибольший номер версии, даже если старую ветку выпустили позже',
+      () {
+        final releases = [
+          release('v0.5.10', assets, at: DateTime(2026, 11, 9)),
+          release('v0.6.0', assets, at: DateTime(2026, 11, 8)),
+        ];
+        final info = UpdateService.buildUpdateInfo(releases, '0.5.9');
+        expect(info?.latestVersion, 'v0.6.0');
+      },
+    );
 
     test('APK выбирается по ABI процесса из Platform.version', () {
       expect(
-        UpdateService.androidAbiFromVersion(
-          '3.8.0 (stable) on "android_arm"',
-        ),
+        UpdateService.androidAbiFromVersion('3.8.0 (stable) on "android_arm"'),
         'armeabi-v7a',
       );
       expect(
@@ -130,9 +131,7 @@ void main() {
         'arm64-v8a',
       );
       expect(
-        UpdateService.androidAbiFromVersion(
-          '3.8.0 (stable) on "android_x64"',
-        ),
+        UpdateService.androidAbiFromVersion('3.8.0 (stable) on "android_x64"'),
         'x86_64',
       );
       final apkAssets = [
@@ -153,8 +152,7 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  vysh-v0.6.0-wi
 1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff  other-file.zip
 ''';
       expect(
-        UpdateInstaller.parseSha256(
-            manifest, 'vysh-v0.6.0-windows-x64.zip'),
+        UpdateInstaller.parseSha256(manifest, 'vysh-v0.6.0-windows-x64.zip'),
         'aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999',
       );
     });
@@ -163,10 +161,7 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  vysh-v0.6.0-wi
       const manifest = '''
 aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
 ''';
-      expect(
-        UpdateInstaller.parseSha256(manifest, 'no-such-file.zip'),
-        isNull,
-      );
+      expect(UpdateInstaller.parseSha256(manifest, 'no-such-file.zip'), isNull);
     });
 
     test('одиночный хеш без имени файла (<файл>.sha256) принимается', () {
@@ -184,23 +179,29 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
   });
 
   group('MacOSDmgUpdate.mountPointOf', () {
-    test('находит точку монтирования, в том числе с пробелами в имени тома', () {
-      const out = '/dev/disk4\tGUID_partition_scheme\t\n'
-          '/dev/disk4s1\tApple_HFS\t/Volumes/vysh 0.5.11\n';
-      expect(MacOSDmgUpdate.mountPointOf(out), '/Volumes/vysh 0.5.11');
-    });
+    test(
+      'находит точку монтирования, в том числе с пробелами в имени тома',
+      () {
+        const out =
+            '/dev/disk4\tGUID_partition_scheme\t\n'
+            '/dev/disk4s1\tApple_HFS\t/Volumes/vysh 0.5.11\n';
+        expect(MacOSDmgUpdate.mountPointOf(out), '/Volumes/vysh 0.5.11');
+      },
+    );
   });
 
   group('extensionFromUrl', () {
     test('распознаёт tar.gz и zip', () {
       expect(
         UpdateInstaller.extensionFromUrl(
-            'https://github.com/x/vysh-v0.6.0-linux-x64.tar.gz'),
+          'https://github.com/x/vysh-v0.6.0-linux-x64.tar.gz',
+        ),
         '.tar.gz',
       );
       expect(
         UpdateInstaller.extensionFromUrl(
-            'https://github.com/x/vysh-v0.6.0-windows-x64.zip'),
+          'https://github.com/x/vysh-v0.6.0-windows-x64.zip',
+        ),
         '.zip',
       );
     });
@@ -215,7 +216,8 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
 
   group('sanitizeReleaseNotes (диалог)', () {
     test('HTML-теги и бейджи убраны, ссылки развёрнуты', () {
-      const raw = '<p>Что нового</p>\n'
+      const raw =
+          '<p>Что нового</p>\n'
           '[![Windows](https://img.shields.io/badge/Windows-x64-blue)](https://github.com/vyto4ka/vysh/releases)\n'
           'Подробнее в [документации](https://example.com/docs).';
       final text = sanitizeReleaseNotes(raw);
@@ -227,14 +229,24 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
     test('пустые строки схлопнуты', () {
       expect(sanitizeReleaseNotes('a\n\n\n\nb'), 'a\n\nb');
     });
+
+    test(
+      'заголовки, выделение и инлайн-код Markdown очищены от символов разметки',
+      () {
+        const raw = '### ✨ Новое\n- **Редактор (`Ctrl+E`):** быстрый просмотр';
+        expect(
+          sanitizeReleaseNotes(raw),
+          '✨ Новое\n- Редактор (Ctrl+E): быстрый просмотр',
+        );
+      },
+    );
   });
 
   group('периодичность и пропуск версии', () {
     test('skipVersion: пропущенная версия узнаётся', () async {
       final store = _MemoryStore();
       UpdateService.stateStore = () => store;
-      addTearDown(() => UpdateService.stateStore =
-          _defaultStateStore);
+      addTearDown(() => UpdateService.stateStore = _defaultStateStore);
 
       expect(await UpdateService.isSkipped('v0.6.0'), isFalse);
       await UpdateService.skipVersion('v0.6.0');
@@ -245,8 +257,7 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
     test('autoPromptDue: не раньше, чем раз в N дней', () async {
       final store = _MemoryStore();
       UpdateService.stateStore = () => store;
-      addTearDown(() => UpdateService.stateStore =
-          _defaultStateStore);
+      addTearDown(() => UpdateService.stateStore = _defaultStateStore);
 
       // Никогда не показывали - пора.
       expect(await UpdateService.autoPromptDue(3), isTrue);
@@ -255,17 +266,26 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
       await UpdateService.markAutoPrompted(now: now);
       // Вчера показывали - не пора.
       expect(
-        await UpdateService.autoPromptDue(3, now: now.add(const Duration(hours: 12))),
+        await UpdateService.autoPromptDue(
+          3,
+          now: now.add(const Duration(hours: 12)),
+        ),
         isFalse,
       );
       // Три дня прошли - пора.
       expect(
-        await UpdateService.autoPromptDue(3, now: now.add(const Duration(days: 3))),
+        await UpdateService.autoPromptDue(
+          3,
+          now: now.add(const Duration(days: 3)),
+        ),
         isTrue,
       );
       // Часы ушли назад - верить отметке нельзя, показываем.
       expect(
-        await UpdateService.autoPromptDue(3, now: now.subtract(const Duration(days: 1))),
+        await UpdateService.autoPromptDue(
+          3,
+          now: now.subtract(const Duration(days: 1)),
+        ),
         isTrue,
       );
     });
@@ -293,8 +313,7 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
         calls++;
         return info;
       };
-      addTearDown(() => UpdateService.fetchUpdate =
-          _defaultFetch);
+      addTearDown(() => UpdateService.fetchUpdate = _defaultFetch);
 
       expect(await UpdateService.checkForUpdate(), info);
       expect(await UpdateService.checkForUpdate(), info);
@@ -321,4 +340,3 @@ class _MemoryStore implements DocumentStore {
     return true;
   }
 }
-

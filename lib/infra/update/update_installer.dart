@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -425,7 +426,15 @@ class WindowsZipUpdate {
       await WindowsUpdateLog.write(
         'Installer ready; preparing to close application',
       );
-      await beforeRestart?.call();
+      if (beforeRestart != null) {
+        try {
+          await beforeRestart().timeout(const Duration(seconds: 2));
+        } catch (error) {
+          await WindowsUpdateLog.write(
+            'beforeRestart warning (continuing update): $error',
+          );
+        }
+      }
       await WindowsUpdateLog.write(
         'Confirming update handoff; application will exit',
       );
@@ -440,7 +449,7 @@ class WindowsZipUpdate {
       rethrow;
     }
 
-    exit(0);
+    _terminateCurrentProcess();
   }
 
   static Future<void> _extractZip(String zipPath, String destination) async {
@@ -477,15 +486,31 @@ param(
   [Parameter(Mandatory = $true)][string]$ProceedFile,
   [Parameter(Mandatory = $true)][string]$CancelFile,
   [Parameter(Mandatory = $true)][string]$LogFile,
+  [int]$GracefulWaitMs = 5000,
+  [int]$CopyRetries = 10,
   [switch]$NoErrorDialog
 )
 
 $ErrorActionPreference = 'Stop'
 $log = $LogFile
+$script:mutex = $null
+$script:mutexHeld = $false
+
 function Log($m) {
   try { "$(Get-Date -Format o)  $m" | Out-File -FilePath $log -Append -Encoding utf8 } catch {}
 }
 Log "=== update start: source=$SourceDir target=$TargetDir exe=$ExePath pid=$AppPid"
+
+function ReleaseUpdateMutex() {
+  if ($script:mutexHeld -and $null -ne $script:mutex) {
+    try { $script:mutex.ReleaseMutex() } catch {}
+    $script:mutexHeld = $false
+  }
+  if ($null -ne $script:mutex) {
+    try { $script:mutex.Dispose() } catch {}
+    $script:mutex = $null
+  }
+}
 
 function Status([string]$state, [string]$detail = '') {
   $tmp = $StatusFile + '.tmp'
@@ -493,8 +518,10 @@ function Status([string]$state, [string]$detail = '') {
     Set-Content -LiteralPath $tmp -Encoding UTF8
   Move-Item -LiteralPath $tmp -Destination $StatusFile -Force
 }
+
 function Fail([string]$message) {
   Log $message
+  ReleaseUpdateMutex
   try { Status 'failed' $message } catch {}
   if (-not $NoErrorDialog -and (Test-Path -LiteralPath $ProceedFile)) {
     try {
@@ -504,6 +531,46 @@ function Fail([string]$message) {
     } catch {}
   }
   exit 1
+}
+
+# Get-FileHash is an optional module command on some Windows PowerShell hosts.
+function Hash([string]$path) {
+  $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+  $stream = New-Object System.IO.FileStream($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
+  finally { $stream.Dispose(); $sha.Dispose() }
+}
+
+function HashText([string]$text) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '') }
+  finally { $sha.Dispose() }
+}
+
+# Resolve DOS 8.3 short segments (e.g. RUNNER~1) into canonical long directory names.
+function CanonicalDir([string]$p) {
+  try {
+    $cur = New-Object System.IO.DirectoryInfo([IO.Path]::GetFullPath($p))
+    if (-not $cur.Exists) { return $cur.FullName.TrimEnd('\') }
+    $parts = New-Object System.Collections.Generic.List[string]
+    while ($null -ne $cur.Parent) {
+      $exact = $cur.Parent.GetDirectories($cur.Name)
+      if ($exact.Length -gt 0) {
+        $parts.Add($exact[0].Name)
+      } else {
+        $parts.Add($cur.Name)
+      }
+      $cur = $cur.Parent
+    }
+    $parts.Reverse()
+    $root = $cur.FullName.TrimEnd('\')
+    if ($parts.Count -eq 0) { return $root }
+    return ($root + '\' + [string]::Join('\', $parts))
+  } catch {
+    return [IO.Path]::GetFullPath($p).TrimEnd('\')
+  }
 }
 
 try {
@@ -544,7 +611,9 @@ if (-not $writable -and -not $isAdmin) {
     '-StatusFile', (Quote $StatusFile),
     '-ProceedFile', (Quote $ProceedFile),
     '-CancelFile', (Quote $CancelFile),
-    '-LogFile', (Quote $LogFile)
+    '-LogFile', (Quote $LogFile),
+    '-GracefulWaitMs', $GracefulWaitMs,
+    '-CopyRetries', $CopyRetries
   ) -join ' '
   if ($NoErrorDialog) { $argLine += ' -NoErrorDialog' }
   try {
@@ -568,42 +637,83 @@ while (-not (Test-Path -LiteralPath $ProceedFile)) {
   Start-Sleep -Milliseconds 100
 }
 
-# Only replace files after the old process has actually exited.
-$deadline = (Get-Date).AddSeconds(120)
+$targetCanonical = CanonicalDir $TargetDir
+$mutexId = 'Local\VyshUpdate_' + (HashText $targetCanonical.ToLowerInvariant()).Substring(0, 24)
+$script:mutex = New-Object System.Threading.Mutex($false, $mutexId)
+try {
+  $script:mutexHeld = $script:mutex.WaitOne(120000)
+} catch [System.Threading.AbandonedMutexException] {
+  $script:mutexHeld = $true
+}
+if (-not $script:mutexHeld) {
+  throw 'Another vysh update is already in progress for this directory'
+}
+
+# Wait gracefully for the old process to exit; if it hangs during teardown after
+# already confirming handoff via $ProceedFile, force-terminate it.
+$graceDeadline = (Get-Date).AddMilliseconds($GracefulWaitMs)
 while (Get-Process -Id $AppPid -ErrorAction SilentlyContinue) {
   if (Test-Path -LiteralPath $CancelFile) { exit 1 }
-  if ((Get-Date) -gt $deadline) { throw 'Application is still running; update cancelled' }
-  Start-Sleep -Milliseconds 200
+  if ((Get-Date) -ge $graceDeadline) { break }
+  Start-Sleep -Milliseconds 100
 }
-Start-Sleep -Seconds 1
+if (Get-Process -Id $AppPid -ErrorAction SilentlyContinue) {
+  Log "process $AppPid still running after ${GracefulWaitMs}ms; forcing termination"
+  try { Stop-Process -Id $AppPid -Force -ErrorAction SilentlyContinue } catch {}
+  $killDeadline = (Get-Date).AddSeconds(15)
+  while (Get-Process -Id $AppPid -ErrorAction SilentlyContinue) {
+    if (Test-Path -LiteralPath $CancelFile) { exit 1 }
+    if ((Get-Date) -gt $killDeadline) {
+      throw "Application (pid=$AppPid) is still running; update cancelled"
+    }
+    Start-Sleep -Milliseconds 100
+  }
+}
+
+$exeLeaf = [IO.Path]::GetFileNameWithoutExtension($ExePath)
+function GetTargetProcesses() {
+  $found = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+  foreach ($proc in @(Get-Process -Name $exeLeaf -ErrorAction SilentlyContinue)) {
+    if ($null -eq $proc -or $proc.Id -eq $PID) { continue }
+    $pPath = $null
+    try { $pPath = $proc.MainModule.FileName } catch {}
+    if (-not $pPath) { try { $pPath = $proc.Path } catch {} }
+    if ($pPath) {
+      $pDir = CanonicalDir ([IO.Path]::GetDirectoryName($pPath))
+      if ($pDir.Equals($targetCanonical, [StringComparison]::OrdinalIgnoreCase) -or
+          $pDir.StartsWith($targetCanonical + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        $found.Add($proc)
+      }
+    }
+  }
+  return $found.ToArray()
+}
+
+$siblingWait = (Get-Date).AddMilliseconds(1500)
+while (@(GetTargetProcesses).Count -gt 0 -and (Get-Date) -lt $siblingWait) {
+  Start-Sleep -Milliseconds 150
+}
+foreach ($sib in @(GetTargetProcesses)) {
+  Log "stopping sibling $exeLeaf process pid=$($sib.Id)"
+  try { Stop-Process -Id $sib.Id -Force -ErrorAction SilentlyContinue } catch {}
+}
+$siblingKillDeadline = (Get-Date).AddSeconds(10)
+while (@(GetTargetProcesses).Count -gt 0) {
+  if ((Get-Date) -gt $siblingKillDeadline) {
+    throw "Another $exeLeaf instance in $TargetDir is still running; update cancelled"
+  }
+  Start-Sleep -Milliseconds 150
+}
+
+Start-Sleep -Milliseconds 300
 if (Test-Path -LiteralPath $CancelFile) { exit 1 }
 
-# /IM is not available on older Windows 10 robocopy versions.
-# Capture the actual output and require a valid success exit code.
-$copied = $false
-for ($attempt = 1; $attempt -le 3; $attempt++) {
-  & robocopy.exe $SourceDir $TargetDir /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP 2>&1 |
-    Out-File -FilePath $log -Append -Encoding utf8
-  $code = $LASTEXITCODE
-  Log "robocopy attempt $attempt exit=$code"
-  if ($null -ne $code -and $code -ge 0 -and $code -lt 8) { $copied = $true; break }
-  Start-Sleep -Seconds 1
-}
-if (-not $copied) { throw 'Update copy failed after retries' }
-
-# Get-FileHash is an optional module command on some Windows PowerShell hosts.
-function Hash([string]$path) {
-  $stream = [IO.File]::OpenRead($path)
-  $sha = [Security.Cryptography.SHA256]::Create()
-  try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
-  finally { $stream.Dispose(); $sha.Dispose() }
-}
 # Match by child names instead of substring offsets: PowerShell/.NET may
 # expand a DOS 8.3 path (RUNNER~1) into a longer path during enumeration.
 function VerifyDirectory([string]$source, [string]$destination) {
   foreach ($file in [IO.Directory]::EnumerateFiles($source)) {
     $installed = [IO.Path]::Combine($destination, [IO.Path]::GetFileName($file))
-    if ((Hash $file) -ne (Hash $installed)) {
+    if (-not [IO.File]::Exists($installed) -or (Hash $file) -ne (Hash $installed)) {
       throw "Installed file does not match update: $installed"
     }
   }
@@ -611,7 +721,173 @@ function VerifyDirectory([string]$source, [string]$destination) {
     VerifyDirectory $dir ([IO.Path]::Combine($destination, [IO.Path]::GetFileName($dir)))
   }
 }
-VerifyDirectory $SourceDir $TargetDir
+
+function ClearReadOnly([string]$path) {
+  if ([IO.File]::Exists($path)) {
+    try {
+      $attr = [IO.File]::GetAttributes($path)
+      if (($attr -band [IO.FileAttributes]::ReadOnly) -ne 0) {
+        [IO.File]::SetAttributes($path, ($attr -band (-bnot [IO.FileAttributes]::ReadOnly)))
+      }
+    } catch {}
+  }
+}
+
+$relFiles = New-Object System.Collections.Generic.List[string]
+function CollectFiles([string]$dir, [string]$prefix) {
+  foreach ($f in [IO.Directory]::EnumerateFiles($dir)) {
+    $name = [IO.Path]::GetFileName($f)
+    if ($prefix.Length -eq 0) { $relFiles.Add($name) } else { $relFiles.Add("$prefix\$name") }
+  }
+  foreach ($d in [IO.Directory]::EnumerateDirectories($dir)) {
+    $name = [IO.Path]::GetFileName($d)
+    $next = $(if ($prefix.Length -eq 0) { $name } else { "$prefix\$name" })
+    CollectFiles $d $next
+  }
+}
+CollectFiles $SourceDir ''
+
+# Copy .exe, .dll, and mapped font files first so any OS image/section lock fails
+# before touching data\app.so, and back up every existing file for full rollback.
+$p0 = New-Object System.Collections.Generic.List[string]
+$p1 = New-Object System.Collections.Generic.List[string]
+$p2 = New-Object System.Collections.Generic.List[string]
+$p3 = New-Object System.Collections.Generic.List[string]
+foreach ($rel in $relFiles) {
+  $ext = [IO.Path]::GetExtension($rel).ToLowerInvariant()
+  if ($ext -eq '.exe') { $p0.Add($rel) }
+  elseif ($ext -eq '.dll') { $p1.Add($rel) }
+  elseif ($ext -eq '.ttf' -or $ext -eq '.otf') { $p2.Add($rel) }
+  else { $p3.Add($rel) }
+}
+$p0.Sort([StringComparer]::OrdinalIgnoreCase)
+$p1.Sort([StringComparer]::OrdinalIgnoreCase)
+$p2.Sort([StringComparer]::OrdinalIgnoreCase)
+$p3.Sort([StringComparer]::OrdinalIgnoreCase)
+$orderedFiles = New-Object System.Collections.Generic.List[string]
+$orderedFiles.AddRange($p0)
+$orderedFiles.AddRange($p1)
+$orderedFiles.AddRange($p2)
+$orderedFiles.AddRange($p3)
+
+$backupDir = Join-Path $CleanupDir ('backup_' + [System.Guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($backupDir)
+$backedUpSet = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+foreach ($rel in $orderedFiles) {
+  $dst = Join-Path $TargetDir $rel
+  if ([IO.File]::Exists($dst)) {
+    $bak = Join-Path $backupDir $rel
+    $bakParent = [IO.Path]::GetDirectoryName($bak)
+    if (-not [IO.Directory]::Exists($bakParent)) {
+      [void][IO.Directory]::CreateDirectory($bakParent)
+    }
+    $copiedBackup = $false
+    for ($bTry = 1; $bTry -le 5; $bTry++) {
+      try {
+        [IO.File]::Copy($dst, $bak, $true)
+        $copiedBackup = $true
+        break
+      } catch {
+        if ($bTry -eq 5) { throw "Cannot back up existing file ${rel}: $($_.Exception.Message)" }
+        Start-Sleep -Milliseconds 300
+      }
+    }
+    if ($copiedBackup) { [void]$backedUpSet.Add($rel) }
+  }
+}
+Log "backed up $($backedUpSet.Count) existing files (total payload: $($orderedFiles.Count))"
+
+$createdFiles = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+$overwrittenFiles = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+
+function RollbackTarget() {
+  Log 'rolling back target directory from backup'
+  $rollbackErrors = 0
+  foreach ($rel in $createdFiles) {
+    $dst = Join-Path $TargetDir $rel
+    if ([IO.File]::Exists($dst)) {
+      try {
+        ClearReadOnly $dst
+        [IO.File]::Delete($dst)
+      } catch {
+        $rollbackErrors++
+        Log "rollback delete failed for ${rel}: $($_.Exception.Message)"
+      }
+    }
+  }
+  foreach ($rel in $overwrittenFiles) {
+    $bak = Join-Path $backupDir $rel
+    $dst = Join-Path $TargetDir $rel
+    if ([IO.File]::Exists($bak)) {
+      try {
+        if ([IO.File]::Exists($dst) -and (Hash $dst) -eq (Hash $bak)) { continue }
+        $dstParent = [IO.Path]::GetDirectoryName($dst)
+        if (-not [IO.Directory]::Exists($dstParent)) {
+          [void][IO.Directory]::CreateDirectory($dstParent)
+        }
+        ClearReadOnly $dst
+        [IO.File]::Copy($bak, $dst, $true)
+      } catch {
+        $rollbackErrors++
+        Log "rollback restore failed for ${rel}: $($_.Exception.Message)"
+      }
+    }
+  }
+  Log "rollback finished (errors=$rollbackErrors)"
+  if ($rollbackErrors -eq 0) {
+    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+$installedOk = $false
+$lastCopyError = ''
+try {
+  for ($attempt = 1; $attempt -le $CopyRetries; $attempt++) {
+    $failedRel = $null
+    foreach ($rel in $orderedFiles) {
+      $src = Join-Path $SourceDir $rel
+      $dst = Join-Path $TargetDir $rel
+      $dstParent = [IO.Path]::GetDirectoryName($dst)
+      try {
+        if (-not [IO.Directory]::Exists($dstParent)) {
+          [void][IO.Directory]::CreateDirectory($dstParent)
+        }
+        ClearReadOnly $dst
+        if ($backedUpSet.Contains($rel)) {
+          [void]$overwrittenFiles.Add($rel)
+        } else {
+          [void]$createdFiles.Add($rel)
+        }
+        [IO.File]::Copy($src, $dst, $true)
+      } catch {
+        $failedRel = $rel
+        $lastCopyError = "${rel}: $($_.Exception.Message)"
+        Log "copy attempt $attempt/$CopyRetries failed on $lastCopyError"
+        break
+      }
+    }
+    if ($null -eq $failedRel) {
+      VerifyDirectory $SourceDir $TargetDir
+      $installedOk = $true
+      break
+    }
+    foreach ($sib in @(GetTargetProcesses)) {
+      Log "stopping interfering $exeLeaf process pid=$($sib.Id) during retry"
+      try { Stop-Process -Id $sib.Id -Force -ErrorAction SilentlyContinue } catch {}
+    }
+    if ($attempt -lt $CopyRetries) {
+      Start-Sleep -Milliseconds 600
+    }
+  }
+  if (-not $installedOk) {
+    throw "Update copy failed after $CopyRetries attempts ($lastCopyError)"
+  }
+} catch {
+  RollbackTarget
+  throw
+}
+
+Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
 Log 'all installed files verified'
 $child = Start-Process -FilePath $ExePath -WorkingDirectory $TargetDir -PassThru
 Start-Sleep -Milliseconds 500
@@ -619,13 +895,45 @@ $child.Refresh()
 if ($child.HasExited) { throw "New application exited immediately with code $($child.ExitCode)" }
 Log "relaunched $ExePath pid=$($child.Id)"
 Status 'complete' "$($child.Id)"
+ReleaseUpdateMutex
 Start-Sleep -Seconds 2
 # Only remove the verified download and script after successful installation.
 Remove-Item -LiteralPath $CleanupDir -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
   Fail "update failed: $_"
+} finally {
+  ReleaseUpdateMutex
 }
 ''';
+}
+
+typedef _GetCurrentProcessNative = IntPtr Function();
+typedef _GetCurrentProcessDart = int Function();
+typedef _TerminateProcessNative =
+    Int32 Function(IntPtr hProcess, Uint32 uExitCode);
+typedef _TerminateProcessDart = int Function(int hProcess, int uExitCode);
+
+/// Immediately terminates the current process at the OS kernel level on Windows
+/// (`TerminateProcess(GetCurrentProcess(), 0)`), avoiding Win32 `ExitProcess` /
+/// `DllMain(DLL_PROCESS_DETACH)` loader-lock deadlocks in native plugins.
+Never _terminateCurrentProcess() {
+  if (Platform.isWindows) {
+    try {
+      final kernel32 = DynamicLibrary.open('kernel32.dll');
+      final getCurrentProcess = kernel32
+          .lookupFunction<_GetCurrentProcessNative, _GetCurrentProcessDart>(
+            'GetCurrentProcess',
+          );
+      final terminateProcess = kernel32
+          .lookupFunction<_TerminateProcessNative, _TerminateProcessDart>(
+            'TerminateProcess',
+          );
+      terminateProcess(getCurrentProcess(), 0);
+    } catch (_) {
+      // Fall through to standard exit(0) if FFI lookup fails.
+    }
+  }
+  exit(0);
 }
 
 /// Written by Dart before PowerShell starts, so startup failures leave diagnostics too.
@@ -667,6 +975,8 @@ class WindowsUpdateHandoff {
     required String exePath,
     required int appPid,
     required String cleanupDir,
+    int? gracefulWaitMs,
+    int? copyRetries,
     bool noErrorDialog = false,
   }) async {
     final sep = Platform.pathSeparator;
@@ -690,6 +1000,7 @@ class WindowsUpdateHandoff {
         '-Command',
         r'$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:VYSH_UPDATE_SCRIPT, [ref]$tokens, [ref]$errors); if ($errors.Count -gt 0) { $errors | Out-String | Write-Error; exit 1 }',
       ],
+      workingDirectory: staging.path,
       environment: {'VYSH_UPDATE_SCRIPT': script.path},
     );
     if (validation.exitCode != 0) {
@@ -727,6 +1038,8 @@ class WindowsUpdateHandoff {
       quote(handoff.cancelFile.path.replaceAll('/', r'\')),
       '-LogFile',
       quote(WindowsUpdateLog.file.path),
+      if (gracefulWaitMs != null) ...['-GracefulWaitMs', '$gracefulWaitMs'],
+      if (copyRetries != null) ...['-CopyRetries', '$copyRetries'],
       if (noErrorDialog) '-NoErrorDialog',
     ].join(' ');
     // One UTF-16LE argument avoids the additional Windows/PowerShell -File
@@ -734,14 +1047,19 @@ class WindowsUpdateHandoff {
     final encoded = base64Encode([
       for (final unit in invocation.codeUnits) ...[unit & 255, unit >> 8],
     ]);
-    final process = await Process.start(powershellExecutable, [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-EncodedCommand',
-      encoded,
-    ], mode: ProcessStartMode.normal);
+    final process = await Process.start(
+      powershellExecutable,
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        encoded,
+      ],
+      workingDirectory: staging.path,
+      mode: ProcessStartMode.normal,
+    );
     // On Windows normal mode uses CREATE_NO_WINDOW and does not terminate
     // children when the parent exits. DETACHED_PROCESS prevents Windows
     // PowerShell from starting reliably; keep the startup streams instead.
@@ -753,15 +1071,16 @@ class WindowsUpdateHandoff {
     );
     await process.stdin.close();
     for (final output in [process.stdout, process.stderr]) {
-      output
-          .transform(systemEncoding.decoder)
-          .listen(
-            (text) =>
-                unawaited(WindowsUpdateLog.write('PowerShell output: $text')),
-            onError: (Object error) => unawaited(
-              WindowsUpdateLog.write('PowerShell output error: $error'),
-            ),
-          );
+      output.transform(systemEncoding.decoder).listen(
+        (text) {
+          final trimmed = text.trim();
+          if (trimmed.isEmpty || trimmed == '#< CLIXML') return;
+          unawaited(WindowsUpdateLog.write('PowerShell output: $trimmed'));
+        },
+        onError: (Object error) => unawaited(
+          WindowsUpdateLog.write('PowerShell output error: $error'),
+        ),
+      );
     }
     await WindowsUpdateLog.write(
       'PowerShell helper spawned: pid=${process.pid}; awaiting readiness',
@@ -890,7 +1209,11 @@ class LinuxTarUpdate {
       rethrow;
     }
 
-    await beforeRestart?.call();
+    if (beforeRestart != null) {
+      try {
+        await beforeRestart().timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
     await Future<void>.delayed(const Duration(milliseconds: 200));
     exit(0);
   }
