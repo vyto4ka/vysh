@@ -66,27 +66,6 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build linux --release --dart-define="BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)"
-      - name: Сжать шрифт иконок (tree-shake MaterialIcons)
-        run: |
-          BUNDLE="build/linux/x64/release/bundle"
-          CFG="linux/flutter/ephemeral/generated_config.cmake"
-          tool_env() { sed -n "s/^ *\"$1=\(.*\)\"\$/\1/p" "$CFG" | head -n 1; }
-          flutter assemble --no-version-check --output=build \
-            -dTargetPlatform=linux-x64 \
-            -dTrackWidgetCreation="$(tool_env TRACK_WIDGET_CREATION)" \
-            -dBuildMode=release \
-            -dTargetFile="$(tool_env FLUTTER_TARGET)" \
-            -dTreeShakeIcons=true \
-            -dDartObfuscation="$(tool_env DART_OBFUSCATION)" \
-            --DartDefines="$(tool_env DART_DEFINES)" \
-            release_bundle_linux-x64_assets
-          FONT="data/flutter_assets/fonts/MaterialIcons-Regular.otf"
-          SHAKEN="build/flutter_assets/fonts/MaterialIcons-Regular.otf"
-          before="$(stat -c%s "$BUNDLE/$FONT")"
-          after="$(stat -c%s "$SHAKEN")"
-          [ "$after" -lt "$before" ] || { echo "icon font was not shaken ($after >= $before bytes)"; exit 1; }
-          cp -f "$SHAKEN" "$BUNDLE/$FONT"
-          echo "icon font: $before -> $after bytes"
       - name: Упаковать tar.gz
         run: |
           cp LICENSE build/linux/x64/release/bundle/LICENSE
@@ -112,9 +91,6 @@ jobs:
         run: flutter test test/windows_update_test.dart test/directory_tracking_test.dart test/terminal_shortcut_parity_test.dart test/follow_terminal_directory_test.dart test/window_client_test.dart test/window_transfer_test.dart test/window_transport_test.dart test/desktop_context_menu_test.dart
       - shell: bash
         run: flutter build windows --release --dart-define="BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)"
-      - name: Сжать шрифт иконок (tree-shake MaterialIcons)
-        shell: pwsh
-        run: pwsh -File tools/release/shake_icon_font.ps1 -BundleDir build/windows/x64/runner/Release
       - name: Упаковать zip
         shell: pwsh
         run: |
