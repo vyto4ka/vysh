@@ -79,6 +79,35 @@ class _ExpressivePageTransitionsBuilder extends PageTransitionsBuilder {
   }
 }
 
+/// Семантические цвета поверх стандартной [ColorScheme],
+/// согласованные со светлой/тёмной темой и внешними палитрами (Catppuccin и др.).
+class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
+  const AppSemanticColors({required this.success});
+
+  /// Цвет успешного состояния (подключено, хост доступен, передача завершена).
+  final Color success;
+
+  static AppSemanticColors of(BuildContext context) {
+    final ext = Theme.of(context).extension<AppSemanticColors>();
+    if (ext != null) return ext;
+    return Theme.of(context).brightness == Brightness.dark
+        ? const AppSemanticColors(success: Color(0xFF6DD58C))
+        : const AppSemanticColors(success: Color(0xFF1B7D44));
+  }
+
+  @override
+  AppSemanticColors copyWith({Color? success}) =>
+      AppSemanticColors(success: success ?? this.success);
+
+  @override
+  AppSemanticColors lerp(covariant AppSemanticColors? other, double t) {
+    if (other == null) return this;
+    return AppSemanticColors(
+      success: Color.lerp(success, other.success, t) ?? success,
+    );
+  }
+}
+
 ThemeData buildTheme({
   required Color seed,
   required Brightness brightness,
@@ -91,11 +120,17 @@ ThemeData buildTheme({
     roles,
   );
   final radius = BorderRadius.circular(20);
+  final successColor =
+      roles?['success'] ??
+      (brightness == Brightness.dark
+          ? const Color(0xFF6DD58C)
+          : const Color(0xFF1B7D44));
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     brightness: brightness,
+    extensions: [AppSemanticColors(success: successColor)],
     visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
     scaffoldBackgroundColor: scheme.surface,
     pageTransitionsTheme: const PageTransitionsTheme(

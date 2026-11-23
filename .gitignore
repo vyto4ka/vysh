@@ -50,6 +50,4 @@ id_ed25519*
 key.properties
 *.jks
 
-# Служебная папка, не для репозитория
-Claude outputs/
 *.kate-swp

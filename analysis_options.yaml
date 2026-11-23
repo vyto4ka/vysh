@@ -4,10 +4,8 @@ analyzer:
     - windows/**
     - linux/**
     - android/**
-    - web/**
     - third_party/**
     - macos/**
-    - vysh-macos/**
 include: package:flutter_lints/flutter.yaml
 
 linter:

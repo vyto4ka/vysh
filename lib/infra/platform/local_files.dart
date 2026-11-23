@@ -93,8 +93,9 @@ class LocalFiles {
         'subDir': subDir,
         'mimeType': mimeType,
       });
-      if (uri == null)
+      if (uri == null) {
         throw const LocalFileFailure(LocalFileError.publishFailed);
+      }
       return uri;
     } on PlatformException catch (e) {
       if (e.code == 'PERMISSION_DENIED') {
@@ -320,8 +321,9 @@ class LocalFiles {
           continue;
         }
         try {
-          if ((await e.stat()).modified.isBefore(old))
+          if ((await e.stat()).modified.isBefore(old)) {
             await e.delete(recursive: true);
+          }
         } catch (_) {}
       }
     } catch (_) {}

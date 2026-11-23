@@ -8,6 +8,7 @@ import '../../l10n/app_strings.dart';
 import '../motion/app_motion.dart';
 import '../motion/expand_section.dart';
 import '../motion/smooth_scroll.dart';
+import '../theme/app_theme.dart';
 
 /// Список передач вкладки внизу SFTP-панели.
 class TransfersView extends ConsumerStatefulWidget {
@@ -206,7 +207,7 @@ class _TransferRow extends StatelessWidget {
             : () => LocalFiles.reveal(t.publishedUri ?? t.localPath),
         icon: Icon(
           up ? Icons.check : Icons.folder_open,
-          color: Colors.green.shade500,
+          color: AppSemanticColors.of(context).success,
         ),
       ),
       TransferStatus.failed => Padding(

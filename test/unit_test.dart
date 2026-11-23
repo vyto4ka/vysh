@@ -8,6 +8,10 @@ import 'package:vysh/domain/ports/secret_store.dart';
 import 'package:vysh/ui/hosts/hosts_page.dart';
 import 'package:vysh/ui/shell/home_switcher.dart';
 
+import 'package:vysh/domain/models/catppuccin.dart';
+import 'package:vysh/infra/platform/net_diag.dart';
+import 'package:vysh/ui/theme/app_theme.dart';
+
 class _MemoryStore implements DocumentStore {
   @override
   Object? readSync() => null;
@@ -58,5 +62,33 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
+  });
+
+  test('NetDiag отклоняет хосты с ведущим дефисом (защита от argument injection)', () async {
+    final diag = NetDiag(DiagKind.ping, '-t', 22);
+    final linesFuture = diag.output.toList();
+    await diag.start();
+    final lines = await linesFuture;
+    expect(lines, hasLength(1));
+    expect(lines.single.message, DiagMessage.badAddress);
+  });
+
+  test('AppSemanticColors подхватывает зелёный из Catppuccin и различает светлую/тёмную темы', () {
+    final light = buildTheme(seed: Colors.blue, brightness: Brightness.light);
+    final dark = buildTheme(seed: Colors.blue, brightness: Brightness.dark);
+    final lightSuccess = light.extension<AppSemanticColors>()!.success;
+    final darkSuccess = dark.extension<AppSemanticColors>()!.success;
+    expect(lightSuccess, isNot(equals(darkSuccess)));
+
+    final mocha = catppuccinColors('mocha', 'mauve');
+    final mochaTheme = buildTheme(
+      seed: mocha.seed,
+      brightness: Brightness.dark,
+      roles: mocha.roles[Brightness.dark],
+    );
+    expect(
+      mochaTheme.extension<AppSemanticColors>()!.success,
+      equals(catppuccinFlavor('mocha')['green']),
+    );
   });
 }

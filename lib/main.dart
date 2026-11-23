@@ -15,6 +15,7 @@ import 'app/settings/terminal_font.dart';
 import 'app/windows/window_options.dart';
 import 'app/windows/window_transport.dart';
 import 'app/dependencies.dart';
+import 'infra/platform/capabilities.dart';
 import 'infra/platform/font_files.dart';
 import 'infra/platform/memory_trimmer.dart';
 import 'infra/platform/window_placement.dart';
@@ -27,7 +28,7 @@ import 'ui/widgets/modifiers.dart';
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   Modifiers.init();
-  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+  if (PlatformCapabilities.desktopWindow) {
     final native = await WindowController.fromCurrentEngine();
     final arguments = args.length == 2 && args.first == '--vysh-session-window'
         ? jsonDecode(args[1]) as Map<String, dynamic>
@@ -105,7 +106,7 @@ Future<void> main(List<String> args) async {
   await AppPaths.init();
   final profileFree = await AppPaths.lockProfile();
 
-  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+  if (PlatformCapabilities.desktopWindow) {
     await windowManager.ensureInitialized();
 
     if (!profileFree) {
@@ -146,7 +147,7 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  if (kIsWeb || !(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+  if (!PlatformCapabilities.desktopWindow) {
     MemoryTrimmer.configureStartupLimits();
   }
 

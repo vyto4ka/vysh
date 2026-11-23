@@ -296,9 +296,11 @@ class _Reachability extends ConsumerWidget {
                 duration: fast,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: (ms == null ? scheme.error : Colors.green).withValues(
-                    alpha: 0.14,
-                  ),
+                  color:
+                      (ms == null
+                              ? scheme.error
+                              : AppSemanticColors.of(context).success)
+                          .withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -309,7 +311,9 @@ class _Reachability extends ConsumerWidget {
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     fontFeatures: const [FontFeature.tabularFigures()],
-                    color: ms == null ? scheme.error : Colors.green.shade600,
+                    color: ms == null
+                        ? scheme.error
+                        : AppSemanticColors.of(context).success,
                   ),
                 ),
               ),

@@ -74,10 +74,12 @@ void main() {
 
       final arguments = <String, dynamic>{
         'windowKey': key,
-        'token': token,
         'socketPath': sockPath,
       };
-      final window = await ProcessSessionWindow.connect(arguments);
+      final window = await ProcessSessionWindow.connect(
+        arguments,
+        environment: {ProcessSessionWindow.windowTokenEnv: token},
+      );
       addTearDown(window.close);
 
       final controls = <String>[];

@@ -63,8 +63,9 @@ class NetDiag {
       await _out.close();
       return;
     }
-    // Адрес уходит в командную строку - пускаем только безопасные символы.
-    if (!RegExp(r'^[A-Za-z0-9.:_\-]+$').hasMatch(host)) {
+    // Адрес уходит в командную строку - пускаем только безопасные символы
+    // и запрещаем ведущий дефис, чтобы адрес не трактовался как флаг утилиты.
+    if (!RegExp(r'^[A-Za-z0-9:][A-Za-z0-9.:_\-]*$').hasMatch(host)) {
       _out.add(DiagLine(DiagMessage.badAddress, {'host': host}));
       await _out.close();
       return;
@@ -77,15 +78,15 @@ class NetDiag {
           await _run(
             (!kIsWeb && Platform.isWindows)
                 ? ['ping', '-n', '4', host]
-                : ['ping', '-c', '4', '-W', '2', host],
+                : ['ping', '-c', '4', '-W', '2', '--', host],
           );
         case DiagKind.traceroute:
           if (!kIsWeb && Platform.isWindows) {
             await _run(['tracert', '-d', '-w', '1000', '-h', '30', host]);
           } else if (await _exists('traceroute')) {
-            await _run(['traceroute', '-n', '-w', '2', '-q', '1', host]);
+            await _run(['traceroute', '-n', '-w', '2', '-q', '1', '--', host]);
           } else if (await _exists('tracepath')) {
-            await _run(['tracepath', '-n', host]);
+            await _run(['tracepath', '-n', '--', host]);
           } else {
             _out.add(const DiagLine(DiagMessage.noTraceroute));
           }

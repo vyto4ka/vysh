@@ -309,11 +309,15 @@ class ProcessSessionWindow implements SessionWindowController {
     });
 
     try {
-      final boot = {...arguments, 'socketPath': sockPath}..remove('initial');
-      window.process = await Process.start(Platform.resolvedExecutable, [
-        '--vysh-session-window',
-        jsonEncode(boot),
-      ], mode: ProcessStartMode.inheritStdio);
+      final boot = {...arguments, 'socketPath': sockPath}
+        ..remove('initial')
+        ..remove('token');
+      window.process = await Process.start(
+        Platform.resolvedExecutable,
+        ['--vysh-session-window', jsonEncode(boot)],
+        environment: {windowTokenEnv: token},
+        mode: ProcessStartMode.inheritStdio,
+      );
       unawaited(
         window.process!.exitCode.then((code) async {
           if (!ready.isCompleted) {
@@ -333,12 +337,18 @@ class ProcessSessionWindow implements SessionWindowController {
     }
   }
 
+  /// Переменная окружения для передачи IPC-токена дочернему процессу окна
+  /// (не попадает в `/proc/<pid>/cmdline`).
+  static const windowTokenEnv = 'VYSH_WINDOW_TOKEN';
+
   static Future<ProcessSessionWindow> connect(
     Map<String, dynamic> arguments, {
     void Function()? onDisconnected,
+    Map<String, String>? environment,
   }) async {
     final windowId = arguments['windowKey'] as String;
-    final token = arguments['token'] as String;
+    final env = environment ?? Platform.environment;
+    final token = (env[windowTokenEnv] ?? arguments['token']) as String;
     final sockPath = arguments['socketPath'] as String;
     final socket = await Socket.connect(
       InternetAddress(sockPath, type: InternetAddressType.unix),

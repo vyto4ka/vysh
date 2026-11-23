@@ -148,7 +148,9 @@ class _HostEditorSheetState extends ConsumerState<_HostEditorSheet> {
         }
         _form.keyPath.text = target.path;
         return;
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('vysh: не удалось скопировать ключ в профиль: $e');
+      }
     }
     _form.keyPath.text = file.path;
   }

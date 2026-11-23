@@ -10,6 +10,7 @@ import '../motion/app_motion.dart';
 import '../motion/expand_section.dart';
 import '../motion/pressable_surface.dart';
 import '../motion/smooth_scroll.dart';
+import '../theme/app_theme.dart';
 import '../widgets/strings_context.dart';
 import '../../l10n/app_strings.dart';
 import '../../domain/models/session_tab.dart';
@@ -826,7 +827,7 @@ class _StatusDotState extends State<_StatusDot> with TickerProviderStateMixin {
         context.strings.statusConnecting,
       ),
       SessionStatus.ready => (
-        Colors.green.shade500,
+        AppSemanticColors.of(context).success,
         context.strings.statusConnected,
       ),
       SessionStatus.lost => (scheme.error, context.strings.statusLost),

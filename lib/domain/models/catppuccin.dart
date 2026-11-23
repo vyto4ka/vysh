@@ -101,6 +101,7 @@ ExternalColors catppuccinColors(String flavorId, String accentId) {
     'onError': f.dark ? crust : base,
     'errorContainer': mix(f['red'], 0.22),
     'onErrorContainer': f['red'],
+    'success': f['green'],
     'surface': base,
     'onSurface': f['text'],
     'onSurfaceVariant': f['subtext0'],
