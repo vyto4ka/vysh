@@ -217,6 +217,9 @@ jobs:
           cp -R build/macos/Build/Products/Release/vysh.app $STAGING/
           cp LICENSE $STAGING/LICENSE
           ln -s /Applications $STAGING/Applications
+          if [ -f assets/icon/vysh-macos.icns ]; then
+            cp assets/icon/vysh-macos.icns "$STAGING/.VolumeIcon.icns"
+          fi
           hdiutil create -volname "vysh" -srcfolder $STAGING \
             -ov -format UDZO "vysh-${GITHUB_REF_NAME}-macos.dmg"
       - uses: actions/upload-artifact@v4

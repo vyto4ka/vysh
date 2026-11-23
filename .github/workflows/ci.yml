@@ -1,19 +1,49 @@
 name: CI
 
+# Единый пайплайн проверки, прогрева кэша и сборки артефактов для всех 4 платформ
+# без публикации релиза. Готовые архивы, DMG и APK доступны во вкладке Artifacts
+# на странице запуска (хранятся 14 дней).
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Еженедельный прогрев кэша в main (GitHub удаляет неиспользуемый кэш через 7 дней).
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Платформа для сборки (all — все четыре)
+        type: choice
+        default: all
+        options:
+          - all
+          - linux
+          - windows
+          - macos
+          - android
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Та же версия, что в release.yml и docs/RELEASING.md: иначе ключ кэша не совпадёт.
+  FLUTTER_VERSION: 3.47.6
 
 jobs:
   check:
+    name: Проверка и тесты
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.47.6
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
@@ -21,3 +51,168 @@ jobs:
       - run: flutter test third_party/irondash_message_channel/test
       - name: third_party/xterm2 = xterm2 с pub.dev + vysh.patch
         run: sh tools/xterm2/verify.sh
+
+  linux:
+    name: Linux
+    needs: check
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Системные зависимости
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev libsecret-1-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build linux --release --dart-define="BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)"
+      - name: Упаковать tar.gz
+        run: |
+          cp LICENSE build/linux/x64/release/bundle/LICENSE
+          cd build/linux/x64/release/bundle
+          tar -czf "$GITHUB_WORKSPACE/vysh-ci-linux-x64.tar.gz" .
+      - name: Артефакт Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: vysh-linux-x64
+          path: vysh-ci-linux-x64.tar.gz
+          retention-days: 14
+
+  windows:
+    name: Windows
+    needs: check
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - name: Windows updater handoff and restart tests
+        run: flutter test test/windows_update_test.dart test/directory_tracking_test.dart test/terminal_shortcut_parity_test.dart test/follow_terminal_directory_test.dart test/window_client_test.dart test/window_transfer_test.dart test/window_transport_test.dart test/desktop_context_menu_test.dart
+      - name: Updater diagnostics
+        if: always()
+        shell: powershell
+        run: |
+          $log = Join-Path $env:TEMP 'vysh_update.log'
+          if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding UTF8 }
+      - shell: bash
+        run: flutter build windows --release --dart-define="BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)"
+      - name: Упаковать zip
+        shell: pwsh
+        run: |
+          $dir = "build/windows/x64/runner/Release"
+          foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
+            Copy-Item "C:/Windows/System32/$dll" $dir
+          }
+          Copy-Item LICENSE $dir
+          Compress-Archive -Path "$dir/*" -DestinationPath "vysh-ci-windows-x64.zip"
+      - name: Артефакт Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: vysh-windows-x64
+          path: vysh-ci-windows-x64.zip
+          retention-days: 14
+
+  macos:
+    name: macOS
+    needs: check
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter config --enable-macos-desktop
+      - name: Terminal directory and shortcut regressions
+        run: flutter test test/directory_tracking_test.dart test/terminal_shortcut_parity_test.dart test/follow_terminal_directory_test.dart test/window_client_test.dart test/window_transfer_test.dart test/window_transport_test.dart test/desktop_context_menu_test.dart
+      - name: Сборка приложения и DMG
+        # Не tools/build_dmg.sh: оформление окна через Finder AppleScript
+        # на CI не сохранится (нет сессии пользователя) - чистый hdiutil.
+        run: |
+          BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)
+          flutter build macos --release --dart-define="BUILD_DATE=$BUILD_DATE"
+          STAGING=build/dmg_ci_staging
+          rm -rf $STAGING && mkdir -p $STAGING
+          cp -R build/macos/Build/Products/Release/vysh.app $STAGING/
+          cp LICENSE $STAGING/LICENSE
+          ln -s /Applications $STAGING/Applications
+          if [ -f assets/icon/vysh-macos.icns ]; then
+            cp assets/icon/vysh-macos.icns "$STAGING/.VolumeIcon.icns"
+          fi
+          hdiutil create -volname "vysh" -srcfolder $STAGING \
+            -ov -format UDZO -quiet "vysh-ci-macos.dmg"
+      - name: Проверка DMG
+        run: |
+          hdiutil verify vysh-ci-macos.dmg
+          MOUNT=$(mktemp -d)
+          hdiutil attach vysh-ci-macos.dmg -mountpoint "$MOUNT" -quiet -nobrowse
+          ls "$MOUNT"
+          test -d "$MOUNT/vysh.app" || { echo "::error::vysh.app нет в образе"; exit 1; }
+          test -d "$MOUNT/Applications" || { echo "::error::ссылки на Программы нет"; exit 1; }
+          # Без App Sandbox: SSH-клиенту нужен ~/.ssh (ключи по пути из хоста).
+          codesign -d --entitlements - --xml "$MOUNT/vysh.app" 2>/dev/null \
+            | plutil -extract com.apple.security.app-sandbox raw -o - - 2>/dev/null \
+            | grep -q true && { echo "::error::App Sandbox включён - ~/.ssh будет недоступен"; exit 1; }
+          codesign --verify --deep --strict "$MOUNT/vysh.app" || { echo "::error::подпись недействительна"; exit 1; }
+          # Универсальная сборка: и Apple Silicon, и Intel.
+          ARCHS=$(lipo -archs "$MOUNT/vysh.app/Contents/MacOS/vysh")
+          echo "архитектуры: $ARCHS"
+          case "$ARCHS" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "::error::не universal: $ARCHS"; exit 1 ;; esac
+          # Приложение стартует: запускаем в фоне, ждём, проверяем, убиваем.
+          "$MOUNT/vysh.app/Contents/MacOS/vysh" & APP=$!
+          sleep 20
+          kill -0 $APP 2>/dev/null && echo "приложение живо после 20с" \
+            || { echo "::error::приложение упало при запуске"; exit 1; }
+          kill $APP 2>/dev/null || true
+          hdiutil detach "$MOUNT" -quiet || true
+      - name: Артефакт macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: vysh-macos-dmg
+          path: vysh-ci-macos.dmg
+          retention-days: 14
+
+  android:
+    name: Android
+    needs: check
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      # Без key.properties подпись debug-ключом: APK подходит для проверки, но не для обновления поверх релиза.
+      - run: flutter build apk --release --split-per-abi --dart-define="BUILD_DATE=$(TZ=UTC git log -1 --date=format-local:'%d.%m.%y %H:%M:%S' --format=%cd)"
+      - name: Переименовать APK
+        run: |
+          for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi=$(basename "$f" | sed -E 's/^app-(.+)-release\.apk$/\1/')
+            cp "$f" "vysh-ci-android-${abi}.apk"
+          done
+      - name: Артефакт Android
+        uses: actions/upload-artifact@v4
+        with:
+          name: vysh-android-apk
+          path: vysh-ci-android-*.apk
+          retention-days: 14
