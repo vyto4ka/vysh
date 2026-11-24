@@ -54,6 +54,9 @@ Future<TabTransfer?> _readTransfer(DropSession session) async {
 
 /// Root-level drop observer on each window: tracks pointer entry/exit for
 /// Wayland-safe tear-off and reveals split drop zones for cross-window drags.
+/// Uses [DropMonitor] rather than [DropRegion] because a [DropRegion] returning
+/// [DropOperation.none] never becomes the active region and therefore never
+/// receives [DropRegion.onDropLeave] or [DropRegion.onDropEnded].
 class WindowTabDragScope extends ConsumerWidget {
   const WindowTabDragScope({super.key, required this.child});
   final Widget child;
@@ -61,25 +64,15 @@ class WindowTabDragScope extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!ref.watch(nativeTabDragProvider)) return child;
-    return DropRegion(
+    return DropMonitor(
       formats: const [_tabFormat],
       hitTestBehavior: HitTestBehavior.translucent,
-      onDropEnter: (event) {
-        if (!event.session.items.any((i) => i.canProvide(_tabFormat))) return;
-        ref.read(tabDragInsideWindowProvider.notifier).set(true);
-        if (ref.read(draggedTabProvider) == null) {
-          ref.read(incomingTabDragProvider.notifier).set(true);
-        }
-      },
       onDropOver: (event) {
-        if (!event.session.items.any((i) => i.canProvide(_tabFormat))) {
-          return DropOperation.none;
-        }
-        ref.read(tabDragInsideWindowProvider.notifier).set(true);
+        if (!event.session.items.any((i) => i.canProvide(_tabFormat))) return;
+        ref.read(tabDragInsideWindowProvider.notifier).set(event.isInside);
         if (ref.read(draggedTabProvider) == null) {
-          ref.read(incomingTabDragProvider.notifier).set(true);
+          ref.read(incomingTabDragProvider.notifier).set(event.isInside);
         }
-        return DropOperation.none;
       },
       onDropLeave: (_) {
         ref.read(tabDragInsideWindowProvider.notifier).set(false);
@@ -88,7 +81,6 @@ class WindowTabDragScope extends ConsumerWidget {
       onDropEnded: (_) {
         ref.read(incomingTabDragProvider.notifier).set(false);
       },
-      onPerformDrop: (_) async {},
       child: child,
     );
   }
@@ -240,19 +232,47 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
   }
 
   Future<void> _tearOff(Offset? location, {required bool insideWindow}) async {
+    final bool shouldDetach;
     if (DesktopEnv.isWayland) {
-      // Wayland does not expose global window/pointer coordinates. Rely on
-      // the root DropRegion enter/leave state instead.
-      if (insideWindow) return;
+      shouldDetach = shouldTearOffTab(
+        isWayland: true,
+        insideWindow: insideWindow,
+      );
     } else {
-      final point = location ?? await screenRetriever.getCursorScreenPoint();
+      // On macOS super_native_extensions reports lastScreenLocation in Cocoa
+      // screen coordinates (bottom-left origin, Y up), while window_manager
+      // and screen_retriever use top-left coordinates (Y down).
+      final point = PlatformCapabilities.isMacOS
+          ? await screenRetriever.getCursorScreenPoint()
+          : location ?? await screenRetriever.getCursorScreenPoint();
       final bounds = await windowManager.getBounds();
       if (!mounted) return;
-      if (insideWindow && bounds.inflate(6).contains(point)) return;
+      shouldDetach = shouldTearOffTab(
+        isWayland: false,
+        insideWindow: insideWindow,
+        cursorPoint: point,
+        windowBounds: bounds,
+      );
     }
-    if (!mounted) return;
+    if (!mounted || !shouldDetach) return;
     await detachSession(context, ref, widget.tab.id);
   }
+}
+
+/// Decides whether a completed unaccepted tab drag should detach into a new
+/// window. On Wayland global coordinates are unavailable, so the decision
+/// relies solely on [insideWindow] from the root [DropMonitor].
+@visibleForTesting
+bool shouldTearOffTab({
+  required bool isWayland,
+  required bool insideWindow,
+  Offset? cursorPoint,
+  Rect? windowBounds,
+}) {
+  if (isWayland) return !insideWindow;
+  if (!insideWindow) return true;
+  if (cursorPoint == null || windowBounds == null) return false;
+  return !windowBounds.inflate(6).contains(cursorPoint);
 }
 
 class TabDropTarget extends ConsumerStatefulWidget {

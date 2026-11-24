@@ -287,7 +287,10 @@ class DetachedWindows extends Notifier<Map<String, String>>
     _adopt(lease, id);
     try {
       await windowManager.setPreventClose(true);
-      final point = await screenRetriever.getCursorScreenPoint();
+      Offset point = Offset.zero;
+      try {
+        point = await screenRetriever.getCursorScreenPoint();
+      } catch (_) {}
       final size = sourceSize ?? (await windowManager.getBounds()).size;
       var width = size.width,
           height = size.height,
@@ -330,7 +333,10 @@ class DetachedWindows extends Notifier<Map<String, String>>
             )
           : EngineSessionWindow(
               await WindowController.create(
-                WindowConfiguration(arguments: jsonEncode(arguments)),
+                WindowConfiguration(
+                  arguments: jsonEncode(arguments),
+                  hiddenAtLaunch: true,
+                ),
               ),
             );
       if (!ref.mounted || session.isDisposed) {
@@ -547,9 +553,11 @@ class DetachedWindows extends Notifier<Map<String, String>>
 
   Future<void> _showMain(String? id) async {
     _mainClosed = false;
-    try {
-      await windowManager.setSkipTaskbar(false);
-    } catch (_) {}
+    if (!PlatformCapabilities.isMacOS) {
+      try {
+        await windowManager.setSkipTaskbar(false);
+      } catch (_) {}
+    }
     await windowManager.show();
     await windowManager.focus();
     final tabs = ref.read(tabsProvider);
@@ -576,9 +584,14 @@ class DetachedWindows extends Notifier<Map<String, String>>
         try {
           await WindowPlacement.instance.flush();
         } catch (_) {}
-        try {
-          await windowManager.setSkipTaskbar(true);
-        } catch (_) {}
+        // On macOS setSkipTaskbar toggles NSApplication.activationPolicy to
+        // .accessory for the whole process, hiding the app from Dock/Cmd+Tab
+        // even while detached windows are still open.
+        if (!PlatformCapabilities.isMacOS) {
+          try {
+            await windowManager.setSkipTaskbar(true);
+          } catch (_) {}
+        }
         await windowManager.hide();
       }());
     } else {

@@ -16,6 +16,7 @@ import 'app/windows/window_options.dart';
 import 'app/windows/window_transport.dart';
 import 'app/dependencies.dart';
 import 'infra/platform/capabilities.dart';
+import 'infra/platform/desktop_env.dart';
 import 'infra/platform/font_files.dart';
 import 'infra/platform/memory_trimmer.dart';
 import 'infra/platform/window_placement.dart';
@@ -64,23 +65,34 @@ Future<void> main(List<String> args) async {
           ),
           () async {
             await windowManager.setTitle(windowTitle);
-            await windowManager.setPosition(
-              Offset(
-                (arguments['x'] as num).toDouble(),
-                (arguments['y'] as num).toDouble(),
-              ),
+            final canPosition = !DesktopEnv.isWayland && !DesktopEnv.isTiling;
+            final targetSize = Size(
+              (arguments['width'] as num).toDouble(),
+              (arguments['height'] as num).toDouble(),
             );
+            if (canPosition) {
+              await windowManager.setPosition(
+                Offset(
+                  (arguments['x'] as num).toDouble(),
+                  (arguments['y'] as num).toDouble(),
+                ),
+              );
+            }
             await windowManager.show();
             // GTK can apply its initial default size when mapping the window.
-            // Reapply the requested bounds after the surface is visible.
-            await windowManager.setBounds(
-              Rect.fromLTWH(
-                (arguments['x'] as num).toDouble(),
-                (arguments['y'] as num).toDouble(),
-                (arguments['width'] as num).toDouble(),
-                (arguments['height'] as num).toDouble(),
-              ),
-            );
+            // Reapply the requested geometry after the surface is visible.
+            if (canPosition) {
+              await windowManager.setBounds(
+                Rect.fromLTWH(
+                  (arguments['x'] as num).toDouble(),
+                  (arguments['y'] as num).toDouble(),
+                  targetSize.width,
+                  targetSize.height,
+                ),
+              );
+            } else {
+              await windowManager.setSize(targetSize);
+            }
             await windowManager.focus();
           },
         );
@@ -111,11 +123,7 @@ Future<void> main(List<String> args) async {
 
     if (!profileFree) {
       windowManager.waitUntilReadyToShow(
-        const WindowOptions(
-          size: Size(420, 220),
-          center: true,
-          title: 'vysh',
-        ),
+        const WindowOptions(size: Size(420, 220), center: true, title: 'vysh'),
         () async {
           await windowManager.show();
           await windowManager.focus();
