@@ -54,7 +54,7 @@ extension NSRect {
 public class WindowManager: NSObject, NSWindowDelegate {
     public var onEvent:((String) -> Void)?
     
-    private var _mainWindow: NSWindow?
+    private weak var _mainWindow: NSWindow?
     public var mainWindow: NSWindow {
         get {
             return _mainWindow!
@@ -97,8 +97,12 @@ public class WindowManager: NSObject, NSWindowDelegate {
     public func destroy() {
         // Destroy this window only. Terminating NSApp also kills the owner and
         // every other session when a detached terminal returns to its tab.
+        // Break delegate/window reference so closed child engines can deallocate.
         _isPreventClose = false
-        mainWindow.close()
+        let window = _mainWindow
+        window?.delegate = nil
+        _mainWindow = nil
+        window?.close()
     }
     
     public func close() {

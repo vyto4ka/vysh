@@ -294,7 +294,9 @@ class _TabStripState extends ConsumerState<TabStrip> {
                 menuItem(
                   strings.reconnect,
                   icon: Icons.refresh,
-                  shortcut: Keys.reconnect,
+                  shortcut: PlatformCapabilities.isMacOS
+                      ? Keys.macReconnect
+                      : Keys.reconnect,
                   onPressed: focusId == null
                       ? null
                       : () => ctrl.reconnect(focusId),

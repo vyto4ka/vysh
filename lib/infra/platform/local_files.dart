@@ -420,7 +420,14 @@ class LocalFiles {
         // Файловый менеджер открываем через платформенный канал:
         // Process.start на Android не работает.
         await _filesChannel.invokeMethod('revealPath', {'path': path});
-      } else if (Platform.isLinux || Platform.isMacOS) {
+      } else if (Platform.isMacOS) {
+        final isDir = Directory(path).existsSync();
+        await Process.start(
+          'open',
+          isDir ? [path] : ['-R', path],
+          mode: ProcessStartMode.detached,
+        );
+      } else if (Platform.isLinux) {
         final target = Directory(path).existsSync()
             ? path
             : File(path).parent.path;

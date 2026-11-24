@@ -9,11 +9,12 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
-    // Нативные круглые кнопки окна macOS, скрываем стандартный заголовок
+    // Нативные круглые кнопки окна macOS, скрываем стандартный заголовок.
+    // Перетаскивание окна выполняется через DragToMoveArea (window.performDrag),
+    // без isMovableByWindowBackground, которое конфликтует с drag-and-drop.
     self.titleVisibility = .hidden
     self.titlebarAppearsTransparent = true
     self.styleMask.insert(.fullSizeContentView)
-    self.isMovableByWindowBackground = true
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     FlutterMultiWindowPlugin.setOnWindowCreatedCallback { controller in
