@@ -259,8 +259,10 @@ jobs:
           test -x result-release/libexec/vysh/vysh
           test -f result-release/share/applications/dev.vysh.vysh.desktop
           test -f result-release/share/icons/hicolor/256x256/apps/vysh.png
+          INTERP=$(readelf -l result-release/libexec/vysh/vysh | sed -nE 's/.*Requesting program interpreter: ([^]]+)\].*/\1/p')
+          test -x "$INTERP"
           for bin in result-release/libexec/vysh/vysh result-release/libexec/vysh/lib/*.so; do
-            out=$(ldd "$bin")
+            out=$("$INTERP" --list "$bin")
             missing=$(echo "$out" | grep "not found" || true)
             if [ "$(basename "$bin")" = "libdartjni.so" ]; then
               missing=$(echo "$missing" | grep -v "libjvm.so" || true)

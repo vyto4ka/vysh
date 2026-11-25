@@ -126,10 +126,13 @@ jobs:
           test -f result-ci/share/licenses/vysh/LICENSE
 
           # Все прямые динамические зависимости бинарника и плагинов должны резолвиться
-          # (кроме libjvm.so в неиспользуемой на Linux транзитивной libdartjni.so).
+          # через родной Nix-интерпретатор (а не системный glibc Ubuntu-раннера).
+          # Единственное исключение: libjvm.so в неиспользуемой на Linux libdartjni.so.
+          INTERP=$(readelf -l result-ci/libexec/vysh/vysh | sed -nE 's/.*Requesting program interpreter: ([^]]+)\].*/\1/p')
+          test -x "$INTERP"
           for bin in result-ci/libexec/vysh/vysh result-ci/libexec/vysh/lib/*.so; do
-            echo "== ldd $bin"
-            out=$(ldd "$bin")
+            echo "== $INTERP --list $bin"
+            out=$("$INTERP" --list "$bin")
             missing=$(echo "$out" | grep "not found" || true)
             if [ "$(basename "$bin")" = "libdartjni.so" ]; then
               missing=$(echo "$missing" | grep -v "libjvm.so" || true)
