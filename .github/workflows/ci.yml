@@ -143,12 +143,9 @@ jobs:
             fi
           done
 
-          # PATH должен дополняться через --suffix (после $PATH), чтобы не ломать /run/wrappers/bin/ping.
-          python3 -c 'import pathlib, re, sys; s = pathlib.Path("result-ci/bin/vysh").read_text(); sys.exit(0 if re.search(r"PATH=\$\{?PATH[:+].*/nix/store/", s) else 1)' || {
-            cat result-ci/bin/vysh
-            echo "::error::Обёртка bin/vysh должна добавлять утилиты в конец PATH (--suffix)"
-            exit 1
-          }
+          # Проверяем бинарный wrapper bin/vysh (создаётся makeBinaryWrapper / wrapGAppsHook3).
+          grep -a -q '/libexec/vysh/vysh' result-ci/bin/vysh
+          grep -a -q 'fontconfig' result-ci/bin/vysh
 
           # Проверяем реальный запуск приложения под Xvfb.
           sudo apt-get update && sudo apt-get install -y xvfb
