@@ -147,10 +147,14 @@ jobs:
           grep -a -q '/libexec/vysh/vysh' result-ci/bin/vysh
           grep -a -q 'fontconfig' result-ci/bin/vysh
 
-          # Проверяем реальный запуск приложения под Xvfb.
-          sudo apt-get update && sudo apt-get install -y xvfb
+          # Проверяем реальный запуск приложения под Xvfb (на Ubuntu-раннере нет
+          # NixOS /run/opengl-driver, поэтому подключаем software Mesa EGL из nixpkgs).
+          MESA=$(nix build --impure --no-write-lock-file --no-link --print-out-paths --expr '(builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.x86_64-linux.mesa')
           CFG=$(mktemp -d)
-          VYSH_CONFIG_DIR="$CFG" xvfb-run -a result-ci/bin/vysh &
+          VYSH_CONFIG_DIR="$CFG" \
+            LIBGL_ALWAYS_SOFTWARE=1 \
+            __EGL_VENDOR_LIBRARY_FILENAMES="$MESA/share/glvnd/egl_vendor.d/50_mesa.json" \
+            xvfb-run -a result-ci/bin/vysh &
           APP=$!
           sleep 8
           if kill -0 "$APP" 2>/dev/null; then
