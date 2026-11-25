@@ -123,7 +123,7 @@ inputs.vysh = {
 };
 ```
 
-В конфигурации NixOS подключите модуль `inputs.vysh.nixosModules.default` (или `inputs.vysh.homeManagerModules.default` в Home Manager) и включите `programs.vysh.enable = true;` — либо добавьте `inputs.vysh.packages.${pkgs.system}.default` в список пакетов. Обновление до нового релиза: `nix flake update vysh`.
+В конфигурации NixOS подключите модуль `inputs.vysh.nixosModules.default` (или `inputs.vysh.homeModules.default` в Home Manager) и включите `programs.vysh.enable = true;`, либо добавьте `inputs.vysh.packages.${pkgs.stdenv.hostPlatform.system}.default` в список пакетов. Для сохранения паролей хостов в системе должен работать Secret Service (`services.gnome.gnome-keyring.enable = true;`, KWallet или KeePassXC). Обновление до нового релиза: `nix flake update vysh`.
 
 ### Другие дистрибутивы Linux
 ```sh

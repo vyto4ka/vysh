@@ -101,7 +101,7 @@ jobs:
         with:
           name: vysh-linux-x64
           path: .
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - name: Проверка структуры flake.nix
         run: nix flake check --no-build --no-write-lock-file
       - name: Сборка Nix-пакета поверх свежего Linux-архива
@@ -121,19 +121,24 @@ jobs:
           set -euo pipefail
           test -x result-ci/bin/vysh
           test -x result-ci/libexec/vysh/vysh
+          test -f result-ci/libexec/vysh/lib/libflutter_pty.so
+          ! test -e result-ci/libexec/vysh/lib/libdartjni.so
           test -f result-ci/share/applications/dev.vysh.vysh.desktop
           test -f result-ci/share/icons/hicolor/256x256/apps/vysh.png
           test -f result-ci/share/licenses/vysh/LICENSE
 
+          # Движок libflutter_linux_gtk.so открывает libflutter_pty.so через dlopen
+          # без DT_NEEDED, поэтому в его RUNPATH обязан быть абсолютный каталог libexec/vysh/lib.
+          STORE_LIB="$(readlink -f result-ci)/libexec/vysh/lib"
+          readelf -d result-ci/libexec/vysh/lib/libflutter_linux_gtk.so \
+            | grep -E 'RUNPATH|RPATH' \
+            | grep -F -q "$STORE_LIB"
+
           # Все прямые динамические зависимости бинарника и плагинов должны резолвиться
           # через родной Nix-интерпретатор (а не системный glibc Ubuntu-раннера).
-          # Единственное исключение: libjvm.so в неиспользуемой на Linux libdartjni.so.
           INTERP=$(readelf -l result-ci/libexec/vysh/vysh | sed -nE 's/.*Requesting program interpreter: ([^]]+)\].*/\1/p')
           test -x "$INTERP"
           for bin in result-ci/libexec/vysh/vysh result-ci/libexec/vysh/lib/*.so; do
-            if [ "$(basename "$bin")" = "libdartjni.so" ]; then
-              continue
-            fi
             echo "== $INTERP --list $bin"
             out=$("$INTERP" --list "$bin")
             if echo "$out" | grep -q "not found"; then

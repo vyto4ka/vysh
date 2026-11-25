@@ -40,6 +40,14 @@
             lib.setAttrByPath targetOption [ cfg.package ]
           );
         };
+      vyshApp = {
+        type = "app";
+        program = "${vyshPackage}/bin/vysh";
+        meta = vyshPackage.meta;
+      };
+
+      nixosModule = mkProgramModule [ "environment" "systemPackages" ];
+      homeModule = mkProgramModule [ "home" "packages" ];
     in
     {
       packages.${system} = {
@@ -48,12 +56,8 @@
       };
 
       apps.${system} = {
-        vysh = {
-          type = "app";
-          program = "${vyshPackage}/bin/vysh";
-          meta = vyshPackage.meta;
-        };
-        default = self.apps.${system}.vysh;
+        vysh = vyshApp;
+        default = vyshApp;
       };
 
       overlays.default = final: _prev: {
@@ -61,13 +65,18 @@
       };
 
       nixosModules = {
-        vysh = mkProgramModule [ "environment" "systemPackages" ];
-        default = self.nixosModules.vysh;
+        vysh = nixosModule;
+        default = nixosModule;
+      };
+
+      homeModules = {
+        vysh = homeModule;
+        default = homeModule;
       };
 
       homeManagerModules = {
-        vysh = mkProgramModule [ "home" "packages" ];
-        default = self.homeManagerModules.vysh;
+        vysh = homeModule;
+        default = homeModule;
       };
 
       checks.${system} = {

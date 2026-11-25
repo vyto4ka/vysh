@@ -237,7 +237,7 @@ jobs:
         with:
           name: linux
           path: .
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - name: Сборка и проверка Nix-пакета поверх релизного tar.gz
         env:
           TAG: ${{ github.ref_name }}
@@ -257,14 +257,17 @@ jobs:
           " -o result-release
           test -x result-release/bin/vysh
           test -x result-release/libexec/vysh/vysh
+          test -f result-release/libexec/vysh/lib/libflutter_pty.so
+          ! test -e result-release/libexec/vysh/lib/libdartjni.so
           test -f result-release/share/applications/dev.vysh.vysh.desktop
           test -f result-release/share/icons/hicolor/256x256/apps/vysh.png
+          STORE_LIB="$(readlink -f result-release)/libexec/vysh/lib"
+          readelf -d result-release/libexec/vysh/lib/libflutter_linux_gtk.so \
+            | grep -E 'RUNPATH|RPATH' \
+            | grep -F -q "$STORE_LIB"
           INTERP=$(readelf -l result-release/libexec/vysh/vysh | sed -nE 's/.*Requesting program interpreter: ([^]]+)\].*/\1/p')
           test -x "$INTERP"
           for bin in result-release/libexec/vysh/vysh result-release/libexec/vysh/lib/*.so; do
-            if [ "$(basename "$bin")" = "libdartjni.so" ]; then
-              continue
-            fi
             out=$("$INTERP" --list "$bin")
             if echo "$out" | grep -q "not found"; then
               echo "$out"
