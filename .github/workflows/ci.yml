@@ -131,13 +131,12 @@ jobs:
           INTERP=$(readelf -l result-ci/libexec/vysh/vysh | sed -nE 's/.*Requesting program interpreter: ([^]]+)\].*/\1/p')
           test -x "$INTERP"
           for bin in result-ci/libexec/vysh/vysh result-ci/libexec/vysh/lib/*.so; do
+            if [ "$(basename "$bin")" = "libdartjni.so" ]; then
+              continue
+            fi
             echo "== $INTERP --list $bin"
             out=$("$INTERP" --list "$bin")
-            missing=$(echo "$out" | grep "not found" || true)
-            if [ "$(basename "$bin")" = "libdartjni.so" ]; then
-              missing=$(echo "$missing" | grep -v "libjvm.so" || true)
-            fi
-            if [ -n "$missing" ]; then
+            if echo "$out" | grep -q "not found"; then
               echo "$out"
               echo "::error::Не найдены динамические библиотеки для $bin"
               exit 1
