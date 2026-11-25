@@ -111,6 +111,10 @@ stdenv.mkDerivation {
   # Сохраняем поиск бандловых .so (libflutter_pty.so, libapp.so и др.) рядом с бинарником.
   appendRunpaths = [ "$ORIGIN/lib" ];
 
+  # libdartjni.so попадает в Linux-бандл транзитивно из Android-зависимости jni;
+  # на Linux JVM не используется.
+  autoPatchelfIgnoreMissingDeps = [ "libjvm.so" ];
+
   desktopItems = [
     (makeDesktopItem {
       # Имя файла = APPLICATION_ID в linux/CMakeLists.txt (иконка на Wayland).

@@ -261,7 +261,11 @@ jobs:
           test -f result-release/share/icons/hicolor/256x256/apps/vysh.png
           for bin in result-release/libexec/vysh/vysh result-release/libexec/vysh/lib/*.so; do
             out=$(ldd "$bin")
-            if echo "$out" | grep -q "not found"; then
+            missing=$(echo "$out" | grep "not found" || true)
+            if [ "$(basename "$bin")" = "libdartjni.so" ]; then
+              missing=$(echo "$missing" | grep -v "libjvm.so" || true)
+            fi
+            if [ -n "$missing" ]; then
               echo "$out"
               echo "::error::Не найдены динамические библиотеки для $bin"
               exit 1

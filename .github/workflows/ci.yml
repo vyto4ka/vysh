@@ -125,11 +125,16 @@ jobs:
           test -f result-ci/share/icons/hicolor/256x256/apps/vysh.png
           test -f result-ci/share/licenses/vysh/LICENSE
 
-          # Все прямые динамические зависимости бинарника и плагинов должны резолвиться.
+          # Все прямые динамические зависимости бинарника и плагинов должны резолвиться
+          # (кроме libjvm.so в неиспользуемой на Linux транзитивной libdartjni.so).
           for bin in result-ci/libexec/vysh/vysh result-ci/libexec/vysh/lib/*.so; do
             echo "== ldd $bin"
             out=$(ldd "$bin")
-            if echo "$out" | grep -q "not found"; then
+            missing=$(echo "$out" | grep "not found" || true)
+            if [ "$(basename "$bin")" = "libdartjni.so" ]; then
+              missing=$(echo "$missing" | grep -v "libjvm.so" || true)
+            fi
+            if [ -n "$missing" ]; then
               echo "$out"
               echo "::error::Не найдены динамические библиотеки для $bin"
               exit 1
