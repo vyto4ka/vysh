@@ -67,6 +67,19 @@ namcap PKGBUILD
    git add PKGBUILD .SRCINFO && git commit -m "vysh 0.7.1" && git push
    ```
 
+## NixOS / Nix
+
+Деривация лежит в `packaging/nix/package.nix`, корневой флейк — в `flake.nix`, а ссылка и SRI-хеш текущего стабильного Linux-архива — в `packaging/nix/release.json`.
+
+- До публикации релиза джоба `nix-check` в `.github/workflows/release.yml` (и джоба `nix` в `.github/workflows/ci.yml`) собирает Nix-пакет поверх свежесобранного `tar.gz` и проверяет `ldd` всех бинарников и `.so`.
+- После публикации стабильного тега (без суффикса `-beta` и т. п.) джоба `release` сама запускает `tools/release/make_nix_manifest.py`, обновляет `packaging/nix/release.json` и коммитит изменение в `main` с меткой `[skip ci]`.
+
+Проверить сборку локально на машине с Nix:
+```sh
+nix flake check --no-build
+nix build .#default
+```
+
 ## Android
 
 CI собирает APK под каждую архитектуру (`arm64-v8a`, `armeabi-v7a`, `x86_64`), если в репозитории есть секреты с ключом подписи. Без них сборка Android пропускается с предупреждением, остальное выходит как обычно.

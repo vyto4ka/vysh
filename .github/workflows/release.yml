@@ -227,8 +227,50 @@ jobs:
           name: macos
           path: vysh-*-macos.dmg
 
+  nix-check:
+    name: NixOS package
+    needs: linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: .
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Сборка и проверка Nix-пакета поверх релизного tar.gz
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ARCHIVE="./vysh-${TAG}-linux-x64.tar.gz"
+          VERSION="${TAG#v}"
+          nix build --impure --no-write-lock-file --expr "
+            let
+              flake = builtins.getFlake (toString ./.);
+              pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux;
+            in
+            pkgs.callPackage ./packaging/nix/package.nix {
+              src = ${ARCHIVE};
+              version = \"${VERSION}\";
+            }
+          " -o result-release
+          test -x result-release/bin/vysh
+          test -x result-release/libexec/vysh/vysh
+          test -f result-release/share/applications/dev.vysh.vysh.desktop
+          test -f result-release/share/icons/hicolor/256x256/apps/vysh.png
+          for bin in result-release/libexec/vysh/vysh result-release/libexec/vysh/lib/*.so; do
+            out=$(ldd "$bin")
+            if echo "$out" | grep -q "not found"; then
+              echo "$out"
+              echo "::error::Не найдены динамические библиотеки для $bin"
+              exit 1
+            fi
+          done
+
   release:
-    needs: [linux, windows, android, macos]
+    needs: [linux, nix-check, windows, android, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -260,3 +302,26 @@ jobs:
           body_path: notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: dist/*
+      - name: Обновить packaging/nix/release.json в main
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B main origin/main
+          python3 tools/release/make_nix_manifest.py dist
+          if git diff --quiet packaging/nix/release.json; then
+            echo "packaging/nix/release.json уже актуален"
+            exit 0
+          fi
+          git config user.name "vyto4ka"
+          git config user.email "64610654+vyto4ka@users.noreply.github.com"
+          git config commit.gpgsign false
+          git add packaging/nix/release.json
+          git commit -m "nix: обновить release.json до ${TAG} [skip ci]"
+          git push origin main || {
+            git pull --rebase origin main
+            git push origin main
+          }

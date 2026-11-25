@@ -115,6 +115,7 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     final cleanNotes = notes != null && notes.isNotEmpty
         ? sanitizeReleaseNotes(notes)
         : null;
+    final managedHint = s.updateManagedHint(info.managedInstall);
     if (_error != null) _lastError = _error;
     final displayError = _error ?? _lastError;
 
@@ -139,6 +140,23 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
+              if (managedHint != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    managedHint,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+              ],
               if (cleanNotes != null && cleanNotes.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Container(
@@ -237,7 +255,11 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         ),
         FilledButton(
           onPressed: _downloading ? null : _downloadAndInstall,
-          child: Text(info.openInBrowser ? s.updateOpenDownload : s.updateNow),
+          child: Text(
+            info.managedInstall != ManagedInstallKind.none
+                ? s.updateOpenRelease
+                : (info.openInBrowser ? s.updateOpenDownload : s.updateNow),
+          ),
         ),
       ],
     );

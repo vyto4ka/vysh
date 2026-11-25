@@ -143,6 +143,68 @@ void main() {
         'vysh-v0.6.0-android-armeabi-v7a.apk',
       );
     });
+
+    test('detectManagedInstall распознаёт NixOS и системные пакеты Linux', () {
+      expect(
+        UpdateService.detectManagedInstall(
+          isLinux: true,
+          executablePath:
+              '/nix/store/abc123-vysh-0.7.7/libexec/vysh/vysh',
+        ),
+        ManagedInstallKind.nix,
+      );
+      expect(
+        UpdateService.detectManagedInstall(
+          isLinux: true,
+          executablePath: '/opt/vysh/vysh',
+        ),
+        ManagedInstallKind.packageManager,
+      );
+      expect(
+        UpdateService.detectManagedInstall(
+          isLinux: true,
+          executablePath: '/usr/bin/vysh',
+        ),
+        ManagedInstallKind.packageManager,
+      );
+      expect(
+        UpdateService.detectManagedInstall(
+          isLinux: true,
+          executablePath: '/app/bin/vysh',
+        ),
+        ManagedInstallKind.packageManager,
+      );
+      expect(
+        UpdateService.detectManagedInstall(
+          isLinux: true,
+          executablePath: '/home/user/.local/opt/vysh/vysh',
+        ),
+        ManagedInstallKind.none,
+      );
+      expect(
+        UpdateService.detectManagedInstall(
+          isLinux: false,
+          executablePath: '/nix/store/abc-vysh/bin/vysh',
+        ),
+        ManagedInstallKind.none,
+      );
+    });
+
+    test('установка через Nix открывает страницу релиза вместо скачивания', () {
+      final releases = [release('v0.6.0', assets)];
+      final info = UpdateService.buildUpdateInfo(
+        releases,
+        '0.5.9',
+        managedInstall: ManagedInstallKind.nix,
+      );
+      expect(info, isNotNull);
+      expect(info!.managedInstall, ManagedInstallKind.nix);
+      expect(info.openInBrowser, isTrue);
+      expect(
+        info.downloadUrl,
+        'https://github.com/vyto4ka/vysh/releases/tag/v0.6.0',
+      );
+    });
   });
 
   group('parseSha256', () {

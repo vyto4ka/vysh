@@ -104,6 +104,7 @@ out.append(
     "**Windows:** распакуйте zip и запустите `vysh.exe`. "
     "SmartScreen может предупредить о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».\n\n"
     f"**Arch Linux:** `mkdir vysh && cd vysh && curl -LO https://github.com/{repo}/releases/download/{tag}/PKGBUILD && makepkg -si`\n\n"
+    f"**NixOS / Nix:** `nix run github:{repo}` (или `nix flake update vysh` для подключённого флейка)\n\n"
     "**Android 8.0+:** большинству телефонов нужен `arm64-v8a`, старым 32-битным `armeabi-v7a`. "
     "Новая версия ставится поверх старой.\n\n"
     "**Linux:** распакуйте архив и запустите `./vysh` (нужны `libgtk-3` и `libsecret-1`).\n\n"

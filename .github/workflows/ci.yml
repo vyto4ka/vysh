@@ -51,6 +51,8 @@ jobs:
       - run: flutter test third_party/irondash_message_channel/test
       - name: third_party/xterm2 = xterm2 с pub.dev + vysh.patch
         run: sh tools/xterm2/verify.sh
+      - name: Тесты скриптов упаковки релиза (Nix и Arch)
+        run: python3 -m unittest discover -s tools/release -p 'test_*.py' -v
 
   linux:
     name: Linux
@@ -75,12 +77,88 @@ jobs:
           cp LICENSE build/linux/x64/release/bundle/LICENSE
           cd build/linux/x64/release/bundle
           tar -czf "$GITHUB_WORKSPACE/vysh-ci-linux-x64.tar.gz" .
+      - name: Проверка шаблона PKGBUILD на собранном архиве
+        run: |
+          mkdir -p build/pkg_check
+          cp vysh-ci-linux-x64.tar.gz build/pkg_check/vysh-v0.0.0-ci-linux-x64.tar.gz
+          TAG=v0.0.0-ci python3 tools/release/make_pkgbuild.py build/pkg_check
+          test -s build/pkg_check/PKGBUILD
       - name: Артефакт Linux
         uses: actions/upload-artifact@v4
         with:
           name: vysh-linux-x64
           path: vysh-ci-linux-x64.tar.gz
           retention-days: 14
+
+  nix:
+    name: NixOS package
+    needs: linux
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vysh-linux-x64
+          path: .
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Проверка структуры flake.nix
+        run: nix flake check --no-build --no-write-lock-file
+      - name: Сборка Nix-пакета поверх свежего Linux-архива
+        run: |
+          nix build --impure --no-write-lock-file --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux;
+            in
+            pkgs.callPackage ./packaging/nix/package.nix {
+              src = ./vysh-ci-linux-x64.tar.gz;
+              version = "ci";
+            }
+          ' -o result-ci
+      - name: Проверка ELF, обёртки, метаданных и запуска под Xvfb
+        run: |
+          set -euo pipefail
+          test -x result-ci/bin/vysh
+          test -x result-ci/libexec/vysh/vysh
+          test -f result-ci/share/applications/dev.vysh.vysh.desktop
+          test -f result-ci/share/icons/hicolor/256x256/apps/vysh.png
+          test -f result-ci/share/licenses/vysh/LICENSE
+
+          # Все прямые динамические зависимости бинарника и плагинов должны резолвиться.
+          for bin in result-ci/libexec/vysh/vysh result-ci/libexec/vysh/lib/*.so; do
+            echo "== ldd $bin"
+            out=$(ldd "$bin")
+            if echo "$out" | grep -q "not found"; then
+              echo "$out"
+              echo "::error::Не найдены динамические библиотеки для $bin"
+              exit 1
+            fi
+          done
+
+          # PATH должен дополняться через --suffix (после $PATH), чтобы не ломать /run/wrappers/bin/ping.
+          python3 -c 'import pathlib, re, sys; s = pathlib.Path("result-ci/bin/vysh").read_text(); sys.exit(0 if re.search(r"PATH=\$\{?PATH[:+].*/nix/store/", s) else 1)' || {
+            cat result-ci/bin/vysh
+            echo "::error::Обёртка bin/vysh должна добавлять утилиты в конец PATH (--suffix)"
+            exit 1
+          }
+
+          # Проверяем реальный запуск приложения под Xvfb.
+          sudo apt-get update && sudo apt-get install -y xvfb
+          CFG=$(mktemp -d)
+          VYSH_CONFIG_DIR="$CFG" xvfb-run -a result-ci/bin/vysh &
+          APP=$!
+          sleep 8
+          if kill -0 "$APP" 2>/dev/null; then
+            echo "NixOS-пакет vysh успешно стартовал под Xvfb"
+            kill "$APP" 2>/dev/null || true
+          else
+            echo "::error::NixOS-пакет vysh завершился сразу после запуска"
+            exit 1
+          fi
+      - name: Проверка сборки flake из packaging/nix/release.json
+        run: nix build .#default --no-write-lock-file -o result-release
 
   windows:
     name: Windows

@@ -7,6 +7,7 @@ import 'package:vysh/domain/models/local_file_failure.dart';
 import 'package:vysh/domain/ports/local_shell.dart';
 import 'package:vysh/domain/ports/sftp.dart';
 import 'package:vysh/domain/ports/ssh_transport.dart';
+import 'package:vysh/infra/update/update_service.dart';
 import 'package:vysh/l10n/app_strings.dart';
 
 final _cyrillic = RegExp('[А-Яа-яЁё]');
@@ -42,6 +43,18 @@ void main() {
     }
     for (final e in LocalShellError.values) {
       checkBoth((s) => s.localShellFailure(LocalShellFailure(e)), e.name);
+    }
+  });
+
+  test('подсказки системных обновлений (NixOS и пакеты)', () {
+    checkBoth((s) => s.updateOpenRelease, 'updateOpenRelease');
+    expect(ru.updateManagedHint(ManagedInstallKind.none), isNull);
+    expect(en.updateManagedHint(ManagedInstallKind.none), isNull);
+    for (final kind in const [
+      ManagedInstallKind.nix,
+      ManagedInstallKind.packageManager,
+    ]) {
+      checkBoth((s) => s.updateManagedHint(kind) ?? '', kind.name);
     }
   });
 

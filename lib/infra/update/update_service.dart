@@ -40,6 +40,19 @@ class UpdateCheckException implements Exception {
       : 'UpdateCheckException(${error.name}, $detail)';
 }
 
+/// Способ установки на Linux, при котором бинарник управляется системой
+/// и недоступен для самообновления поверх текущей папки.
+enum ManagedInstallKind {
+  /// Обычная переносная установка (или не Linux).
+  none,
+
+  /// Пакет из `/nix/store/` (NixOS / Nix flakes).
+  nix,
+
+  /// Системный пакет (`/opt/`, `/usr/`, Flatpak `/app/`, Snap `/snap/`).
+  packageManager,
+}
+
 /// Найденное обновление: что, откуда скачать и каким файлом.
 class UpdateInfo {
   const UpdateInfo({
@@ -52,6 +65,7 @@ class UpdateInfo {
     required this.openInBrowser,
     this.assetName = '',
     this.checksumUrl,
+    this.managedInstall = ManagedInstallKind.none,
   });
 
   final String currentVersion;
@@ -69,11 +83,14 @@ class UpdateInfo {
   final int assetSize;
 
   /// Обновление не ставится само: открываем страницу релиза
-  /// (Android, macOS, установщики Linux).
+  /// (установщики Linux, NixOS и системные пакеты).
   final bool openInBrowser;
 
   final String assetName;
   final String? checksumUrl;
+
+  /// Тип системной установки, если самообновление поверх каталога невозможно.
+  final ManagedInstallKind managedInstall;
 
   String get formattedSize {
     if (assetSize < 1024) return '$assetSize B';
@@ -198,8 +215,9 @@ class UpdateService {
   @visibleForTesting
   static UpdateInfo? buildUpdateInfo(
     List<Map<String, dynamic>> releases,
-    String currentVersion,
-  ) {
+    String currentVersion, {
+    ManagedInstallKind? managedInstall,
+  }) {
     // Последний релиз - с наибольшим номером, а не самый свежий по дате:
     // исправление для старой ветки, выпущенное позже, не должно заслонять
     // более новую версию. Список отсортирован по дате (новые первыми),
@@ -237,24 +255,49 @@ class UpdateService {
     final releaseUrl = (latest['html_url'] ??
         'https://github.com/$_owner/$_repo/releases/latest') as String;
     final checksumAsset = _findChecksumAsset(assets, assetName);
+    final managed = managedInstall ?? detectManagedInstall();
 
-    // Установщики Linux (deb/rpm/AppImage): системный установщик пусть
-    // решает пользователь - ведём на страницу релиза.
-    final openInBrowser = _isSetupAsset(assetName);
+    // Установщики Linux (deb/rpm/AppImage) и пакетные установки (NixOS,
+    // /opt/vysh из AUR, /usr, Flatpak, Snap): самообновление поверх текущей
+    // папки невозможно, поэтому ведём на страницу релиза.
+    final isManaged = managed != ManagedInstallKind.none;
+    final openInBrowser = isManaged || _isSetupAsset(assetName);
 
     return UpdateInfo(
       currentVersion: currentVersion,
       latestVersion: latestTag,
       // Android и macOS качают файл и ставят сами (системный установщик
-      // APK / монтирование DMG), остальные платформы - прямой файл.
-      downloadUrl: (asset['browser_download_url'] ?? '') as String,
+      // APK / монтирование DMG), пакетные установки Linux открывают страницу
+      // релиза, остальные платформы - прямой файл.
+      downloadUrl: isManaged
+          ? releaseUrl
+          : (asset['browser_download_url'] ?? '') as String,
       releaseUrl: releaseUrl,
       releaseNotes: latest['body']?.toString(),
       assetSize: (asset['size'] ?? 0) as int,
       openInBrowser: openInBrowser,
       assetName: assetName,
       checksumUrl: checksumAsset?['browser_download_url'] as String?,
+      managedInstall: managed,
     );
+  }
+
+  /// Определяет, запущен ли vysh на Linux из управляемого системой каталога
+  /// (`/nix/store`, `/opt`, `/usr`, `/app`, `/snap`), где подмена файлов
+  /// самообновлением невозможна.
+  @visibleForTesting
+  static ManagedInstallKind detectManagedInstall({
+    bool? isLinux,
+    String? executablePath,
+  }) {
+    final linux = isLinux ?? Platform.isLinux;
+    if (!linux) return ManagedInstallKind.none;
+    final path = (executablePath ?? Platform.resolvedExecutable).trim();
+    if (path.startsWith('/nix/store/')) return ManagedInstallKind.nix;
+    for (final prefix in const ['/opt/', '/usr/', '/app/', '/snap/']) {
+      if (path.startsWith(prefix)) return ManagedInstallKind.packageManager;
+    }
+    return ManagedInstallKind.none;
   }
 
   // ── GitHub API ──

@@ -13,7 +13,7 @@ import '../domain/services/font_info.dart' show AddFontError;
 import '../infra/update/update_installer.dart'
     show UpdateInstallError, UpdateInstallException;
 import '../infra/update/update_service.dart'
-    show UpdateCheckError, UpdateCheckException;
+    show ManagedInstallKind, UpdateCheckError, UpdateCheckException;
 
 part 'connection_strings.dart';
 part 'hosts_strings.dart';
@@ -430,6 +430,18 @@ class AppStrings {
   String get updateNow => isRu ? 'Обновить' : 'Update';
   String get updateSkip => isRu ? 'Пропустить версию' : 'Skip this version';
   String get updateOpenDownload => isRu ? 'Открыть загрузку' : 'Open download';
+  String get updateOpenRelease => isRu ? 'Открыть релиз' : 'Open release';
+  String? updateManagedHint(ManagedInstallKind kind) => switch (kind) {
+    ManagedInstallKind.none => null,
+    ManagedInstallKind.nix =>
+      isRu
+          ? 'Установлено через Nix: обновите пакет во флейке (nix flake update vysh) или в конфигурации NixOS.'
+          : 'Installed via Nix: update the package in your flake (nix flake update vysh) or NixOS configuration.',
+    ManagedInstallKind.packageManager =>
+      isRu
+          ? 'Установлено как системный пакет: обновите vysh через пакетный менеджер.'
+          : 'Installed as a system package: update vysh via your package manager.',
+  };
   String get updateDownloading => isRu ? 'Скачивание…' : 'Downloading…';
   String get updateApplying => isRu ? 'Установка обновления…' : 'Applying update…';
   String updateSize(String size) =>

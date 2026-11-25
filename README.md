@@ -107,6 +107,24 @@ makepkg -si
 
 Программа устанавливается в `/opt/vysh`, запускается командой `vysh` и появляется в меню приложений. Для хранения паролей требуется Secret Service: `gnome-keyring`, KWallet или KeePassXC.
 
+### NixOS / Nix
+Репозиторий содержит `flake.nix` с пакетом, оверлеем и модулями для NixOS и Home Manager. Обновления приходят сразу после публикации релиза.
+
+Быстрый запуск без установки:
+```sh
+nix run github:vyto4ka/vysh
+```
+
+Подключение во флейке системы (NixOS или Home Manager):
+```nix
+inputs.vysh = {
+  url = "github:vyto4ka/vysh";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+В конфигурации NixOS подключите модуль `inputs.vysh.nixosModules.default` (или `inputs.vysh.homeManagerModules.default` в Home Manager) и включите `programs.vysh.enable = true;` — либо добавьте `inputs.vysh.packages.${pkgs.system}.default` в список пакетов. Обновление до нового релиза: `nix flake update vysh`.
+
 ### Другие дистрибутивы Linux
 ```sh
 mkdir -p ~/.local/opt/vysh
@@ -133,7 +151,7 @@ tar -xzf vysh-<версия>-linux-x64.tar.gz -C ~/.local/opt/vysh
 
 ### Обновление
 
-В «Настройки → Обновления» можно проверить выход новой версии и установить её из приложения. На Windows (portable ZIP) и Linux (portable tar.gz) архив скачивается с проверкой SHA-256, после закрытия программы файлы обновляются и vysh запускается заново (журнал обновления на Windows — `%TEMP%\vysh_update.log`). На Android открывается системный установщик APK, на macOS — страница загрузки образа DMG.
+В «Настройки → Обновления» можно проверить выход новой версии и установить её из приложения. На Windows (portable ZIP) и Linux (portable tar.gz) архив скачивается с проверкой SHA-256, после закрытия программы файлы обновляются и vysh запускается заново (журнал обновления на Windows — `%TEMP%\vysh_update.log`). В NixOS и системных пакетах Linux (`/opt`, `/usr`) проверка показывает описание новой версии и ссылку на релиз, а само обновление выполняется через флейк или пакетный менеджер. На Android открывается системный установщик APK, на macOS — монтируется образ DMG.
 
 При ручном обновлении достаточно заменить папку программы или перенести новую версию в «Программы» на macOS: хосты, настройки и пароли хранятся в профиле пользователя отдельно от исполняемых файлов.
 
