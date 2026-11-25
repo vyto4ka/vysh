@@ -102,7 +102,6 @@ jobs:
           name: vysh-linux-x64
           path: .
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Проверка структуры flake.nix
         run: nix flake check --no-build --no-write-lock-file
       - name: Сборка Nix-пакета поверх свежего Linux-архива
@@ -113,8 +112,8 @@ jobs:
               pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux;
             in
             pkgs.callPackage ./packaging/nix/package.nix {
-              src = ./vysh-ci-linux-x64.tar.gz;
-              version = "ci";
+              releaseArchive = ./vysh-ci-linux-x64.tar.gz;
+              releaseVersion = "ci";
             }
           ' -o result-ci
       - name: Проверка ELF, обёртки, метаданных и запуска под Xvfb

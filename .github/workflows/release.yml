@@ -238,7 +238,6 @@ jobs:
           name: linux
           path: .
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Сборка и проверка Nix-пакета поверх релизного tar.gz
         env:
           TAG: ${{ github.ref_name }}
@@ -252,8 +251,8 @@ jobs:
               pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux;
             in
             pkgs.callPackage ./packaging/nix/package.nix {
-              src = ${ARCHIVE};
-              version = \"${VERSION}\";
+              releaseArchive = ${ARCHIVE};
+              releaseVersion = \"${VERSION}\";
             }
           " -o result-release
           test -x result-release/bin/vysh

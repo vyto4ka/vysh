@@ -18,24 +18,30 @@
   vulkan-loader,
   wayland,
   libxkbcommon,
-  xorg,
+  libx11,
+  libxcursor,
+  libxrandr,
+  libxi,
+  libxinerama,
+  libxext,
   xdg-utils,
   util-linux,
   coreutils,
   which,
   iputils,
   traceroute,
-  # Позволяет в CI и при локальной проверке подставить локальный tar.gz.
-  src ? null,
-  version ? null,
+  # Позволяет в CI и при локальной проверке подставить локальный tar.gz
+  # (имена не должны пересекаться с пакетами nixpkgs вроде pkgs.src).
+  releaseArchive ? null,
+  releaseVersion ? null,
 }:
 
 let
   release = lib.importJSON ./release.json;
-  finalVersion = if version != null then version else release.version;
+  finalVersion = if releaseVersion != null then releaseVersion else release.version;
   finalSrc =
-    if src != null then
-      src
+    if releaseArchive != null then
+      releaseArchive
     else
       fetchurl {
         url = release.url;
@@ -94,12 +100,12 @@ stdenv.mkDerivation {
     vulkan-loader
     wayland
     libxkbcommon
-    xorg.libX11
-    xorg.libXcursor
-    xorg.libXrandr
-    xorg.libXi
-    xorg.libXinerama
-    xorg.libXext
+    libx11
+    libxcursor
+    libxrandr
+    libxi
+    libxinerama
+    libxext
   ];
 
   # Сохраняем поиск бандловых .so (libflutter_pty.so, libapp.so и др.) рядом с бинарником.
