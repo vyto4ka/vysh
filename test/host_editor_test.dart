@@ -37,8 +37,13 @@ void main() {
   late _Secrets secrets;
   late ProviderContainer container;
 
-  Future<void> open(WidgetTester tester, {Host? host, bool duplicate = false}) async {
-    tester.view.physicalSize = const Size(1200, 1400);
+  Future<void> open(
+    WidgetTester tester, {
+    Host? host,
+    bool duplicate = false,
+    Size size = const Size(1200, 1400),
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     secrets = _Secrets();
@@ -109,5 +114,32 @@ void main() {
     await tester.tap(find.byIcon(Icons.key));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.vpn_key_outlined), findsOneWidget);
+  });
+
+  testWidgets('адрес и порт стоят в одну строку на ПК и обычном мобильном экране', (tester) async {
+    for (final size in [const Size(1200, 1000), const Size(360, 900)]) {
+      await open(tester, size: size);
+      final fields = find.byType(TextFormField);
+      final addressRect = tester.getRect(fields.at(0));
+      final portRect = tester.getRect(fields.at(1));
+      final userRect = tester.getRect(fields.at(2));
+
+      expect(portRect.top, closeTo(addressRect.top, 0.5));
+      expect(portRect.left, greaterThan(addressRect.right));
+      expect(portRect.right, closeTo(userRect.right, 0.5));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('на очень узком экране порт переносится и тянется на всю ширину', (tester) async {
+    await open(tester, size: const Size(300, 900));
+    final fields = find.byType(TextFormField);
+    final addressRect = tester.getRect(fields.at(0));
+    final portRect = tester.getRect(fields.at(1));
+
+    expect(portRect.top, greaterThan(addressRect.bottom));
+    expect(portRect.left, closeTo(addressRect.left, 0.5));
+    expect(portRect.right, closeTo(addressRect.right, 0.5));
+    expect(tester.takeException(), isNull);
   });
 }

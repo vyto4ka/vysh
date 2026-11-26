@@ -75,6 +75,49 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// Тайлинговые WM на Wayland (Hyprland, Sway, Niri и др.): GTK3 не умеет
+// серверные декорации и рисует собственный CSD-заголовок с кнопками окна.
+// Определяем такое окружение до показа окна, чтобы не было ни кнопок, ни мигания.
+static gboolean is_tiling_wayland() {
+  const gchar* gdk_backend = g_getenv("GDK_BACKEND");
+  if (gdk_backend != nullptr && g_ascii_strcasecmp(gdk_backend, "x11") == 0) {
+    return FALSE;
+  }
+  const gchar* hypr = g_getenv("HYPRLAND_INSTANCE_SIGNATURE");
+  const gchar* sway = g_getenv("SWAYSOCK");
+  const gchar* niri = g_getenv("NIRI_SOCKET");
+  if ((hypr != nullptr && hypr[0] != '\0') ||
+      (sway != nullptr && sway[0] != '\0') ||
+      (niri != nullptr && niri[0] != '\0')) {
+    return TRUE;
+  }
+  const gchar* wayland = g_getenv("WAYLAND_DISPLAY");
+  const gchar* session_type = g_getenv("XDG_SESSION_TYPE");
+  const gboolean on_wayland =
+      (wayland != nullptr && wayland[0] != '\0') ||
+      (session_type != nullptr &&
+       g_ascii_strcasecmp(session_type, "wayland") == 0);
+  if (!on_wayland) return FALSE;
+
+  const gchar* xdg_current = g_getenv("XDG_CURRENT_DESKTOP");
+  const gchar* xdg_session = g_getenv("XDG_SESSION_DESKTOP");
+  const gchar* desktop_session = g_getenv("DESKTOP_SESSION");
+  g_autofree gchar* joined = g_strconcat(
+      xdg_current != nullptr ? xdg_current : "", ":",
+      xdg_session != nullptr ? xdg_session : "", ":",
+      desktop_session != nullptr ? desktop_session : "", nullptr);
+  g_autofree gchar* lower = g_ascii_strdown(joined, -1);
+  static const gchar* const kTiling[] = {
+      "hyprland", "sway",    "i3",     "niri", "river",
+      "bspwm",    "dwm",     "qtile",  "awesome", "xmonad",
+      "herbstluftwm", "leftwm", "wayfire", "labwc", "dwl",
+  };
+  for (gsize i = 0; i < G_N_ELEMENTS(kTiling); i++) {
+    if (strstr(lower, kTiling[i]) != nullptr) return TRUE;
+  }
+  return FALSE;
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
@@ -86,9 +129,10 @@ static void my_application_activate(GApplication* application) {
   // desktop).
   // If running on X and not using GNOME then just use a traditional title bar
   // in case the window manager does more exotic layout, e.g. tiling.
-  // If running on Wayland assume the header bar will work (may need changing
-  // if future cases occur).
-  gboolean use_header_bar = TRUE;
+  // On Wayland tiling WMs, omit the header bar and disable GTK CSD so the WM
+  // manages the window cleanly without close/minimize/maximize buttons.
+  const gboolean tiling_wayland = is_tiling_wayland();
+  gboolean use_header_bar = !tiling_wayland;
 #ifdef GDK_WINDOWING_X11
   GdkScreen* screen = gtk_window_get_screen(window);
   if (GDK_IS_X11_SCREEN(screen)) {
@@ -106,6 +150,9 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
     gtk_window_set_title(window, "vysh");
+    if (tiling_wayland) {
+      gtk_window_set_decorated(window, FALSE);
+    }
   }
 
   gint default_width = 1280;

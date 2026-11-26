@@ -8,6 +8,7 @@ import '../infra/platform/capabilities.dart';
 import '../infra/platform/font_files.dart';
 import '../app/settings/app_settings.dart';
 import '../app/settings/terminal_font.dart';
+import '../app/settings/window_chrome.dart';
 import '../app/controllers/external_colors_controller.dart';
 import '../app/controllers/monet_colors_provider.dart';
 import '../app/controllers/settings_controller.dart';
@@ -15,7 +16,6 @@ import '../app/controllers/tabs_controller.dart';
 import '../infra/platform/desktop_env.dart';
 import 'motion/theme_transition.dart';
 import 'shell/app_shell.dart';
-import 'shell/ui_state.dart';
 import 'theme/app_theme.dart';
 import 'widgets/memory_lifecycle_host.dart';
 
@@ -50,15 +50,19 @@ class VyshApp extends ConsumerWidget {
     final monet = ref.watch(monetColorsProvider).value;
 
     // Переключили режим заголовка - применяем сразу, без перезапуска.
-    ref.listen<bool>(customTitleBarProvider, (_, custom) {
-      if (PlatformCapabilities.desktopWindow) {
-        // macOS: светофор остаётся всегда, прячем только полосу заголовка.
-        windowManager.setTitleBarStyle(
-          custom ? TitleBarStyle.hidden : TitleBarStyle.normal,
-          windowButtonVisibility: PlatformCapabilities.isMacOS || !custom,
-        );
-      }
-    });
+    ref.listen<TitleBarMode>(
+      settingsProvider.select((s) => s.titleBarMode),
+      (_, mode) {
+        if (PlatformCapabilities.desktopWindow) {
+          final hideNative = hideNativeTitleBar(mode);
+          // macOS: светофор остаётся всегда, прячем только полосу заголовка.
+          windowManager.setTitleBarStyle(
+            hideNative ? TitleBarStyle.hidden : TitleBarStyle.normal,
+            windowButtonVisibility: PlatformCapabilities.isMacOS || !hideNative,
+          );
+        }
+      },
+    );
 
     // Динамический заголовок окна в панели задач и Alt+Tab.
     ref.listen<String?>(tabsProvider.select((t) => t.activeTab?.title), (

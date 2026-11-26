@@ -22,33 +22,41 @@ class DesktopEnv {
   static bool get isTiling {
     if (kIsWeb) return false;
     try {
-      if (!Platform.isLinux) return false;
-      if (Platform.environment['HYPRLAND_INSTANCE_SIGNATURE'] != null)
-        return true;
-      if (Platform.environment['SWAYSOCK'] != null) return true;
-      if (Platform.environment['NIRI_SOCKET'] != null) return true;
-      const tiling = [
-        'hyprland',
-        'sway',
-        'i3',
-        'niri',
-        'river',
-        'bspwm',
-        'dwm',
-        'qtile',
-        'awesome',
-        'xmonad',
-        'herbstluftwm',
-        'leftwm',
-        'wayfire',
-        'labwc',
-        'dwl',
-      ];
-      final d = _desktop;
-      return tiling.any(d.contains);
+      return isTilingFor(Platform.environment, isLinux: Platform.isLinux);
     } catch (_) {
       return false;
     }
+  }
+
+  @visibleForTesting
+  static bool isTilingFor(Map<String, String> env, {required bool isLinux}) {
+    if (!isLinux) return false;
+    if (env['HYPRLAND_INSTANCE_SIGNATURE']?.isNotEmpty ?? false) return true;
+    if (env['SWAYSOCK']?.isNotEmpty ?? false) return true;
+    if (env['NIRI_SOCKET']?.isNotEmpty ?? false) return true;
+    const tiling = [
+      'hyprland',
+      'sway',
+      'i3',
+      'niri',
+      'river',
+      'bspwm',
+      'dwm',
+      'qtile',
+      'awesome',
+      'xmonad',
+      'herbstluftwm',
+      'leftwm',
+      'wayfire',
+      'labwc',
+      'dwl',
+    ];
+    final d =
+        '${env['XDG_CURRENT_DESKTOP'] ?? ''}:'
+                '${env['XDG_SESSION_DESKTOP'] ?? ''}:'
+                '${env['DESKTOP_SESSION'] ?? ''}'
+            .toLowerCase();
+    return tiling.any(d.contains);
   }
 
   /// Окружения, где свой заголовок с вкладками выглядит уместно.

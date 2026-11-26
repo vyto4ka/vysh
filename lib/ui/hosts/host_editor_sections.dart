@@ -55,6 +55,7 @@ class _ConnectionSection extends StatelessWidget {
         _SectionTitle(strings.sectionConnection),
         LayoutBuilder(
           builder: (context, constraints) {
+            final stacked = constraints.maxWidth < 280;
             final address = TextFormField(
               controller: form.address,
               autofocus: autofocus,
@@ -64,24 +65,41 @@ class _ConnectionSection extends StatelessWidget {
                 icon: const Icon(Icons.public),
               ),
               onChanged: form.onAddressChanged,
-              validator: (v) => (v == null || v.trim().isEmpty) ? strings.requiredField : null,
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? strings.requiredField : null,
             );
-            final port = SizedBox(
-              width: 96,
-              child: TextFormField(
-                controller: form.port,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: _dec(strings.portField),
-                validator: (v) => HostForm.validPort(v) ? null : strings.invalidPort,
+            final portField = TextFormField(
+              controller: form.port,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(5),
+              ],
+              style: const TextStyle(
+                fontFeatures: [FontFeature.tabularFigures()],
               ),
+              decoration: _dec(
+                strings.portField,
+                hint: '22',
+                icon: stacked ? const Icon(Icons.tag) : null,
+              ).copyWith(errorMaxLines: 2),
+              validator: (v) =>
+                  HostForm.validPort(v) ? null : strings.invalidPort,
             );
-            return constraints.maxWidth < 420
-                ? Column(children: [address, const SizedBox(height: 12), port])
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [Expanded(child: address), const SizedBox(width: 12), port],
-                  );
+            if (stacked) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [address, const SizedBox(height: 12), portField],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: address),
+                const SizedBox(width: 12),
+                SizedBox(width: 100, child: portField),
+              ],
+            );
           },
         ),
         const SizedBox(height: 12),
