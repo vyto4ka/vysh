@@ -130,6 +130,7 @@ class UpdateService {
   static UpdateInfo? _cachedAutoResult;
   static DateTime? _lastAutoCheckAt;
   static Future<UpdateInfo?>? _autoCheckInFlight;
+  static Future<UpdateInfo?>? _forceCheckInFlight;
 
   @visibleForTesting
   static Duration minAutoCheckGap = const Duration(minutes: 30);
@@ -141,6 +142,7 @@ class UpdateService {
     _cachedAutoResult = null;
     _lastAutoCheckAt = null;
     _autoCheckInFlight = null;
+    _forceCheckInFlight = null;
   }
 
   /// Поставщик состояния (окно проверок, пропущенная версия).
@@ -167,10 +169,9 @@ class UpdateService {
     if (force) {
       // Удачная ручная проверка обновляет кэш: иначе карточка в настройках
       // (провайдер без force) до 30 минут показывала бы старый результат.
-      final result = await fetchUpdate();
-      _cachedAutoResult = result;
-      _lastAutoCheckAt = DateTime.now();
-      return result;
+      return _forceCheckInFlight ??= _forceCheck().whenComplete(() {
+        _forceCheckInFlight = null;
+      });
     }
 
     final last = _lastAutoCheckAt;
@@ -180,6 +181,43 @@ class UpdateService {
     return _autoCheckInFlight ??= _autoCheck().whenComplete(() {
       _autoCheckInFlight = null;
     });
+  }
+
+  static Future<UpdateInfo?> _forceCheck() async {
+    final result = await fetchUpdate();
+    _cachedAutoResult = result;
+    _lastAutoCheckAt = DateTime.now();
+    return result;
+  }
+
+  /// Перепроверяет релизы перед показом диалога или установкой, если с
+  /// последней проверки прошло больше [maxAge]. Если за время работы
+  /// приложения вышел ещё более свежий релиз (например, 0.7.8 поверх ранее
+  /// найденного 0.7.7), возвращает его; при сетевой ошибке или лимите API
+  /// оставляет [current], не мешая установке уже найденного релиза.
+  static Future<UpdateInfo> refreshIfNewer(
+    UpdateInfo current, {
+    Duration maxAge = const Duration(minutes: 1),
+  }) async {
+    final last = _lastAutoCheckAt;
+    if (last != null && DateTime.now().difference(last) <= maxAge) {
+      final cached = _cachedAutoResult;
+      if (cached != null &&
+          compareVersions(cached.latestVersion, current.latestVersion) > 0) {
+        return cached;
+      }
+      return current;
+    }
+    try {
+      final fresh = await checkForUpdate(force: true);
+      if (fresh != null &&
+          compareVersions(fresh.latestVersion, current.latestVersion) > 0) {
+        return fresh;
+      }
+    } catch (_) {
+      // Сбой проверки не блокирует скачивание уже известного релиза.
+    }
+    return current;
   }
 
   static Future<UpdateInfo?> _autoCheck() async {
@@ -235,8 +273,9 @@ class UpdateService {
     final latestTag = (latest['tag_name'] ?? '').toString();
     final currentRelease = _findReleaseForVersion(releases, currentVersion);
     final latestPublished = _releaseDate(latest);
-    final currentPublished =
-        currentRelease != null ? _releaseDate(currentRelease) : null;
+    final currentPublished = currentRelease != null
+        ? _releaseDate(currentRelease)
+        : null;
 
     if (!isNewerRelease(
       latestTag,
@@ -252,8 +291,10 @@ class UpdateService {
     if (asset == null) return null;
 
     final assetName = (asset['name'] ?? '').toString();
-    final releaseUrl = (latest['html_url'] ??
-        'https://github.com/$_owner/$_repo/releases/latest') as String;
+    final releaseUrl =
+        (latest['html_url'] ??
+                'https://github.com/$_owner/$_repo/releases/latest')
+            as String;
     final checksumAsset = _findChecksumAsset(assets, assetName);
     final managed = managedInstall ?? detectManagedInstall();
 
@@ -340,21 +381,29 @@ class UpdateService {
   }
 
   static Future<List> _getReleasesPage(int page) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15);
     try {
-      final uri = Uri.https('api.github.com', '/repos/$_owner/$_repo/releases', {
-        'per_page': '100',
-        'page': '$page',
-      });
+      final uri = Uri.https(
+        'api.github.com',
+        '/repos/$_owner/$_repo/releases',
+        {'per_page': '100', 'page': '$page'},
+      );
       final request = await client
           .getUrl(uri)
-          .timeout(const Duration(seconds: 15), onTimeout: () {
-        client.close(force: true);
-        throw const UpdateCheckException(UpdateCheckError.timeout);
-      });
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () {
+              client.close(force: true);
+              throw const UpdateCheckException(UpdateCheckError.timeout);
+            },
+          );
       // Без User-Agent GitHub отвечает 403.
       request.headers.set(HttpHeaders.userAgentHeader, 'vysh-updater');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
+      request.headers.set(
+        HttpHeaders.acceptHeader,
+        'application/vnd.github+json',
+      );
 
       final response = await request.close().timeout(
         const Duration(seconds: 60),
@@ -365,12 +414,13 @@ class UpdateService {
       );
 
       if (response.statusCode == 403 || response.statusCode == 429) {
-        throw const UpdateCheckException(
-          UpdateCheckError.rateLimit,
-        );
+        throw const UpdateCheckException(UpdateCheckError.rateLimit);
       }
       if (response.statusCode != 200) {
-        throw UpdateCheckException(UpdateCheckError.httpStatus, '${response.statusCode}');
+        throw UpdateCheckException(
+          UpdateCheckError.httpStatus,
+          '${response.statusCode}',
+        );
       }
 
       final body = await response
@@ -521,10 +571,12 @@ class UpdateService {
   }
 
   static int compareVersions(String latest, String current) {
-    final latestParts =
-        stripTag(latest).split('.').map((e) => int.tryParse(e) ?? 0).toList();
-    final currentParts =
-        stripTag(current).split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final latestParts = stripTag(
+      latest,
+    ).split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final currentParts = stripTag(
+      current,
+    ).split('.').map((e) => int.tryParse(e) ?? 0).toList();
 
     final maxLen = latestParts.length > currentParts.length
         ? latestParts.length
@@ -577,15 +629,15 @@ class UpdateService {
   static Future<bool> autoPromptDue(int days, {DateTime? now}) async {
     final last = _readState()['autoPromptedAt'];
     if (last is! int) return true;
-    final since =
-        (now ?? DateTime.now()).difference(DateTime.fromMillisecondsSinceEpoch(last));
+    final since = (now ?? DateTime.now()).difference(
+      DateTime.fromMillisecondsSinceEpoch(last),
+    );
     return since.isNegative || since >= Duration(days: days);
   }
 
   static Future<void> markAutoPrompted({DateTime? now}) async {
     final state = _readState();
-    state['autoPromptedAt'] =
-        (now ?? DateTime.now()).millisecondsSinceEpoch;
+    state['autoPromptedAt'] = (now ?? DateTime.now()).millisecondsSinceEpoch;
     await _writeState(state);
   }
 }

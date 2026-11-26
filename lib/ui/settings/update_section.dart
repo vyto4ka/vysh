@@ -87,20 +87,20 @@ class _UpdateSectionState extends ConsumerState<UpdateSection> {
       if (info != null) {
         await showUpdateDialog(context, info);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(strings.updateLatest)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(strings.updateLatest)));
       }
     } on UpdateCheckException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(strings.updateCheckFailure(e))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.updateCheckFailure(e))));
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(strings.updateCheckFailed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(strings.updateCheckFailed)));
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -143,49 +143,69 @@ class _UpdateStatusLine extends StatelessWidget {
         ? strings.updateLatest
         : '';
 
-    return Row(
-      children: [
-        ExpandSection(
-          expanded: current != null,
-          axis: Axis.horizontal,
-          spring: AppMotion.spatialFast,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Badge(smallSize: 8, backgroundColor: scheme.primary),
-          ),
-        ),
-        Expanded(
-          child: FadeSlideSwitcher(
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(
-              statusText,
-              key: ValueKey(statusText),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: current != null
-                    ? scheme.onSurface
-                    : hasError
-                    ? scheme.error
-                    : scheme.onSurfaceVariant,
+    return LayoutBuilder(
+      builder: (context, box) {
+        final wide = box.maxWidth >= 460;
+        return Row(
+          children: [
+            ExpandSection(
+              expanded: current != null,
+              axis: Axis.horizontal,
+              spring: AppMotion.spatialFast,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Badge(smallSize: 8, backgroundColor: scheme.primary),
               ),
             ),
-          ),
-        ),
-        AnimatedSwitcher(
-          duration: fastDur,
-          child: current != null
-              ? FilledButton.tonal(
-                  key: const ValueKey('update'),
-                  onPressed: () => onUpdate(current),
-                  child: Text(strings.updateNow),
+            Expanded(
+              child: FadeSlideSwitcher(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  statusText,
+                  key: ValueKey(statusText),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: current != null
+                        ? scheme.onSurface
+                        : hasError
+                        ? scheme.error
+                        : scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+            if (current != null) ...[
+              if (wide)
+                TextButton(
+                  key: const ValueKey('recheck'),
+                  onPressed: loading ? null : onCheck,
+                  child: Text(strings.updateCheck),
                 )
-              : TextButton(
+              else
+                IconButton(
+                  key: const ValueKey('recheck-icon'),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: strings.updateCheck,
+                  onPressed: loading ? null : onCheck,
+                  icon: const Icon(Icons.refresh, size: 20),
+                ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                key: const ValueKey('update'),
+                onPressed: loading ? null : () => onUpdate(current),
+                child: Text(strings.updateNow),
+              ),
+            ] else
+              AnimatedSwitcher(
+                duration: fastDur,
+                child: TextButton(
                   key: const ValueKey('check'),
                   onPressed: loading ? null : onCheck,
                   child: Text(strings.updateCheck),
                 ),
-        ),
-      ],
+              ),
+          ],
+        );
+      },
     );
   }
 }
-

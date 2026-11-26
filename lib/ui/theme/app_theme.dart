@@ -169,8 +169,8 @@ ThemeData buildTheme({
       color: scheme.surfaceContainerLow,
       surfaceTintColor: Colors.transparent,
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      menuPadding: const EdgeInsets.all(8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      menuPadding: const EdgeInsets.all(6),
       textStyle: TextStyle(fontSize: 14, color: scheme.onSurface),
     ),
     cardTheme: CardThemeData(
@@ -208,24 +208,31 @@ ThemeData buildTheme({
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       width: DesktopEnv.isMobile ? null : 420,
     ),
-    // Меню: скруглённый контейнер с внутренним отступом,
-    // пункты - «пилюли» с тональной подсветкой при наведении.
+    // Меню: скруглённый контейнер с аккуратным отступом, пункты - «пилюли»
+    // с тональной подсветкой, умещающиеся по высоте в небольшом окне ПК.
     menuTheme: MenuThemeData(
       style: MenuStyle(
         backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerLow),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         elevation: const WidgetStatePropertyAll(3),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
-        padding: const WidgetStatePropertyAll(EdgeInsets.all(8)),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(6)),
       ),
     ),
     menuButtonTheme: MenuButtonThemeData(
       style: ButtonStyle(
-        minimumSize: const WidgetStatePropertyAll(Size(232, 48)),
+        visualDensity: VisualDensity.standard,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        minimumSize: WidgetStatePropertyAll(
+          Size(
+            224,
+            DesktopEnv.isMobile ? (compact ? 40 : 44) : (compact ? 32 : 34),
+          ),
+        ),
         padding: const WidgetStatePropertyAll(
-          EdgeInsets.symmetric(horizontal: 14),
+          EdgeInsets.symmetric(horizontal: 12),
         ),
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

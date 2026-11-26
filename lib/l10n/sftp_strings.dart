@@ -160,6 +160,9 @@ extension SftpStrings on AppStrings {
       isRu ? 'Перейти в папку терминала' : 'Go to terminal folder';
   String get selectEntry => isRu ? 'Выбрать' : 'Select';
   String get deselectEntry => isRu ? 'Снять выделение' : 'Deselect';
+  String get clearSelection => isRu ? 'Снять выделение' : 'Clear selection';
+  String get downloadSelected =>
+      isRu ? 'Скачать выделенное' : 'Download selected';
   String get tryAgain => isRu ? 'Повторить' : 'Try again';
   String get up => isRu ? 'Вверх' : 'Up';
   String dropToUpload(String dir) =>

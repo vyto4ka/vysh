@@ -6,6 +6,7 @@ import '../../app/sftp/sftp_directory.dart';
 import '../../l10n/app_strings.dart';
 import '../motion/app_motion.dart';
 import '../motion/expand_section.dart';
+import '../motion/layered_switcher.dart';
 import '../widgets/context_menu.dart';
 
 /// Адресная строка проводника: Назад/Вперёд/Вверх, путь, поиск, сортировка,
@@ -32,6 +33,7 @@ class FilePathBar extends StatelessWidget {
     this.sortField,
     this.sortAscending = true,
     this.onSortSelected,
+    this.selectionBar,
     this.trailing,
   });
 
@@ -54,6 +56,7 @@ class FilePathBar extends StatelessWidget {
   final SftpSortField? sortField;
   final bool sortAscending;
   final ValueChanged<SftpSortField>? onSortSelected;
+  final Widget? selectionBar;
   final Widget? trailing;
 
   @override
@@ -184,13 +187,31 @@ class FilePathBar extends StatelessWidget {
             ],
           ),
         ),
-        if (cwd != null && cwd!.isNotEmpty)
-          _BreadcrumbsBar(
-            cwd: cwd!,
-            windowsPaths: windowsPaths,
-            enabled: enabled,
-            drivesLabel: s.drivesList,
-            onOpen: onOpen,
+        if (selectionBar != null || (cwd != null && cwd!.isNotEmpty))
+          SizedBox(
+            height: 32,
+            child: FadeSlideSwitcher(
+              offset: Offset.zero,
+              scaleBegin: 1.0,
+              alignment: AlignmentDirectional.centerStart,
+              child: selectionBar != null
+                  ? KeyedSubtree(
+                      key: const ValueKey('selection'),
+                      child: selectionBar!,
+                    )
+                  : KeyedSubtree(
+                      key: const ValueKey('breadcrumbs'),
+                      child: (cwd != null && cwd!.isNotEmpty)
+                          ? _BreadcrumbsBar(
+                              cwd: cwd!,
+                              windowsPaths: windowsPaths,
+                              enabled: enabled,
+                              drivesLabel: s.drivesList,
+                              onOpen: onOpen,
+                            )
+                          : const SizedBox.expand(),
+                    ),
+            ),
           ),
         if (filterController != null)
           ExpandSection(
@@ -307,14 +328,11 @@ class _BreadcrumbsBarState extends State<_BreadcrumbsBar> {
   @override
   Widget build(BuildContext context) {
     final segments = sftpBreadcrumbs(widget.cwd, windows: widget.windowsPaths);
-    if (segments.length <= 1 && !widget.windowsPaths) {
-      return const SizedBox(height: 4);
-    }
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
     return SizedBox(
-      height: 28,
+      height: 32,
       child: SingleChildScrollView(
         controller: _scroll,
         scrollDirection: Axis.horizontal,
@@ -371,6 +389,7 @@ class _BreadcrumbChip extends StatelessWidget {
       fontWeight: active ? FontWeight.w600 : FontWeight.w500,
       color: active ? scheme.primary : scheme.onSurfaceVariant,
     );
+    final showRootLabel = windowsRoot || active;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -387,9 +406,9 @@ class _BreadcrumbChip extends StatelessWidget {
                   size: 13,
                   color: active ? scheme.primary : scheme.onSurfaceVariant,
                 ),
-                if (windowsRoot) const SizedBox(width: 4),
+                if (showRootLabel) const SizedBox(width: 4),
               ],
-              if (!isRootDriveIcon || windowsRoot) Text(label, style: style),
+              if (!isRootDriveIcon || showRootLabel) Text(label, style: style),
             ],
           ),
         ),

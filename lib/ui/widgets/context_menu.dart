@@ -30,7 +30,7 @@ Widget menuItem(
 
 /// Разделитель между группами пунктов.
 Widget menuDivider() => const Padding(
-  padding: EdgeInsets.symmetric(vertical: 4),
+  padding: EdgeInsets.symmetric(vertical: 3),
   child: Divider(height: 1, indent: 8, endIndent: 8),
 );
 

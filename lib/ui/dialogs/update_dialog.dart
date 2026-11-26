@@ -1,8 +1,11 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/controllers/settings_controller.dart';
 import '../../app/controllers/tabs_controller.dart';
+import '../../app/controllers/update_controller.dart';
 import '../../infra/platform/capabilities.dart';
 import '../../infra/platform/window_placement.dart';
 import '../../infra/update/update_installer.dart';
@@ -99,6 +102,7 @@ class _UpdateDialog extends ConsumerStatefulWidget {
 }
 
 class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
+  late UpdateInfo _info = widget.info;
   bool _downloading = false;
   bool _applying = false;
   double _progress = 0;
@@ -106,11 +110,26 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
   String? _lastError;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshLatestInBackground());
+  }
+
+  Future<void> _refreshLatestInBackground() async {
+    final fresh = await UpdateService.refreshIfNewer(_info);
+    if (!mounted || _downloading) return;
+    if (fresh.latestVersion != _info.latestVersion) {
+      ref.invalidate(updateInfoProvider);
+      setState(() => _info = fresh);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final s = context.strings;
-    final info = widget.info;
+    final info = _info;
     final notes = info.releaseNotes;
     final cleanNotes = notes != null && notes.isNotEmpty
         ? sanitizeReleaseNotes(notes)
@@ -282,8 +301,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
     });
 
     try {
+      final target = await UpdateService.refreshIfNewer(_info);
+      if (mounted && target.latestVersion != _info.latestVersion) {
+        ref.invalidate(updateInfoProvider);
+        setState(() => _info = target);
+      }
       final restarting = await UpdateInstaller.downloadAndInstall(
-        widget.info,
+        target,
         onProgress: (received, total) {
           if (total > 0 && mounted) {
             setState(() {

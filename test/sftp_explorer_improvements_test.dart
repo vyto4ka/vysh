@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +23,7 @@ import 'package:vysh/infra/platform/local_files.dart';
 import 'package:vysh/l10n/app_strings.dart';
 import 'package:vysh/ui/sftp/sftp_pane.dart';
 import 'package:vysh/ui/sftp/sftp_text_editor.dart';
+import 'package:vysh/ui/theme/app_theme.dart';
 
 import 'directory_tracking_test.dart' as fixture;
 
@@ -410,4 +412,97 @@ void main() {
       expect(disk, 'worker_processes auto;\n');
     });
   });
+
+  testWidgets(
+    'SftpPane right-click does not shift file list vertically and context menu fits 864px window without scrolling',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 864);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final memSftp = _VirtualTreeSftp();
+      final session = fixture.session(
+        launcher: (fixture.Launcher()..shell.directory = Future.value(null)),
+        files: memSftp,
+      );
+      await session.connect();
+      session.currentDirectory.value = '/work';
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tabsProvider.overrideWith(() => _Tabs(session)),
+            documentStoreProvider.overrideWith((ref, name) => fixture.Store()),
+          ],
+          child: MaterialApp(
+            theme: buildTheme(seed: Colors.purple, brightness: Brightness.dark),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topRight,
+                child: SizedBox(
+                  width: 460,
+                  height: 800,
+                  child: SftpPane(
+                    tab: const SessionTab(
+                      id: 't1',
+                      title: 'srv',
+                      isLocal: false,
+                      status: SessionStatus.ready,
+                      host: Host(id: 'h1', label: 'srv', address: '10.0.0.1'),
+                    ),
+                    active: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final fileFinder = find.text('alpha.txt');
+      final dyBefore = tester.getTopLeft(fileFinder).dy;
+
+      // Правый клик по файлу выделяет его и открывает контекстное меню,
+      // не сдвигая список по вертикали ни во время анимации, ни после неё.
+      await tester.tap(fileFinder, buttons: kSecondaryMouseButton);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(tester.getTopLeft(fileFinder).dy, dyBefore);
+      await tester.pumpAndSettle();
+      expect(find.text('Selected: 1'), findsOneWidget);
+      expect(tester.getTopLeft(fileFinder).dy, dyBefore);
+
+      // Полное меню по файлу (20+ пунктов) целиком помещается в окно высотой 864px без прокрутки.
+      expect(find.text('Edit text'), findsOneWidget);
+      expect(find.text('Hidden files'), findsOneWidget);
+      final menuScrollables = tester.widgetList<Scrollable>(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (w) => w.runtimeType.toString() == '_MenuPanel',
+          ),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      for (final s in menuScrollables) {
+        final state = tester.state<ScrollableState>(find.byWidget(s));
+        expect(state.position.maxScrollExtent, 0.0);
+      }
+
+      // Закрываем меню и проверяем то же самое в корне `/`, где нет строки `..`.
+      await tester.tapAt(const Offset(20, 20));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_upward));
+      await tester.pumpAndSettle();
+      final rootEntry = find.text('work');
+      final rootDyBefore = tester.getTopLeft(rootEntry).dy;
+      await tester.tap(rootEntry, buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Selected: 1'), findsOneWidget);
+      expect(tester.getTopLeft(rootEntry).dy, rootDyBefore);
+
+      await tester.pumpWidget(const SizedBox());
+      session.dispose();
+    },
+  );
 }

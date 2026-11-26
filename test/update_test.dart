@@ -1,9 +1,15 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:vysh/app/controllers/update_controller.dart';
+import 'package:vysh/app/dependencies.dart';
 import 'package:vysh/domain/ports/document_store.dart';
 import 'package:vysh/infra/update/update_installer.dart';
 import 'package:vysh/infra/update/update_service.dart';
-import 'package:vysh/ui/dialogs/update_dialog.dart' show sanitizeReleaseNotes;
+import 'package:vysh/ui/dialogs/update_dialog.dart'
+    show sanitizeReleaseNotes, showUpdateDialog;
+import 'package:vysh/ui/settings/update_section.dart';
 
 late DocumentStore Function() _defaultStateStore;
 late Future<UpdateInfo?> Function() _defaultFetch;
@@ -148,8 +154,7 @@ void main() {
       expect(
         UpdateService.detectManagedInstall(
           isLinux: true,
-          executablePath:
-              '/nix/store/abc123-vysh-0.7.7/libexec/vysh/vysh',
+          executablePath: '/nix/store/abc123-vysh-0.7.7/libexec/vysh/vysh',
         ),
         ManagedInstallKind.nix,
       );
@@ -389,6 +394,130 @@ aaaabbbbccccddddeeeeffff0000111122223333444455556666777788889999  other-file.zip
       );
       expect(UpdateService.lastAutoCheckAt, isNotNull);
     });
+
+    test(
+      'refreshIfNewer перепрыгивает устаревший кэшированный релиз сразу на самый свежий',
+      () async {
+        UpdateService.resetAutoCheck();
+        addTearDown(() {
+          UpdateService.resetAutoCheck();
+          UpdateService.fetchUpdate = _defaultFetch;
+        });
+
+        const stale = UpdateInfo(
+          currentVersion: '0.7.6',
+          latestVersion: 'v0.7.7',
+          downloadUrl: 'https://x/v0.7.7.zip',
+          releaseUrl: 'https://x/v0.7.7',
+          assetSize: 1024,
+          openInBrowser: false,
+        );
+        const newest = UpdateInfo(
+          currentVersion: '0.7.6',
+          latestVersion: 'v0.7.8',
+          downloadUrl: 'https://x/v0.7.8.zip',
+          releaseUrl: 'https://x/v0.7.8',
+          assetSize: 2048,
+          openInBrowser: false,
+        );
+
+        var calls = 0;
+        UpdateService.fetchUpdate = () async {
+          calls++;
+          return newest;
+        };
+
+        final resolved = await UpdateService.refreshIfNewer(
+          stale,
+          maxAge: Duration.zero,
+        );
+        expect(resolved.latestVersion, 'v0.7.8');
+        expect(calls, 1);
+
+        // При сбое сети не блокируем установку уже найденного обновления.
+        UpdateService.fetchUpdate = () async => throw 'rate limit';
+        final fallback = await UpdateService.refreshIfNewer(
+          stale,
+          maxAge: Duration.zero,
+        );
+        expect(fallback.latestVersion, 'v0.7.7');
+      },
+    );
+
+    testWidgets(
+      'UpdateSection оставляет кнопку проверки даже при висящем обновлении, а диалог подтягивает свежий релиз',
+      (tester) async {
+        UpdateService.resetAutoCheck();
+        addTearDown(() {
+          UpdateService.resetAutoCheck();
+          UpdateService.fetchUpdate = _defaultFetch;
+        });
+
+        const v077 = UpdateInfo(
+          currentVersion: '0.7.6',
+          latestVersion: 'v0.7.7',
+          downloadUrl: 'https://x/v0.7.7.zip',
+          releaseUrl: 'https://x/v0.7.7',
+          assetSize: 1024 * 1024,
+          openInBrowser: false,
+        );
+        const v078 = UpdateInfo(
+          currentVersion: '0.7.6',
+          latestVersion: 'v0.7.8',
+          downloadUrl: 'https://x/v0.7.8.zip',
+          releaseUrl: 'https://x/v0.7.8',
+          assetSize: 2 * 1024 * 1024,
+          openInBrowser: false,
+        );
+
+        var remote = v077;
+        UpdateService.fetchUpdate = () async => remote;
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              documentStoreProvider.overrideWith((_, _) => _MemoryStore()),
+              updateInfoProvider.overrideWith(
+                (ref) => UpdateService.checkForUpdate(force: false),
+              ),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(
+                body: Center(
+                  child: SizedBox(width: 600, child: UpdateSection()),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('vysh 0.7.7'), findsOneWidget);
+        expect(find.byKey(const ValueKey('update')), findsOneWidget);
+        // Кнопка проверки видна даже тогда, когда 0.7.7 уже висит.
+        expect(find.byKey(const ValueKey('recheck')), findsOneWidget);
+
+        // Пока приложение было открыто, вышел 0.7.8 — нажатие проверки обновляет до 0.7.8.
+        remote = v078;
+        await tester.tap(find.byKey(const ValueKey('recheck')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('vysh 0.7.6 → 0.7.8'), findsOneWidget);
+        await tester.tap(find.text('Later'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('vysh 0.7.8'), findsOneWidget);
+
+        // И даже если открыть диалог со старым объектом v0.7.7 при устаревшем кэше,
+        // он сам переключается на v0.7.8.
+        UpdateService.resetAutoCheck();
+        final ctx = tester.element(find.byType(UpdateSection));
+        showUpdateDialog(ctx, v077);
+        await tester.pumpAndSettle();
+        expect(find.text('vysh 0.7.6 → 0.7.8'), findsOneWidget);
+        await tester.tap(find.text('Later'));
+        await tester.pumpAndSettle();
+      },
+    );
   });
 }
 

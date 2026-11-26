@@ -974,18 +974,18 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
           ),
           onPressed: () => _copyOrCut(sel, cut: true),
         ),
-      ],
-      if (clip != null && clip.entries.isNotEmpty && _cwd != null)
-        menuItem(
-          _s.pasteEntries(clip.entries.length),
-          icon: Icons.content_paste,
-          shortcut: SingleActivator(
-            LogicalKeyboardKey.keyV,
-            control: !mac,
-            meta: mac,
+        if (clip != null && clip.entries.isNotEmpty && _cwd != null)
+          menuItem(
+            _s.pasteEntries(clip.entries.length),
+            icon: Icons.content_paste,
+            shortcut: SingleActivator(
+              LogicalKeyboardKey.keyV,
+              control: !mac,
+              meta: mac,
+            ),
+            onPressed: _pasteClipboard,
           ),
-          onPressed: _pasteClipboard,
-        ),
+      ],
       if (single != null) ...[
         menuItem(
           _s.rename,
@@ -1015,11 +1015,11 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
         ),
         menuDivider(),
       ],
-      ..._folderItems(),
+      ..._folderItems(includePaste: sel.isEmpty),
     ]);
   }
 
-  List<Widget> _folderItems() {
+  List<Widget> _folderItems({bool includePaste = true}) {
     final clip = ref.read(sftpClipboardProvider);
     final showHidden = ref.read(settingsProvider).showHiddenFiles;
     final mac = PlatformCapabilities.isMacOS;
@@ -1045,7 +1045,10 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
           onPressed: _enableDirectoryReporting,
         ),
       menuDivider(),
-      if (clip != null && clip.entries.isNotEmpty && _cwd != null)
+      if (includePaste &&
+          clip != null &&
+          clip.entries.isNotEmpty &&
+          _cwd != null)
         menuItem(
           _s.pasteEntries(clip.entries.length),
           icon: Icons.content_paste,
@@ -1408,6 +1411,59 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                     onSortSelected: ref
                         .read(settingsProvider.notifier)
                         .setSftpSort,
+                    selectionBar: _selected.isEmpty
+                        ? null
+                        : Padding(
+                            padding: const EdgeInsets.only(left: 14, right: 6),
+                            child: Row(
+                              children: [
+                                Badge(
+                                  smallSize: 6,
+                                  backgroundColor: scheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _s.selectedCount(_selected.length),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          color: scheme.primary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                                ),
+                                IconButton(
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(28, 28),
+                                    fixedSize: const Size(28, 28),
+                                    padding: EdgeInsets.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  iconSize: 18,
+                                  tooltip: _s.downloadSelected,
+                                  onPressed: () => _download(_selection),
+                                  icon: const Icon(Icons.download_outlined),
+                                ),
+                                const SizedBox(width: 2),
+                                IconButton(
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(28, 28),
+                                    fixedSize: const Size(28, 28),
+                                    padding: EdgeInsets.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  iconSize: 18,
+                                  tooltip: _s.clearSelection,
+                                  onPressed: () => setState(_selected.clear),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                            ),
+                          ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1473,37 +1529,6 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                             ],
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                  ExpandSection(
-                    expanded: _selected.isNotEmpty,
-                    spring: AppMotion.spatialFast,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${_s.isRu ? 'Выбрано' : 'Selected'}: ${_selected.length}',
-                              style: theme.textTheme.labelLarge,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: _s.isRu
-                                ? 'Снять выделение'
-                                : 'Clear selection',
-                            onPressed: () => setState(_selected.clear),
-                            icon: const Icon(Icons.close),
-                          ),
-                          IconButton(
-                            tooltip: _s.isRu
-                                ? 'Скачать выделенное'
-                                : 'Download selected',
-                            onPressed: () => _download(_selection),
-                            icon: const Icon(Icons.download_outlined),
-                          ),
-                        ],
                       ),
                     ),
                   ),
