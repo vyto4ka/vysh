@@ -29,6 +29,7 @@ import '../widgets/context_menu.dart';
 import '../widgets/modifiers.dart';
 import 'file_path_bar.dart';
 import 'sftp_dialogs.dart';
+import 'sftp_drag.dart';
 import 'sftp_entry_row.dart';
 import 'sftp_text_editor.dart';
 import 'transfers_view.dart';
@@ -106,18 +107,34 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
   bool get isRu =>
       AppStrings.of(context, ref.read(settingsProvider).language).isRu;
 
-  Future<void> _copy(bool right) async {
-    final source = (right ? _left : _right).currentState!;
-    final target = (right ? _right : _left).currentState!;
-    final entries = source.selection;
-    final dir = target.directory.cwd;
-    if (entries.isEmpty || dir == null) return;
-    final sameFilesystem = source.identity == target.identity;
-    final from = source.endpoint;
-    final to = target.endpoint;
-    if (from == null || to == null) return;
+  Future<void> _enqueueCopy({
+    required SftpSession from,
+    required SftpSession to,
+    required bool sameFilesystem,
+    required List<RemoteEntry> entries,
+    required String targetDir,
+    required VoidCallback onDone,
+  }) async {
+    if (_busy || entries.isEmpty) return;
     setState(() => _busy = true);
-    final total = await estimateTransferBytes(from, entries);
+    final int total;
+    try {
+      total = await estimateTransferBytes(from, entries);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      final strings = AppStrings.of(
+        context,
+        ref.read(settingsProvider).language,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(strings.errorText(e)),
+          backgroundColor: Theme.of(context).colorScheme.errorContainer,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ref
         .read(transferQueueProvider.notifier)
@@ -126,7 +143,7 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
           direction: TransferDirection.upload,
           name: entries.map((e) => e.name).join(', '),
           localPath: '',
-          remotePath: dir,
+          remotePath: targetDir,
           total: total,
           run: (cancel, progress) async {
             final copier = FileCopy(
@@ -140,7 +157,7 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
                   : Future.value(const CopyDecision(CopyChoice.cancel)),
             );
             for (final entry in entries) {
-              await copier.copy(entry, copier.child(dir, entry.name));
+              await copier.copy(entry, copier.child(targetDir, entry.name));
             }
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -157,9 +174,117 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
           onSettled: () {
             if (!mounted) return;
             setState(() => _busy = false);
-            target.directory.refresh();
+            onDone();
           },
         );
+  }
+
+  Future<void> _copy(bool right) async {
+    final source = (right ? _left : _right).currentState!;
+    final target = (right ? _right : _left).currentState!;
+    final entries = source.selection;
+    final dir = target.directory.cwd;
+    final from = source.endpoint;
+    final to = target.endpoint;
+    if (entries.isEmpty || dir == null || from == null || to == null) return;
+    await _enqueueCopy(
+      from: from,
+      to: to,
+      sameFilesystem: source.identity == target.identity,
+      entries: entries,
+      targetDir: dir,
+      onDone: target.directory.refresh,
+    );
+  }
+
+  Future<void> _dropInternal({
+    required bool toRight,
+    required SftpInternalDrag drag,
+    String? targetDir,
+  }) async {
+    final target = (toRight ? _right : _left).currentState;
+    final to = target?.endpoint;
+    final dir = targetDir ?? target?.directory.cwd;
+    if (_busy ||
+        target == null ||
+        to == null ||
+        dir == null ||
+        drag.entries.isEmpty) {
+      return;
+    }
+    SftpSession? from;
+    String? sourceIdentity;
+    if (drag.scopeId == 'workspace:left') {
+      from = _left.currentState?.endpoint;
+      sourceIdentity = _left.currentState?.identity;
+    } else if (drag.scopeId == 'workspace:right') {
+      from = _right.currentState?.endpoint;
+      sourceIdentity = _right.currentState?.identity;
+    } else if (drag.scopeId.startsWith('pane:')) {
+      final tabId = drag.scopeId.substring(5);
+      final session = ref.read(tabsProvider.notifier).sessionOf(tabId);
+      if (session != null) {
+        final tab = ref
+            .read(tabsProvider)
+            .tabs
+            .where((t) => t.id == tabId)
+            .firstOrNull;
+        try {
+          from = await session.sftp();
+          sourceIdentity = (tab?.isLocal ?? false) ? 'local' : session.target;
+        } catch (_) {
+          return;
+        }
+      }
+    }
+    if (!mounted || from == null || sourceIdentity == null) return;
+    await _enqueueCopy(
+      from: from,
+      to: to,
+      sameFilesystem: sourceIdentity == target.identity,
+      entries: drag.entries,
+      targetDir: dir,
+      onDone: target.directory.refresh,
+    );
+  }
+
+  Future<void> _dropExternalPaths({
+    required bool toRight,
+    required List<String> paths,
+  }) async {
+    final target = (toRight ? _right : _left).currentState;
+    final to = target?.endpoint;
+    final dir = target?.directory.cwd;
+    if (_busy || target == null || to == null || dir == null || paths.isEmpty) {
+      return;
+    }
+    final local = ref.read(localFileSessionProvider);
+    final List<RemoteEntry> entries;
+    try {
+      entries = [for (final p in paths) await local.stat(p)];
+    } catch (e) {
+      if (!mounted) return;
+      final strings = AppStrings.of(
+        context,
+        ref.read(settingsProvider).language,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(strings.errorText(e)),
+          backgroundColor: Theme.of(context).colorScheme.errorContainer,
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await _enqueueCopy(
+      from: local,
+      to: to,
+      sameFilesystem: target.identity == 'local',
+      entries: entries,
+      targetDir: dir,
+      onDone: target.directory.refresh,
+    );
   }
 
   @override
@@ -211,12 +336,21 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
                     final wide = box.maxWidth >= 840;
                     Widget browser(bool right) => _Browser(
                       key: right ? _right : _left,
+                      scopeId: right ? 'workspace:right' : 'workspace:left',
+                      visible: wide || (right == _rightVisible),
                       tabs: tabs,
                       initial: right ? (tabs.firstOrNull?.id ?? '') : '',
                       isRu: isRu,
                       enabled: !_busy,
                       onChanged: _changed,
                       onCopy: _canCopy(!right) ? () => _copy(!right) : null,
+                      onDropExternalPaths: (paths) =>
+                          _dropExternalPaths(toRight: right, paths: paths),
+                      onDropInternal: (drag, targetDir) => _dropInternal(
+                        toRight: right,
+                        drag: drag,
+                        targetDir: targetDir,
+                      ),
                       copyLabel: wide
                           ? (right
                                 ? (isRu ? 'Копировать влево' : 'Copy to left')
@@ -338,22 +472,30 @@ class _FileWorkspaceState extends ConsumerState<FileWorkspace>
 class _Browser extends ConsumerStatefulWidget {
   const _Browser({
     super.key,
+    required this.scopeId,
+    required this.visible,
     required this.tabs,
     required this.initial,
     required this.isRu,
     required this.enabled,
     required this.onChanged,
     required this.onCopy,
+    required this.onDropExternalPaths,
+    required this.onDropInternal,
     required this.copyLabel,
     required this.copyIcon,
     required this.destination,
   });
+  final String scopeId;
+  final bool visible;
   final List<SessionTab> tabs;
   final String initial;
   final bool isRu;
   final bool enabled;
   final VoidCallback onChanged;
   final VoidCallback? onCopy;
+  final ValueChanged<List<String>> onDropExternalPaths;
+  final void Function(SftpInternalDrag drag, String? targetDir) onDropInternal;
   final String copyLabel;
   final IconData copyIcon;
   final String? destination;
@@ -378,6 +520,7 @@ class _BrowserState extends ConsumerState<_Browser> {
   final _menu = GlobalKey<ContextMenuAreaState>();
   bool _hasStorageAccess = true;
   bool _showFilter = false;
+  bool _dragOver = false;
   bool _navigatingHistory = false;
   int _request = 0;
   List<RemoteEntry> _previous = const [];
@@ -664,6 +807,37 @@ class _BrowserState extends ConsumerState<_Browser> {
     await _run(
       () => endpoint!.rename(e.path, _joinPath(_parentOf(e.path), name)),
     );
+  }
+
+  SftpActions? get _actions {
+    if (_isLocal) return null;
+    final session = ref.read(tabsProvider.notifier).sessionOf(_source);
+    if (session == null) return null;
+    return SftpActions(
+      tabId: 'file-workspace',
+      session: session,
+      queue: ref.read(transferQueueProvider.notifier),
+      downloadsDir: () {
+        final dir = ref.read(settingsProvider).downloadsDir;
+        return DesktopEnv.isMobile || dir.isEmpty
+            ? LocalFiles.defaultDownloadsDir()
+            : dir;
+      }(),
+    );
+  }
+
+  Future<void> _moveEntriesInto(
+    List<RemoteEntry> items,
+    String targetDir,
+  ) async {
+    if (items.isEmpty || endpoint == null) return;
+    await _run(() async {
+      for (final e in items) {
+        final dest = _joinPath(targetDir, e.name);
+        if (dest == e.path) continue;
+        await endpoint!.rename(e.path, dest);
+      }
+    });
   }
 
   Future<void> _chmod(RemoteEntry e) async {
@@ -1118,311 +1292,504 @@ class _BrowserState extends ConsumerState<_Browser> {
                   ),
                 ),
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                    child: Material(
-                      color: scheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      clipBehavior: Clip.antiAlias,
-                      child: FadeSlideSwitcher(
-                        scaleBegin: 0.99,
-                        offset: const Offset(0, 0.02),
-                        child: directory.error != null
-                            ? SftpPlaceholder(
-                                key: ValueKey(
-                                  'error:${directory.requestedPath}',
-                                ),
-                                icon: Icons.error_outline,
-                                text: strings.errorText(directory.error!),
-                                action: Wrap(
-                                  alignment: WrapAlignment.center,
-                                  children: [
-                                    if (PlatformCapabilities.sharedDownloads &&
-                                        _isLocal &&
-                                        !_hasStorageAccess)
-                                      FilledButton.tonal(
-                                        onPressed: _requestStorageAccess,
-                                        child: Text(
-                                          widget.isRu
-                                              ? 'Разрешить доступ'
-                                              : 'Allow access',
+                  child: SftpDropZone(
+                    scopeId: widget.scopeId,
+                    enabled:
+                        widget.visible &&
+                        widget.enabled &&
+                        endpoint != null &&
+                        directory.error == null &&
+                        directory.cwd != null,
+                    onHover: (over) {
+                      if (mounted && _dragOver != over) {
+                        setState(() => _dragOver = over);
+                      }
+                    },
+                    onDropPaths: (paths) {
+                      if (mounted) setState(() => _dragOver = false);
+                      widget.onDropExternalPaths(paths);
+                    },
+                    onDropInternal: (drag) {
+                      if (mounted) setState(() => _dragOver = false);
+                      widget.onDropInternal(drag, null);
+                    },
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                            child: Material(
+                              color: scheme.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              clipBehavior: Clip.antiAlias,
+                              child: FadeSlideSwitcher(
+                                scaleBegin: 0.99,
+                                offset: const Offset(0, 0.02),
+                                child: directory.error != null
+                                    ? SftpPlaceholder(
+                                        key: ValueKey(
+                                          'error:${directory.requestedPath}',
+                                        ),
+                                        icon: Icons.error_outline,
+                                        text: strings.errorText(
+                                          directory.error!,
+                                        ),
+                                        action: Wrap(
+                                          alignment: WrapAlignment.center,
+                                          children: [
+                                            if (PlatformCapabilities
+                                                    .sharedDownloads &&
+                                                _isLocal &&
+                                                !_hasStorageAccess)
+                                              FilledButton.tonal(
+                                                onPressed:
+                                                    _requestStorageAccess,
+                                                child: Text(
+                                                  widget.isRu
+                                                      ? 'Разрешить доступ'
+                                                      : 'Allow access',
+                                                ),
+                                              ),
+                                            TextButton(
+                                              onPressed: () =>
+                                                  directory.refresh(),
+                                              child: Text(strings.tryAgain),
+                                            ),
+                                            TextButton(
+                                              onPressed: () {
+                                                _clear();
+                                                directory.home();
+                                              },
+                                              child: Text(strings.homeFolder),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : !directory.loading &&
+                                          entries.isEmpty &&
+                                          !hasParentRow
+                                    ? SftpPlaceholder(
+                                        key: const ValueKey('empty'),
+                                        icon:
+                                            _filterField.text.trim().isNotEmpty
+                                            ? Icons.search_off
+                                            : Icons.folder_open_outlined,
+                                        text:
+                                            _filterField.text.trim().isNotEmpty
+                                            ? strings.noMatchingFiles
+                                            : (widget.isRu
+                                                  ? 'Папка пуста'
+                                                  : 'This folder is empty'),
+                                      )
+                                    : CallbackShortcuts(
+                                        key: const ValueKey('list'),
+                                        bindings: {
+                                          Keys.delete: () => _delete(selection),
+                                          Keys.rename: () {
+                                            final sel = selection;
+                                            if (sel.length == 1) {
+                                              _rename(sel.first);
+                                            }
+                                          },
+                                          Keys.refresh: () {
+                                            _clear();
+                                            directory.refresh();
+                                          },
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.arrowDown,
+                                          ): () =>
+                                              _moveCursor(entries, 1),
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.arrowUp,
+                                          ): () =>
+                                              _moveCursor(entries, -1),
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.arrowDown,
+                                            shift: true,
+                                          ): () => _moveCursor(
+                                            entries,
+                                            1,
+                                            extend: true,
+                                          ),
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.arrowUp,
+                                            shift: true,
+                                          ): () => _moveCursor(
+                                            entries,
+                                            -1,
+                                            extend: true,
+                                          ),
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.home,
+                                          ): () => _moveCursor(
+                                            entries,
+                                            -1,
+                                            toEdge: true,
+                                          ),
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.end,
+                                          ): () => _moveCursor(
+                                            entries,
+                                            1,
+                                            toEdge: true,
+                                          ),
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.space,
+                                          ): () {
+                                            final p = _cursorPath;
+                                            if (p == null) {
+                                              _moveCursor(entries, 1);
+                                              return;
+                                            }
+                                            final e = entries
+                                                .where((x) => x.path == p)
+                                                .firstOrNull;
+                                            if (e != null) {
+                                              _select(e, entries, toggle: true);
+                                            }
+                                          },
+                                          SingleActivator(
+                                            LogicalKeyboardKey.keyA,
+                                            control: !mac,
+                                            meta: mac,
+                                          ): () {
+                                            setState(
+                                              () => _selected.addAll(
+                                                entries.map((e) => e.path),
+                                              ),
+                                            );
+                                            widget.onChanged();
+                                          },
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.escape,
+                                          ): () {
+                                            if (_showFilter) {
+                                              _closeFilter();
+                                            } else {
+                                              _clear();
+                                            }
+                                          },
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.backspace,
+                                          ): () {
+                                            if (hasParentRow) {
+                                              _open(_parentOf(directory.cwd!));
+                                            }
+                                          },
+                                          SingleActivator(
+                                            LogicalKeyboardKey.keyE,
+                                            control: !mac,
+                                            meta: mac,
+                                          ): () {
+                                            final sel = selection;
+                                            if (widget.enabled &&
+                                                sel.length == 1 &&
+                                                !sel.single.isDir) {
+                                              _editText(sel.single);
+                                            }
+                                          },
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.enter,
+                                          ): () {
+                                            final sel = selection;
+                                            if (!widget.enabled ||
+                                                sel.length != 1) {
+                                              return;
+                                            }
+                                            if (sel.single.isDir) {
+                                              _open(sel.single.path);
+                                            } else {
+                                              _editText(sel.single);
+                                            }
+                                          },
+                                        },
+                                        child: Focus(
+                                          focusNode: _listFocus,
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: () {
+                                              _listFocus.requestFocus();
+                                              _clear();
+                                            },
+                                            onSecondaryTapUp: (d) =>
+                                                _openEntryMenu(
+                                                  d.globalPosition,
+                                                  null,
+                                                  entries,
+                                                  strings,
+                                                  settings.showHiddenFiles,
+                                                ),
+                                            child: ScrollEdgeFade(
+                                              top: 18,
+                                              bottom: 14,
+                                              child: SmoothScroll(
+                                                builder: (context, controller) {
+                                                  _activeScroll = controller;
+                                                  final selectedList =
+                                                      selection;
+                                                  final extra = hasParentRow
+                                                      ? 1
+                                                      : 0;
+                                                  final showEmpty =
+                                                      !directory.loading &&
+                                                      entries.isEmpty;
+                                                  return ListView.builder(
+                                                    controller: controller,
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          bottom: 8,
+                                                        ),
+                                                    itemCount: showEmpty
+                                                        ? extra + 1
+                                                        : entries.length +
+                                                              extra,
+                                                    itemBuilder: (context, i) {
+                                                      if (hasParentRow &&
+                                                          i == 0) {
+                                                        final parentPath =
+                                                            _parentOf(
+                                                              directory.cwd!,
+                                                            );
+                                                        return SftpFolderDropTarget(
+                                                          scopeId:
+                                                              widget.scopeId,
+                                                          targetDirPath:
+                                                              parentPath,
+                                                          enabled:
+                                                              widget.visible &&
+                                                              widget.enabled &&
+                                                              endpoint != null,
+                                                          onMoveEntries: (items) =>
+                                                              _moveEntriesInto(
+                                                                items,
+                                                                parentPath,
+                                                              ),
+                                                          onCopyExternal:
+                                                              (drag) => widget
+                                                                  .onDropInternal(
+                                                                    drag,
+                                                                    parentPath,
+                                                                  ),
+                                                          child: SftpEntryRow(
+                                                            entry: null,
+                                                            selected: false,
+                                                            showSelection:
+                                                                false,
+                                                            enabled:
+                                                                widget.enabled,
+                                                            strings: strings,
+                                                            onTap: () => _open(
+                                                              parentPath,
+                                                            ),
+                                                            onSecondary: (_) {},
+                                                          ),
+                                                        );
+                                                      }
+                                                      if (showEmpty) {
+                                                        final filtering =
+                                                            _filterField.text
+                                                                .trim()
+                                                                .isNotEmpty;
+                                                        return SizedBox(
+                                                          height: 180,
+                                                          child: SftpPlaceholder(
+                                                            icon: filtering
+                                                                ? Icons
+                                                                      .search_off
+                                                                : Icons
+                                                                      .folder_open_outlined,
+                                                            text: filtering
+                                                                ? strings
+                                                                      .noMatchingFiles
+                                                                : (widget.isRu
+                                                                      ? 'Папка пуста'
+                                                                      : 'This folder is empty'),
+                                                          ),
+                                                        );
+                                                      }
+                                                      final entry =
+                                                          entries[i - extra];
+                                                      void open() {
+                                                        if (widget.enabled &&
+                                                            entry.isDir) {
+                                                          _open(entry.path);
+                                                        }
+                                                      }
+
+                                                      Widget row = SftpEntryRow(
+                                                        entry: entry,
+                                                        enabled: widget.enabled,
+                                                        showSelection: true,
+                                                        selected: _selected
+                                                            .contains(
+                                                              entry.path,
+                                                            ),
+                                                        strings: strings,
+                                                        onSelect: widget.enabled
+                                                            ? (_) => _select(
+                                                                entry,
+                                                                entries,
+                                                                toggle: true,
+                                                              )
+                                                            : null,
+                                                        onIconTap:
+                                                            widget.enabled
+                                                            ? () => _select(
+                                                                entry,
+                                                                entries,
+                                                                toggle: true,
+                                                              )
+                                                            : null,
+                                                        onTap: () {
+                                                          if (!widget.enabled) {
+                                                            return;
+                                                          }
+                                                          final modHeld =
+                                                              !DesktopEnv
+                                                                  .isMobile &&
+                                                              (Modifiers
+                                                                      .instance
+                                                                      .ctrl ||
+                                                                  Modifiers
+                                                                      .instance
+                                                                      .shift ||
+                                                                  (PlatformCapabilities
+                                                                          .isMacOS &&
+                                                                      HardwareKeyboard
+                                                                          .instance
+                                                                          .isMetaPressed));
+                                                          if (entry.isDir &&
+                                                              !modHeld) {
+                                                            open();
+                                                          } else {
+                                                            _select(
+                                                              entry,
+                                                              entries,
+                                                            );
+                                                          }
+                                                        },
+                                                        onDoubleTap: entry.isDir
+                                                            ? null
+                                                            : () => _editText(
+                                                                entry,
+                                                              ),
+                                                        onSecondary:
+                                                            (
+                                                              position,
+                                                            ) => _openEntryMenu(
+                                                              position,
+                                                              entry,
+                                                              entries,
+                                                              strings,
+                                                              settings
+                                                                  .showHiddenFiles,
+                                                            ),
+                                                      );
+
+                                                      if (entry.isDir) {
+                                                        row = SftpFolderDropTarget(
+                                                          scopeId:
+                                                              widget.scopeId,
+                                                          targetDirPath:
+                                                              entry.path,
+                                                          enabled:
+                                                              widget.visible &&
+                                                              widget.enabled &&
+                                                              endpoint != null,
+                                                          onMoveEntries: (items) =>
+                                                              _moveEntriesInto(
+                                                                items,
+                                                                entry.path,
+                                                              ),
+                                                          onCopyExternal:
+                                                              (drag) => widget
+                                                                  .onDropInternal(
+                                                                    drag,
+                                                                    entry.path,
+                                                                  ),
+                                                          child: row,
+                                                        );
+                                                      }
+
+                                                      return SftpDragSource(
+                                                        entry: entry,
+                                                        scopeId: widget.scopeId,
+                                                        selectedEntries:
+                                                            selectedList,
+                                                        windowsPaths:
+                                                            _windowsPaths,
+                                                        localFiles: _isLocal,
+                                                        actions: () => _actions,
+                                                        child: row,
+                                                      );
+                                                    },
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                    TextButton(
-                                      onPressed: () => directory.refresh(),
-                                      child: Text(strings.tryAgain),
-                                    ),
-                                    TextButton(
-                                      onPressed: () {
-                                        _clear();
-                                        directory.home();
-                                      },
-                                      child: Text(strings.homeFolder),
-                                    ),
-                                  ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              opacity: _dragOver ? 1.0 : 0.0,
+                              duration: AppMotion.duration(
+                                context,
+                                AppMotion.durationFast,
+                              ),
+                              curve: Curves.easeOutCubic,
+                              child: AnimatedScale(
+                                scale: _dragOver ? 1.0 : 0.96,
+                                duration: AppMotion.duration(
+                                  context,
+                                  AppMotion.durationFast,
                                 ),
-                              )
-                            : !directory.loading &&
-                                  entries.isEmpty &&
-                                  !hasParentRow
-                            ? SftpPlaceholder(
-                                key: const ValueKey('empty'),
-                                icon: _filterField.text.trim().isNotEmpty
-                                    ? Icons.search_off
-                                    : Icons.folder_open_outlined,
-                                text: _filterField.text.trim().isNotEmpty
-                                    ? strings.noMatchingFiles
-                                    : (widget.isRu
-                                          ? 'Папка пуста'
-                                          : 'This folder is empty'),
-                              )
-                            : CallbackShortcuts(
-                                key: const ValueKey('list'),
-                                bindings: {
-                                  Keys.delete: () => _delete(selection),
-                                  Keys.rename: () {
-                                    final sel = selection;
-                                    if (sel.length == 1) _rename(sel.first);
-                                  },
-                                  Keys.refresh: () {
-                                    _clear();
-                                    directory.refresh();
-                                  },
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.arrowDown,
-                                  ): () =>
-                                      _moveCursor(entries, 1),
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.arrowUp,
-                                  ): () =>
-                                      _moveCursor(entries, -1),
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.arrowDown,
-                                    shift: true,
-                                  ): () =>
-                                      _moveCursor(entries, 1, extend: true),
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.arrowUp,
-                                    shift: true,
-                                  ): () =>
-                                      _moveCursor(entries, -1, extend: true),
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.home,
-                                  ): () =>
-                                      _moveCursor(entries, -1, toEdge: true),
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.end,
-                                  ): () =>
-                                      _moveCursor(entries, 1, toEdge: true),
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.space,
-                                  ): () {
-                                    final p = _cursorPath;
-                                    if (p == null) {
-                                      _moveCursor(entries, 1);
-                                      return;
-                                    }
-                                    final e = entries
-                                        .where((x) => x.path == p)
-                                        .firstOrNull;
-                                    if (e != null) {
-                                      _select(e, entries, toggle: true);
-                                    }
-                                  },
-                                  SingleActivator(
-                                    LogicalKeyboardKey.keyA,
-                                    control: !mac,
-                                    meta: mac,
-                                  ): () {
-                                    setState(
-                                      () => _selected.addAll(
-                                        entries.map((e) => e.path),
-                                      ),
-                                    );
-                                    widget.onChanged();
-                                  },
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.escape,
-                                  ): () {
-                                    if (_showFilter) {
-                                      _closeFilter();
-                                    } else {
-                                      _clear();
-                                    }
-                                  },
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.backspace,
-                                  ): () {
-                                    if (hasParentRow) {
-                                      _open(_parentOf(directory.cwd!));
-                                    }
-                                  },
-                                  SingleActivator(
-                                    LogicalKeyboardKey.keyE,
-                                    control: !mac,
-                                    meta: mac,
-                                  ): () {
-                                    final sel = selection;
-                                    if (widget.enabled &&
-                                        sel.length == 1 &&
-                                        !sel.single.isDir) {
-                                      _editText(sel.single);
-                                    }
-                                  },
-                                  const SingleActivator(
-                                    LogicalKeyboardKey.enter,
-                                  ): () {
-                                    final sel = selection;
-                                    if (!widget.enabled || sel.length != 1) {
-                                      return;
-                                    }
-                                    if (sel.single.isDir) {
-                                      _open(sel.single.path);
-                                    } else {
-                                      _editText(sel.single);
-                                    }
-                                  },
-                                },
-                                child: Focus(
-                                  focusNode: _listFocus,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () {
-                                      _listFocus.requestFocus();
-                                      _clear();
-                                    },
-                                    onSecondaryTapUp: (d) => _openEntryMenu(
-                                      d.globalPosition,
-                                      null,
-                                      entries,
-                                      strings,
-                                      settings.showHiddenFiles,
+                                curve: AppMotion.fastSpringCurve,
+                                child: Container(
+                                  margin: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: scheme.primaryContainer.withValues(
+                                      alpha: 0.85,
                                     ),
-                                    child: ScrollEdgeFade(
-                                      top: 18,
-                                      bottom: 14,
-                                      child: SmoothScroll(
-                                        builder: (context, controller) {
-                                          _activeScroll = controller;
-                                          final extra = hasParentRow ? 1 : 0;
-                                          final showEmpty =
-                                              !directory.loading &&
-                                              entries.isEmpty;
-                                          return ListView.builder(
-                                            controller: controller,
-                                            padding: const EdgeInsets.only(
-                                              bottom: 8,
-                                            ),
-                                            itemCount: showEmpty
-                                                ? extra + 1
-                                                : entries.length + extra,
-                                            itemBuilder: (context, i) {
-                                              if (hasParentRow && i == 0) {
-                                                return SftpEntryRow(
-                                                  entry: null,
-                                                  selected: false,
-                                                  showSelection: false,
-                                                  enabled: widget.enabled,
-                                                  strings: strings,
-                                                  onTap: () => _open(
-                                                    _parentOf(directory.cwd!),
-                                                  ),
-                                                  onSecondary: (_) {},
-                                                );
-                                              }
-                                              if (showEmpty) {
-                                                final filtering = _filterField
-                                                    .text
-                                                    .trim()
-                                                    .isNotEmpty;
-                                                return SizedBox(
-                                                  height: 180,
-                                                  child: SftpPlaceholder(
-                                                    icon: filtering
-                                                        ? Icons.search_off
-                                                        : Icons
-                                                              .folder_open_outlined,
-                                                    text: filtering
-                                                        ? strings
-                                                              .noMatchingFiles
-                                                        : (widget.isRu
-                                                              ? 'Папка пуста'
-                                                              : 'This folder is empty'),
-                                                  ),
-                                                );
-                                              }
-                                              final entry = entries[i - extra];
-                                              void open() {
-                                                if (widget.enabled &&
-                                                    entry.isDir) {
-                                                  _open(entry.path);
-                                                }
-                                              }
-
-                                              return SftpEntryRow(
-                                                entry: entry,
-                                                enabled: widget.enabled,
-                                                showSelection: true,
-                                                selected: _selected.contains(
-                                                  entry.path,
-                                                ),
-                                                strings: strings,
-                                                onSelect: widget.enabled
-                                                    ? (_) => _select(
-                                                        entry,
-                                                        entries,
-                                                        toggle: true,
-                                                      )
-                                                    : null,
-                                                onIconTap: widget.enabled
-                                                    ? () => _select(
-                                                        entry,
-                                                        entries,
-                                                        toggle: true,
-                                                      )
-                                                    : null,
-                                                onTap: () {
-                                                  if (!widget.enabled) return;
-                                                  final modHeld =
-                                                      !DesktopEnv.isMobile &&
-                                                      (Modifiers
-                                                              .instance
-                                                              .ctrl ||
-                                                          Modifiers
-                                                              .instance
-                                                              .shift ||
-                                                          (PlatformCapabilities
-                                                                  .isMacOS &&
-                                                              HardwareKeyboard
-                                                                  .instance
-                                                                  .isMetaPressed));
-                                                  if (entry.isDir && !modHeld) {
-                                                    open();
-                                                  } else {
-                                                    _select(entry, entries);
-                                                  }
-                                                },
-                                                onDoubleTap: entry.isDir
-                                                    ? null
-                                                    : () => _editText(entry),
-                                                onSecondary: (position) =>
-                                                    _openEntryMenu(
-                                                      position,
-                                                      entry,
-                                                      entries,
-                                                      strings,
-                                                      settings.showHiddenFiles,
-                                                    ),
-                                              );
-                                            },
-                                          );
-                                        },
-                                      ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: scheme.primary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.upload,
+                                          size: 40,
+                                          color: scheme.onPrimaryContainer,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          strings.dropToUpload(
+                                            directory.cwd ?? '',
+                                          ),
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: scheme.onPrimaryContainer,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                               ),
-                      ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

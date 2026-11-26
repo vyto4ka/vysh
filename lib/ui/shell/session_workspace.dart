@@ -150,6 +150,7 @@ class _SessionWorkspaceState extends ConsumerState<SessionWorkspace>
         child: SessionView(
           tab: tab,
           active: visible && activeId == tab.id,
+          visible: visible,
           resizeEnabled:
               visible &&
               !external.containsKey(tab.id) &&

@@ -195,9 +195,12 @@ class LocalFiles {
   /// так что `..\x` указывало бы в родительскую папку. Убираем разделители
   /// обеих систем, `.`/`..`, недопустимые в Windows символы (в том числе `:` -
   /// альтернативные потоки NTFS), управляющие символы и имена устройств.
-  static String safeName(String remoteName) {
+  static String safeName(String remoteName) =>
+      safeNameFor(remoteName, windows: !kIsWeb && Platform.isWindows);
+
+  @visibleForTesting
+  static String safeNameFor(String remoteName, {required bool windows}) {
     var name = remoteName.replaceAll(RegExp(r'[\x00-\x1f\x7f/\\]'), '_');
-    final windows = !kIsWeb && Platform.isWindows;
     if (windows) {
       name = name.replaceAll(RegExp(r'[<>:"|?*]'), '_');
       // Windows молча отбрасывает точки и пробелы в конце имени.

@@ -49,11 +49,13 @@ class SessionView extends ConsumerStatefulWidget {
     super.key,
     required this.tab,
     required this.active,
+    this.visible,
     this.resizeEnabled = true,
   });
 
   final SessionTab tab;
   final bool active;
+  final bool? visible;
   final bool resizeEnabled;
 
   @override
@@ -394,8 +396,10 @@ class _SessionViewState extends _SessionViewBase
     final isCompact =
         MediaQuery.sizeOf(context).width < 650 || DesktopEnv.isMobile;
 
+    final isVisible = widget.visible ?? widget.active;
+
     final terminalArea = SftpTerminalDropZone(
-      enabled: widget.active && widget.tab.status == SessionStatus.ready,
+      enabled: isVisible && widget.tab.status == SessionStatus.ready,
       windowsShell: widget.tab.isLocal && PlatformCapabilities.isWindows,
       acceptLocalOsFiles: widget.tab.isLocal,
       onInsertText: (text) {
@@ -523,6 +527,7 @@ class _SessionViewState extends _SessionViewBase
                         ? SftpPane(
                             tab: widget.tab,
                             active: widget.active && paneOpen,
+                            visible: isVisible && paneOpen,
                           )
                         : const SizedBox.shrink(),
                   ],
@@ -590,6 +595,7 @@ class _SessionViewState extends _SessionViewBase
                                   child: SftpPane(
                                     tab: widget.tab,
                                     active: widget.active && paneOpen,
+                                    visible: isVisible && paneOpen,
                                   ),
                                 ),
                               ],

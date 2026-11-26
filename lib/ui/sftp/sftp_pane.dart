@@ -62,10 +62,16 @@ Future<void> showSessionFiles(BuildContext context, String id) =>
 
 /// Боковая или полноэкранная панель проводника, привязанная к вкладке терминала.
 class SftpPane extends ConsumerStatefulWidget {
-  const SftpPane({super.key, required this.tab, required this.active});
+  const SftpPane({
+    super.key,
+    required this.tab,
+    required this.active,
+    this.visible,
+  });
 
   final SessionTab tab;
   final bool active;
+  final bool? visible;
 
   @override
   ConsumerState<SftpPane> createState() => _SftpPaneState();
@@ -667,6 +673,49 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
     if (mounted) await _refresh();
   }
 
+  Future<void> _dropInternal(SftpInternalDrag drag, String targetDir) async {
+    if (!drag.scopeId.startsWith('pane:')) return;
+    final sourceTabId = drag.scopeId.substring(5);
+    if (sourceTabId == widget.tab.id || drag.entries.isEmpty) return;
+    final sourceSession = ref
+        .read(tabsProvider.notifier)
+        .sessionOf(sourceTabId);
+    if (sourceSession == null) return;
+    final sourceTab = ref
+        .read(tabsProvider)
+        .tabs
+        .where((t) => t.id == sourceTabId)
+        .firstOrNull;
+    final clip = SftpClipboardData(
+      sourceIdentity: (sourceTab?.isLocal ?? false)
+          ? 'local'
+          : sourceSession.target,
+      openSource: sourceSession.sftp,
+      entries: drag.entries,
+      cut: false,
+    );
+    await _run(() async {
+      final target = await _sftp();
+      await pasteSftpClipboard(
+        clip: clip,
+        targetIdentity: _fsIdentity,
+        target: target,
+        targetDir: targetDir,
+        joinPath: _joinPath,
+        tabId: widget.tab.id,
+        queue: ref.read(transferQueueProvider.notifier),
+        resolveConflict: _resolveConflict,
+        onCompleted: (copied, skipped) {
+          _toast(_s.copiedCount(copied, skipped));
+        },
+        onSettled: () {
+          if (mounted && _cwd == targetDir) _refresh();
+        },
+      );
+    }, refresh: false);
+    if (mounted) await _refresh();
+  }
+
   void _openInTerminal(String dirPath) {
     final session = _directorySession;
     if (session == null || widget.tab.status != SessionStatus.ready) return;
@@ -1214,6 +1263,8 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                           enabled: ready,
                           onMoveEntries: (items) =>
                               _moveEntriesInto(items, parentPath),
+                          onCopyExternal: (drag) =>
+                              _dropInternal(drag, parentPath),
                           child: SftpEntryRow(
                             entry: null,
                             selected: false,
@@ -1283,6 +1334,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                           enabled: ready,
                           onMoveEntries: (items) =>
                               _moveEntriesInto(items, e.path),
+                          onCopyExternal: (drag) => _dropInternal(drag, e.path),
                           child: row,
                         );
                       }
@@ -1292,6 +1344,7 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                         scopeId: scopeId,
                         selectedEntries: selectedList,
                         windowsPaths: _windowsPaths,
+                        localFiles: widget.tab.isLocal,
                         actions: () => _actions,
                         child: row,
                       );
@@ -1468,7 +1521,11 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                   ),
                   Expanded(
                     child: SftpDropZone(
-                      enabled: widget.active && ready && _cwd != null,
+                      scopeId: scopeId,
+                      enabled:
+                          (widget.visible ?? widget.active) &&
+                          ready &&
+                          _cwd != null,
                       onHover: (over) {
                         if (mounted && _dragOver != over) {
                           setState(() => _dragOver = over);
@@ -1477,6 +1534,10 @@ class _SftpPaneState extends ConsumerState<SftpPane> {
                       onDropPaths: (paths) {
                         if (mounted) setState(() => _dragOver = false);
                         if (_cwd != null) _upload(paths);
+                      },
+                      onDropInternal: (drag) {
+                        if (mounted) setState(() => _dragOver = false);
+                        if (_cwd != null) _dropInternal(drag, _cwd!);
                       },
                       child: Stack(
                         children: [

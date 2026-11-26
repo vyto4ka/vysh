@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <ole2.h>
 
 #include <cctype>
 #include <fstream>
@@ -108,14 +109,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     CreateAndAttachConsole();
   }
 
-  // Initialize COM, so that it is available for use in the library and/or
-  // plugins.
-  ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  // Initialize OLE (not plain CoInitializeEx): Win32 drag-and-drop
+  // (RegisterDragDrop / DoDragDrop) and OLE clipboard require OleInitialize
+  // on the main STA thread for the lifetime of the message loop.
+  ::OleInitialize(nullptr);
 
   flutter::DartProject project(L"data");
   const bool impeller = UseImpeller();
   project.set_impeller_switch(impeller ? flutter::ImpellerSwitch::Enabled
                                        : flutter::ImpellerSwitch::Disabled);
+  // Keep the Dart UI isolate on its own thread (matching child windows in
+  // desktop_multi_window): super_native_extensions blocks the Win32 platform
+  // thread inside synchronous COM IDropTarget::Drop / IDataObject::GetData
+  // calls while waiting for Dart callbacks, and window_manager style changes
+  // also avoid fullscreen freezes on a separate UI thread.
+  project.set_ui_thread_policy(flutter::UIThreadPolicy::RunOnSeparateThread);
   // Tell Dart which renderer was actually started (settings can say otherwise
   // until restart).
   ::SetEnvironmentVariableW(L"VYSH_RENDERER", impeller ? L"impeller" : L"skia");
@@ -129,6 +137,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"vysh", origin, size)) {
+    ::OleUninitialize();
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
@@ -139,6 +148,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::DispatchMessage(&msg);
   }
 
-  ::CoUninitialize();
+  ::OleUninitialize();
   return EXIT_SUCCESS;
 }
