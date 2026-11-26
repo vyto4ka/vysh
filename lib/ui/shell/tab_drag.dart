@@ -61,27 +61,48 @@ class WindowTabDragScope extends ConsumerWidget {
   const WindowTabDragScope({super.key, required this.child});
   final Widget child;
 
+  void _syncPointerBounds(BuildContext context, WidgetRef ref, Offset local) {
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.hasSize) {
+      ref
+          .read(pointerInsideWindowProvider.notifier)
+          .set((Offset.zero & box.size).contains(local));
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!ref.watch(nativeTabDragProvider)) return child;
-    return DropMonitor(
-      formats: const [_tabFormat],
+    return MouseRegion(
       hitTestBehavior: HitTestBehavior.translucent,
-      onDropOver: (event) {
-        if (!event.session.items.any((i) => i.canProvide(_tabFormat))) return;
-        ref.read(tabDragInsideWindowProvider.notifier).set(event.isInside);
-        if (ref.read(draggedTabProvider) == null) {
-          ref.read(incomingTabDragProvider.notifier).set(event.isInside);
-        }
-      },
-      onDropLeave: (_) {
-        ref.read(tabDragInsideWindowProvider.notifier).set(false);
-        ref.read(incomingTabDragProvider.notifier).set(false);
-      },
-      onDropEnded: (_) {
-        ref.read(incomingTabDragProvider.notifier).set(false);
-      },
-      child: child,
+      onEnter: (_) => ref.read(pointerInsideWindowProvider.notifier).set(true),
+      onExit: (_) => ref.read(pointerInsideWindowProvider.notifier).set(false),
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (e) => _syncPointerBounds(context, ref, e.localPosition),
+        onPointerMove: (e) => _syncPointerBounds(context, ref, e.localPosition),
+        child: DropMonitor(
+          formats: const [_tabFormat],
+          hitTestBehavior: HitTestBehavior.translucent,
+          onDropOver: (event) {
+            if (!event.session.items.any((i) => i.canProvide(_tabFormat))) {
+              return;
+            }
+            ref.read(tabDragInsideWindowProvider.notifier).set(event.isInside);
+            if (ref.read(draggedTabProvider) == null) {
+              ref.read(incomingTabDragProvider.notifier).set(event.isInside);
+            }
+          },
+          onDropLeave: (_) {
+            ref.read(tabDragInsideWindowProvider.notifier).set(false);
+            ref.read(incomingTabDragProvider.notifier).set(false);
+          },
+          onDropEnded: (_) {
+            ref.read(incomingTabDragProvider.notifier).set(false);
+          },
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -202,18 +223,27 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
           await owner.finishDrag(transfer);
           return null;
         }
+        final startedInside = ref.read(pointerInsideWindowProvider);
+        var pointerExitedDuringDrag = !startedInside;
+        final removePointerListener = ref.listenManual<bool>(
+          pointerInsideWindowProvider,
+          (_, next) {
+            if (!next) pointerExitedDuringDrag = true;
+          },
+        );
         dragging.select(widget.tab.id);
-        inside.set(true);
+        inside.set(startedInside);
         _startEscapeWatch();
         request.session.dragCompleted.addListener(() {
           final operation = request.session.dragCompleted.value;
           final location = request.session.lastScreenLocation.value;
           if (operation == null) return;
+          removePointerListener.close();
           final cancelled = _cancelledByEscape;
           final wasInside = ref.read(tabDragInsideWindowProvider);
+          final pointerExited = pointerExitedDuringDrag;
           _stopEscapeWatch();
           dragging.select(null);
-          inside.set(false);
           unawaited(
             owner.finishDrag(
               transfer,
@@ -221,7 +251,15 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
             ),
           );
           if (mounted && operation == DropOperation.none && !cancelled) {
-            unawaited(_tearOff(location, insideWindow: wasInside));
+            unawaited(
+              _tearOff(
+                location,
+                insideWindow: wasInside,
+                pointerExitedDuringDrag: pointerExited,
+              ),
+            );
+          } else {
+            inside.set(false);
           }
         });
         return DragItem(localData: transfer.toJson())
@@ -231,14 +269,29 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
     );
   }
 
-  Future<void> _tearOff(Offset? location, {required bool insideWindow}) async {
+  Future<void> _tearOff(
+    Offset? location, {
+    required bool insideWindow,
+    required bool pointerExitedDuringDrag,
+  }) async {
     final bool shouldDetach;
     if (DesktopEnv.isWayland) {
+      final effectiveInside = await resolveWaylandInsideWindow(
+        initialDropInside: insideWindow,
+        pointerExitedDuringDrag: pointerExitedDuringDrag,
+        readDropInside: () => ref.read(tabDragInsideWindowProvider),
+        readPointerInside: () => ref.read(pointerInsideWindowProvider),
+      );
+      if (mounted) {
+        ref.read(tabDragInsideWindowProvider.notifier).set(false);
+      }
+      if (!mounted) return;
       shouldDetach = shouldTearOffTab(
         isWayland: true,
-        insideWindow: insideWindow,
+        insideWindow: effectiveInside,
       );
     } else {
+      ref.read(tabDragInsideWindowProvider.notifier).set(false);
       // On macOS super_native_extensions reports lastScreenLocation in Cocoa
       // screen coordinates (bottom-left origin, Y up), while window_manager
       // and screen_retriever use top-left coordinates (Y down).
@@ -259,9 +312,36 @@ class _SessionTabDragState extends ConsumerState<SessionTabDrag> {
   }
 }
 
+/// Resolves whether a Wayland tab drag ended inside our surface.
+///
+/// On GTK3/Wayland (Hyprland, Sway, Mutter, KWin):
+/// - `PlatformDropContext` defers `drag_leave` via `RunLoop::schedule_next`
+///   while `PlatformDragContext` emits `cancel` synchronously on fast flicks.
+/// - `PlatformDataReader::reader_info()` drops the first `drag_motion`, so an
+///   upward exit from the top tab bar in <=1 motion frame never creates a Dart
+///   `DropSession` or invokes `onDropLeave`.
+/// - On `wl_data_device.start_drag` the compositor clears `wl_pointer` focus
+///   ([pointerExitedDuringDrag] becomes `true`), and upon ending an unaccepted
+///   drag (`cleanupDndState`) it immediately resends `wl_pointer.enter` if and
+///   only if the cursor is still over our surface.
+@visibleForTesting
+Future<bool> resolveWaylandInsideWindow({
+  required bool initialDropInside,
+  required bool pointerExitedDuringDrag,
+  required bool Function() readDropInside,
+  required bool Function() readPointerInside,
+  Duration settleDelay = const Duration(milliseconds: 24),
+}) async {
+  await Future<void>.delayed(settleDelay);
+  if (pointerExitedDuringDrag) {
+    return readPointerInside();
+  }
+  return initialDropInside && readDropInside();
+}
+
 /// Decides whether a completed unaccepted tab drag should detach into a new
 /// window. On Wayland global coordinates are unavailable, so the decision
-/// relies solely on [insideWindow] from the root [DropMonitor].
+/// relies solely on [insideWindow].
 @visibleForTesting
 bool shouldTearOffTab({
   required bool isWayland,

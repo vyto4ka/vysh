@@ -23,12 +23,26 @@ class DesktopEnv {
     if (kIsWeb) return false;
     try {
       if (!Platform.isLinux) return false;
-      if (Platform.environment['HYPRLAND_INSTANCE_SIGNATURE'] != null) return true;
+      if (Platform.environment['HYPRLAND_INSTANCE_SIGNATURE'] != null)
+        return true;
       if (Platform.environment['SWAYSOCK'] != null) return true;
       if (Platform.environment['NIRI_SOCKET'] != null) return true;
       const tiling = [
-        'hyprland', 'sway', 'i3', 'niri', 'river', 'bspwm', 'dwm', 'qtile',
-        'awesome', 'xmonad', 'herbstluftwm', 'leftwm', 'wayfire', 'labwc', 'dwl',
+        'hyprland',
+        'sway',
+        'i3',
+        'niri',
+        'river',
+        'bspwm',
+        'dwm',
+        'qtile',
+        'awesome',
+        'xmonad',
+        'herbstluftwm',
+        'leftwm',
+        'wayfire',
+        'labwc',
+        'dwl',
       ];
       final d = _desktop;
       return tiling.any(d.contains);
@@ -56,10 +70,21 @@ class DesktopEnv {
   static bool get isWayland {
     if (kIsWeb) return false;
     try {
-      return Platform.isLinux && (Platform.environment['WAYLAND_DISPLAY']?.isNotEmpty ?? false);
+      return isWaylandFor(Platform.environment, isLinux: Platform.isLinux);
     } catch (_) {
       return false;
     }
+  }
+
+  @visibleForTesting
+  static bool isWaylandFor(Map<String, String> env, {required bool isLinux}) {
+    if (!isLinux) return false;
+    if (env['GDK_BACKEND']?.trim().toLowerCase() == 'x11') return false;
+    return (env['WAYLAND_DISPLAY']?.isNotEmpty ?? false) ||
+        env['XDG_SESSION_TYPE']?.trim().toLowerCase() == 'wayland' ||
+        (env['HYPRLAND_INSTANCE_SIGNATURE']?.isNotEmpty ?? false) ||
+        (env['SWAYSOCK']?.isNotEmpty ?? false) ||
+        (env['NIRI_SOCKET']?.isNotEmpty ?? false);
   }
 
   /// Является ли текущая платформа настольной (ПК/ноутбук).

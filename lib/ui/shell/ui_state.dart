@@ -128,6 +128,21 @@ class TabDragInsideWindow extends Notifier<bool> {
   }
 }
 
+/// Tracks whether the regular pointer is inside this window's Flutter view
+/// (catches pre-DnD upward exits out of the top tab bar and post-DnD
+/// `wl_pointer.enter` restored by Hyprland/Wayland compositors on button-up).
+final pointerInsideWindowProvider = NotifierProvider<PointerInsideWindow, bool>(
+  PointerInsideWindow.new,
+);
+
+class PointerInsideWindow extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) {
+    if (ref.mounted && state != value) state = value;
+  }
+}
+
 final workspaceFocusProvider = NotifierProvider<WorkspaceFocus, String?>(
   WorkspaceFocus.new,
 );

@@ -90,7 +90,7 @@ Future<void> main(List<String> args) async {
                   targetSize.height,
                 ),
               );
-            } else {
+            } else if (!DesktopEnv.isTiling) {
               await windowManager.setSize(targetSize);
             }
             await windowManager.focus();
